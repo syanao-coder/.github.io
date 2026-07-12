@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="ja" data-ui-size="medium">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>アニメ同時視聴コントローラー</title>
+    <style>
+        /* --- UIサイズ可変用の変数定義 --- */
+        :root {
+            --bg-color: #08080a;
+            --panel-bg: rgba(24, 24, 32, 0.95);
+            --text-color: #f5f5f7;
+            --accent-color: #ff4757;
+            --accent-hover: #ff6b81;
+            --btn-bg: #2d2d3a;
+            --btn-text: #ffffff;
+            --border-color: #3a3a4a;
+            
+            --ui-scale: 1.25;
+            --header-height: calc(30px * var(--ui-scale));
+            --header-font: calc(0.75rem * var(--ui-scale));
+            --btn-pad-y: calc(4px * var(--ui-scale));
+            --btn-pad-x: calc(8px * var(--ui-scale));
+        }
+        [data-ui-size="small"] { --ui-scale: 0.9; }
+        [data-ui-size="medium"] { --ui-scale: 1.25; }
+        [data-ui-size="large"] { --ui-scale: 1.6; }
+
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-color); color: var(--text-color);
+            margin: 0; padding: 0; overflow: hidden; 
+            height: 100vh; width: 100vw;
+            display: flex; flex-direction: column; position: relative;
+        }
+
+        /* --- トップバー --- */
+        .top-bar {
+            width: 100%; height: 35px; background-color: #0c0c10;
+            border-bottom: 1px solid var(--border-color); display: flex;
+            justify-content: flex-end; align-items: center; padding: 0 15px;
+            box-sizing: border-box; z-index: 101;
+        }
+
+        .settings-toggle-btn {
+            background: transparent; border: 1px solid #00ffcc; color: #00ffcc;
+            padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+            font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 5px;
+        }
+        .settings-toggle-btn:hover { background: rgba(0, 255, 204, 0.1); }
+        .settings-toggle-btn.active { background: #00ffcc; color: #000; }
+
+        /* --- 上部設定メニュー --- */
+        .settings-container {
+            position: absolute; top: 35px; left: 0; width: 100%; z-index: 100;
+            pointer-events: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            transform: translateY(-100%);
+        }
+        .settings-container.open { transform: translateY(0); }
+
+        .settings-content {
+            background-color: var(--panel-bg); border-bottom: 2px solid #00ffcc;
+            padding: 15px 25px; max-height: 400px; overflow-y: auto; pointer-events: auto;
+            backdrop-filter: blur(10px); display: flex; gap: 20px; flex-wrap: wrap;
+            box-shadow: 0 10px 30px rgba(0, 255, 204, 0.15);
+        }
+
+        .settings-section {
+            background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color);
+            border-radius: 8px; padding: 12px; flex: 1; min-width: 250px;
+        }
+        .settings-section h3 {
+            margin: 0 0 10px 0; font-size: 0.95rem; color: #00ffcc;
+            border-bottom: 1px solid var(--border-color); padding-bottom: 5px;
+        }
+
+        .control-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+        .control-row:last-child { margin-bottom: 0; }
+
+        input[type="text"], input[type="number"], select {
+            background-color: #0c0c10; border: 1px solid var(--border-color); color: var(--text-color);
+            padding: 5px 8px; border-radius: 4px;
+        }
+
+        button {
+            background-color: var(--btn-bg); color: var(--btn-text); border: none;
+            padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;
+            font-size: 0.85rem; transition: background 0.2s;
+        }
+        button:hover { background-color: #3e3e52; }
+        button.primary { background-color: var(--accent-color); }
+        button.primary:hover { background-color: var(--accent-hover); }
+        button.playing-state { background-color: #2e4a62; }
+        button.playing-state:hover { background-color: #3f607d; }
+
+        /* --- メインビュー --- */
+        .main-view {
+            width: 100vw; height: calc(100vh - 35px); position: relative; background-color: #000;
+        }
+        .players-grid {
+            display: grid; width: 100%; height: 100%; gap: 6px; padding: 6px; box-sizing: border-box;
+            grid-auto-flow: dense; transition: all 0.3s ease;
+        }
+
+        /* --- 動画カード --- */
+        .player-card {
+            background-color: #121216; border-radius: 6px; overflow: hidden; position: relative;
+            display: flex; flex-direction: column; border: 1px solid var(--border-color); transition: all 0.3s ease;
+        }
+        .player-card.is-main {
+            grid-column: span 2; grid-row: span 2; border: 2px solid #00ffcc;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.3); z-index: 2;
+        }
+
+        .player-header {
+            position: absolute; top: 0; left: 0; right: 0; height: var(--header-height);
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), rgba(0,0,0,0.5));
+            display: flex; justify-content: flex-start; align-items: center; padding: 0 10px;
+            z-index: 20; font-size: var(--header-font); gap: calc(4px * var(--ui-scale));
+            opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+        }
+        .player-card:hover .player-header { opacity: 1; pointer-events: auto; }
+
+        .player-title {
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; padding: 0 5px;
+            color: #00ebc7; font-weight: bold;
+        }
+
+        .header-action-btn {
+            background-color: #31313e; color: #fff; border: none; padding: var(--btn-pad-y) var(--btn-pad-x);
+            font-size: var(--header-font); border-radius: 4px; cursor: pointer; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .header-action-btn:hover { background-color: #52526e; }
+
+        .pin-btn { background-color: transparent; border: none; color: #666; }
+        .pin-btn.active { background-color: #00ffcc; color: #000; }
+        .pin-btn:hover { background-color: rgba(255, 255, 255, 0.1); color: #ccc; }
+
+        .playlist-nav-btn { background-color: #2e4a62; display: none; }
+        .playlist-nav-btn:hover { background-color: #3f607d; }
+
+        .delete-btn {
+            background: none; border: none; color: #ff4757; font-size: calc(1.1rem * var(--ui-scale));
+            cursor: pointer; padding: 0; margin-left: auto; margin-right: 5px;
+        }
+        .delete-btn:hover { color: #ff6b81; }
+
+        /* チャット関連 ＆ 弾幕レイヤー */
+        .player-container-wrapper {
+            display: flex; flex-direction: row; width: 100%; height: 100%; position: relative; background: #000;
+        }
+        .player-container { flex: 1; position: relative; background-color: #000; min-width: 100px; min-height: 100px; }
+        .player-container iframe, .player-container video {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;
+        }
+
+        .danmaku-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 15; overflow: hidden;
+        }
+        .danmaku-comment {
+            position: absolute; white-space: nowrap; font-weight: bold;
+            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+            will-change: transform;
+        }
+
+        .chat-splitter {
+            display: none; width: 4px; background: #1c1c24; z-index: 5; transition: background 0.2s; cursor: col-resize;
+        }
+        .chat-splitter:hover, .chat-splitter.dragging { background: #00ffcc; }
+        .chat-container { display: none; width: 300px; background: #0c0c10; position: relative; overflow: hidden; }
+
+        /* ローカル動画用オーバーレイ */
+        .local-video-overlay {
+            position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.85);
+            padding: calc(6px * var(--ui-scale)) calc(12px * var(--ui-scale)); display: flex; align-items: center;
+            gap: 12px; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 20;
+        }
+        .player-card:hover .local-video-overlay { opacity: 1; pointer-events: auto; }
+        .local-seek-container { position: relative; flex: 1; display: flex; align-items: center; }
+        .local-seek-container input[type="range"] { width: 100%; height: 5px; cursor: pointer; }
+        .seek-tooltip {
+            position: absolute; bottom: 25px; background: rgba(0, 0, 0, 0.9); color: #00ffcc;
+            padding: 3px 6px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; pointer-events: none;
+            transform: translateX(-50%); white-space: nowrap; border: 1px solid var(--border-color); display: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 20;
+        }
+        .local-video-overlay span { font-size: var(--header-font); font-family: monospace; }
+
+        .placeholder-box {
+            width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center;
+            align-items: center; background-color: #121218; border: 2px dashed var(--border-color);
+            box-sizing: border-box; padding: 20px;
+        }
+        .placeholder-box input[type="text"] { width: 80%; max-width: 350px; margin-bottom: 10px; text-align: center; }
+        .placeholder-actions { display: flex; gap: 10px; align-items: center; }
+
+        /* --- 下部一括操作メニュー --- */
+        .overlay-controller {
+            position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%);
+            background-color: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
+            padding: 12px 25px; border-radius: 12px 12px 0 0; display: flex; align-items: center; gap: 15px;
+            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7); z-index: 99; backdrop-filter: blur(8px);
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); max-width: 95vw; overflow-x: auto; 
+        }
+        .overlay-controller.active { transform: translate(-50%, 0); }
+
+        .controller-tab {
+            position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
+            background: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
+            padding: 2px 20px; border-radius: 8px 8px 0 0; color: #fff; font-size: 0.75rem;
+            opacity: 0.5; transition: opacity 0.2s; cursor: pointer; pointer-events: auto;
+        }
+        .overlay-controller.active .controller-tab { opacity: 1; }
+        .controller-tab:hover { opacity: 1; background: #1c1c24; }
+        .overlay-controller button, .overlay-controller span, .overlay-controller label { white-space: nowrap; flex-shrink: 0; }
+
+        /* 独立タイマーUI */
+        .sync-timer-container { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .sync-timer {
+            font-size: 1.3rem; font-family: monospace; background: #000; padding: 4px 12px;
+            border-radius: 15px; color: #00ffcc; border: 1px solid #00ffcc55; cursor: pointer; transition: 0.2s;
+        }
+        .sync-timer:hover { background: #111; border-color: #00ffcc; }
+        .sync-timer-input {
+            font-size: 1.3rem; font-family: monospace; background: #000; padding: 2px 10px;
+            border-radius: 15px; color: #ff9f43; border: 1px solid #ff9f43; width: 110px;
+            text-align: center; outline: none; display: none;
+        }
+        .timer-reset-btn {
+            background-color: #222; color: #00ffcc; border: 1px solid #00ffcc33; border-radius: 50%;
+            width: 26px; height: 26px; font-size: 0.8rem; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; transition: background 0.2s;
+        }
+        .timer-reset-btn:hover { background-color: #333; }
+
+        .sync-indicator {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85); padding: 15px 30px; border-radius: 8px; color: #00ffcc;
+            font-weight: bold; font-size: 1.2rem; z-index: 105; pointer-events: none; display: none;
+            border: 1px solid #00ffcc; box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+        }
+        .countdown-overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 10rem; font-weight: 900; color: #ff4757; text-shadow: 0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757;
+            z-index: 1000; pointer-events: none; display: none; font-family: 'Arial Black', sans-serif;
+            text-align: center; animation: countdownPulse 1s ease-in-out infinite;
+        }
+        @keyframes countdownPulse { 0% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; } 50% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; } }
+    </style>
+    <script src="https://www.youtube.com/iframe_api"></script>
+</head>
+<body>
+
+    <!-- ★ トップバー -->
+    <div class="top-bar">
+        <span style="color: #00ffcc; font-size: 0.85rem; font-weight: bold; margin-right: auto; letter-spacing: 1px;">アニメ同時視聴コントローラー</span>
+        <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()">
+            <span id="topSettingsArrow">▼</span> 設定メニュー
+        </button>
+    </div>
+
+    <!-- 上部設定プルダウンメニュー -->
+    <div class="settings-container" id="settingsContainer">
+        <div id="settingsContent" class="settings-content">
+            
+            <div class="settings-section">
+                <h3>🖥 基本・レイアウト設定</h3>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;">視聴枠数:</label>
+                    <button onclick="changePlayerCount(-1)" style="padding:2px 8px;">➖</button>
+                    <span id="activeCountDisplay" style="font-weight:bold; width:20px; text-align:center;">2</span>
+                    <button onclick="changePlayerCount(1)" style="padding:2px 8px;">➕</button>
+                    <span style="font-size:0.75rem; color:#888;">(最大9枠)</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;" for="layout2Dir">2窓時の並び方向:</label>
+                    <select id="layout2Dir" onchange="updateLayout(); saveSettings();">
+                        <option value="horizontal">左右に並べる</option>
+                        <option value="vertical">上下に並べる</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>⚙ 同期・一括操作設定</h3>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;">一括・個別スキップ秒数:</label>
+                    <button onclick="changeSkipSec(-1)" style="padding:2px 8px;">➖</button>
+                    <input type="number" id="skipSec" value="10" min="0.1" max="180" step="0.1" style="width: 45px; text-align: center;" onchange="updateSkipDisplays(); saveSettings();">
+                    <button onclick="changeSkipSec(1)" style="padding:2px 8px;">➕</button>
+                    <span style="font-size:0.8rem;">秒</span>
+                </div>
+                <div class="control-row" style="margin-top:10px;">
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;">
+                        <input type="checkbox" id="enableDelaySync" onchange="toggleDelaySettingView()">
+                        ディレイスタート（カウントダウン）を有効にする
+                    </label>
+                </div>
+                <div class="control-row" id="delaySecContainer" style="display:none;">
+                    <label style="font-size:0.9rem;">ディレイ秒数:</label>
+                    <input type="number" id="delaySec" value="3" min="1" max="10" style="width: 50px;" onchange="saveSettings()"> 秒
+                </div>
+            </div>
+
+            <!-- ★ コメント（弾幕）設定 -->
+            <div class="settings-section">
+                <h3>💬 コメント（弾幕）設定</h3>
+                <div class="control-row">
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;">
+                        <input type="checkbox" id="enableDanmaku" checked onchange="saveSettings()">
+                        弾幕（ニコニコ風コメント）を画面に流す
+                    </label>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;">文字サイズ:</label>
+                    <select id="danmakuSize" onchange="saveSettings()">
+                        <option value="small">小</option>
+                        <option value="medium" selected>中</option>
+                        <option value="large">大</option>
+                    </select>
+                    
+                    <label style="font-size:0.9rem; margin-left: 10px;">速度:</label>
+                    <select id="danmakuSpeed" onchange="saveSettings()">
+                        <option value="7">遅い (7秒)</option>
+                        <option value="5" selected>普通 (5秒)</option>
+                        <option value="3">速い (3秒)</option>
+                    </select>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;">不透明度:</label>
+                    <select id="danmakuOpacity" onchange="saveSettings()">
+                        <option value="1.0" selected>100% (くっきり)</option>
+                        <option value="0.8">80%</option>
+                        <option value="0.5">50% (半透明)</option>
+                    </select>
+                    
+                    <label style="font-size:0.9rem; margin-left: 10px;">密度:</label>
+                    <select id="danmakuDensity" onchange="saveSettings()">
+                        <option value="10">低 (10行)</option>
+                        <option value="20" selected>中 (20行)</option>
+                        <option value="30">高 (30行)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>🎨 UI・デザイン設定</h3>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;" for="uiSizeSelect">全体のUIサイズ（見やすさ）:</label>
+                    <select id="uiSizeSelect" onchange="changeUiSize(this.value)">
+                        <option value="small">小（コンパクト）</option>
+                        <option value="medium" selected>中（標準・推奨）</option>
+                        <option value="large">大（操作性優先）</option>
+                    </select>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;" for="chatPosition">チャット配置方向:</label>
+                    <select id="chatPosition" onchange="updateChatLayout(); saveSettings();">
+                        <option value="right">動画の右側</option>
+                        <option value="bottom">動画の下側</option>
+                    </select>
+                </div>
+                <div class="control-row" style="margin-top: 20px;">
+                    <button onclick="clearAllSettings()" style="width:100%; background-color:#8e2430;">全設定・保存URLをリセット</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- メインビュー -->
+    <div class="main-view" id="mainView">
+        <div class="players-grid" id="playersGrid">
+            <!-- 動的挿入 -->
+        </div>
+        <div class="countdown-overlay" id="countdownOverlay">3</div>
+    </div>
+
+    <!-- 下部操作メニュー -->
+    <div class="overlay-controller" id="overlayController">
+        <div class="controller-tab">▲ 操作メニュー</div>
+        
+        <div class="sync-timer-container">
+            <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力">00:00:00</div>
+            <input type="text" id="timerInput" class="sync-timer-input" onblur="finishEditTimer()" onkeydown="if(event.key==='Enter')finishEditTimer()">
+            <button class="timer-reset-btn" onclick="resetGlobalTimer()" title="タイマーを0にリセット">↺</button>
+            <button class="timer-reset-btn" onclick="requestExternalTime()" title="現在の再生時間を取得 (要アドオン)" style="margin-left: 2px;">⏱</button>
+        </div>
+        
+        <button class="primary" id="playPauseBtn" onclick="togglePlayPauseAll()" style="font-size:1rem; padding:6px 15px;">▶ 一括再生</button>
+        
+        <div style="display:flex; align-items:center; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 8px;">
+            <button id="batchSkipBackBtn" onclick="skipAll(-getSkipSec())" title="一括10秒戻る" style="font-size:1rem;">↺</button>
+            <span id="skipSecDisplay" style="font-size:0.8rem; margin:0 8px; color:#aaa; font-family: monospace;">[10秒]</span>
+            <button id="batchSkipForwardBtn" onclick="skipAll(getSkipSec())" title="一括10秒進む" style="font-size:1rem;">↻</button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 4px; margin-left: 5px; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 8px;">
+            <span style="font-size:0.8rem; color:#aaa;">速度:</span>
+            <button onclick="changePlaybackSpeed(-0.1)" style="padding: 2px 6px;" title="0.1倍減速">◀</button>
+            <span id="speedDisplay" style="font-family: monospace; font-weight: bold; width: 30px; text-align: center; color:#00ffcc;">1.0</span>
+            <button onclick="changePlaybackSpeed(0.1)" style="padding: 2px 6px;" title="0.1倍加速">▶</button>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:5px; margin-left:5px;">
+            <span style="font-size:0.9rem;">🔊</span>
+            <input type="range" id="masterVolume" min="0" max="100" value="50" style="width:70px;" oninput="changeMasterVolume(this.value)">
+        </div>
+    </div>
+
+    <script>
+        // --- 状態管理・グローバル変数 ---
+        let uniqueCardIdCounter = 0; 
+        let activeCardIds = []; 
+        let ytPlayers = {};
+        
+        let isPlayingRequest = false;
+        
+        let globalCurrentTime = 0; 
+        let isEditingTimer = false;
+        let lastTimeUpdate = performance.now();
+        
+        let countdownTimer = null;
+        let countdownInterval = null;
+        let currentPlaybackSpeed = 1.0;
+        
+        let playerCount = 2; 
+        const MAX_TOTAL_COUNT = 9;
+
+        // --- アドオン通信 ＆ 弾幕レシーバー ---
+        function broadcastSyncCommand(action, value = null) {
+            window.postMessage({ type: 'SYNC_CMD', action: action, value: value }, '*');
+        }
+
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'EXTERNAL_SYNC_EVENT') {
+                const newState = event.data.state; 
+                
+                if (newState === 'timeReport') {
+                    globalCurrentTime = parseFloat(event.data.time) || 0;
+                    updateTimerDisplay();
+                    console.log("アドオンから時間を取得しました:", globalCurrentTime);
+                    return;
+                }
+
+                // ★ チャットメッセージ（弾幕）の受信と発射
+                if (newState === 'chat_message') {
+                    handleIncomingChatMessage(event);
+                }
+            }
+        });
+
+        // --- ★ 弾幕（ニコニコ風）描画エンジン ---
+        function handleIncomingChatMessage(event) {
+            const msg = event.data.message;
+            if (!msg) return;
+
+            let targetCardId = null;
+            // メッセージと一緒に動画IDが送られてきた場合（B側の拡張用フォールバック）
+            if (event.data.videoId) {
+                targetCardId = activeCardIds.find(id => {
+                    const input = document.getElementById(`urlInput_${id}`);
+                    return input && input.value.includes(event.data.videoId);
+                });
+            }
+
+            if (!targetCardId) {
+                const openChats = activeCardIds.filter(id => {
+                    const chatContainer = document.getElementById(`chatContainer_${id}`);
+                    return chatContainer && chatContainer.style.display === 'block';
+                });
+                if (openChats.length > 0) {
+                    openChats.forEach(id => fireDanmaku(id, msg));
+                    return;
+                }
+            }
+
+            if (targetCardId) fireDanmaku(targetCardId, msg);
+        }
+
+        function fireDanmaku(cardId, messageObj) {
+            if (!document.getElementById('enableDanmaku').checked) return;
+
+            const layer = document.getElementById(`danmakuLayer_${cardId}`);
+            if (!layer) return;
+
+            const div = document.createElement('div');
+            div.className = 'danmaku-comment';
+            div.innerText = messageObj.text;
+            div.style.color = messageObj.color || '#ffffff';
+
+            const sizeSet = document.getElementById('danmakuSize').value;
+            let fontSize = 24;
+            if (sizeSet === 'small') fontSize = 18;
+            if (sizeSet === 'large') fontSize = 32;
+            div.style.fontSize = fontSize + 'px';
+
+            div.style.opacity = document.getElementById('danmakuOpacity').value;
+
+            if (messageObj.isSuperChat) {
+                div.style.border = `2px solid ${messageObj.color || '#ffcc00'}`;
+                div.style.backgroundColor = 'rgba(0,0,0,0.5)';
+                div.style.padding = '0 5px';
+                div.style.borderRadius = '4px';
+                div.style.zIndex = 20;
+            }
+
+            const maxLines = parseInt(document.getElementById('danmakuDensity').value, 10) || 20;
+            const maxPx = layer.clientHeight - fontSize - 10;
+            if (maxPx > 0) {
+                const laneHeight = maxPx / maxLines;
+                const lane = Math.floor(Math.random() * maxLines);
+                div.style.top = (lane * laneHeight) + 'px';
+            } else {
+                div.style.top = '10px';
+            }
+
+            layer.appendChild(div);
+
+            const speed = parseInt(document.getElementById('danmakuSpeed').value, 10) || 5;
+            const animation = div.animate([
+                { transform: `translateX(${layer.clientWidth}px)` },
+                { transform: `translateX(-100%)` }
+            ], {
+                duration: speed * 1000,
+                easing: 'linear'
+            });
+
+            animation.onfinish = () => div.remove();
+        }
+
+        // --- 初期化 ---
+        function onYouTubeIframeAPIReady() {
+            loadSavedSettings();
+            initializeGrid();
+            setupHoverController();
+            setupChatSplitters(); 
+            updateSkipDisplays(); 
+        }
+
+        // --- UI・設定メニュー ---
+        function toggleSettings() {
+            const container = document.getElementById('settingsContainer');
+            const btn = document.getElementById('topSettingsBtn');
+            const arrow = document.getElementById('topSettingsArrow');
+            
+            if (container.classList.contains('open')) {
+                container.classList.remove('open'); 
+                btn.classList.remove('active');
+                arrow.innerText = '▼';
+            } else {
+                container.classList.add('open'); 
+                btn.classList.add('active');
+                arrow.innerText = '▲';
+            }
+        }
+
+        function changeUiSize(size) {
+            document.documentElement.setAttribute('data-ui-size', size);
+            saveSettings();
+        }
+
+        function toggleDelaySettingView() {
+            document.getElementById('delaySecContainer').style.display = document.getElementById('enableDelaySync').checked ? 'flex' : 'none';
+            saveSettings();
+        }
+
+        function changeSkipSec(diff) {
+            const input = document.getElementById('skipSec');
+            let val = parseFloat(input.value) || 0;
+            val += diff;
+            if (val < 0.1) val = 0.1;
+            if (val > 180) val = 180;
+            input.value = parseFloat(val.toFixed(1)); 
+            updateSkipDisplays();
+            saveSettings();
+        }
+
+        function getSkipSec() { return parseFloat(document.getElementById('skipSec').value) || 10; }
+
+        function updateSkipDisplays() {
+            const sec = getSkipSec();
+            const display = document.getElementById('skipSecDisplay');
+            if (display) display.innerText = `[${sec}秒]`;
+
+            document.getElementById('batchSkipBackBtn').title = `一括${sec}秒戻る`;
+            document.getElementById('batchSkipForwardBtn').title = `一括${sec}秒進む`;
+
+            document.querySelectorAll('.skip-back-btn').forEach(btn => btn.title = `${sec}秒戻る`);
+            document.querySelectorAll('.skip-forward-btn').forEach(btn => btn.title = `${sec}秒進む`);
+        }
+
+        // --- 枠数増減 ---
+        function changePlayerCount(diff) {
+            playerCount = Math.min(Math.max(1, playerCount + diff), MAX_TOTAL_COUNT);
+            document.getElementById('activeCountDisplay').innerText = playerCount;
+            if (diff < 0) compactSavedUrls();
+            initializeGrid();
+        }
+        
+        function compactSavedUrls() {
+            let urls = [];
+            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) {
+                const url = localStorage.getItem(`sync_url_${i}`);
+                if (url && url.trim()) urls.push(url.trim());
+            }
+            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem(`sync_url_${i}`);
+            urls.forEach((url, index) => localStorage.setItem(`sync_url_${index + 1}`, url));
+        }
+
+        // --- グリッド初期化 ---
+        function initializeGrid() {
+            const grid = document.getElementById('playersGrid');
+
+            while (activeCardIds.length < playerCount) {
+                uniqueCardIdCounter++;
+                const newId = `card_${uniqueCardIdCounter}`;
+                activeCardIds.push(newId);
+                createPlayerCard(newId);
+            }
+            while (activeCardIds.length > playerCount) {
+                const removeId = activeCardIds.pop();
+                destroyPlayerCard(removeId);
+            }
+
+            updateCardOrder();
+            updateLayout();
+            updateChatLayout();
+            updateSkipDisplays();
+            saveSettings();
+        }
+
+        function updateCardOrder() {
+            const cards = Array.from(document.getElementById('playersGrid').children);
+            cards.forEach((card, index) => {
+                card.style.order = index + 1;
+            });
+            activeCardIds = cards.map(c => c.id);
+        }
+
+        // --- カード生成と破棄 ---
+        function createPlayerCard(cardId) {
+            const grid = document.getElementById('playersGrid');
+            const card = document.createElement('div');
+            card.className = 'player-card';
+            card.id = cardId;
+            card.style.order = activeCardIds.length;
+            
+            card.innerHTML = `
+                <div class="player-header">
+                    <button class="header-action-btn pin-btn" onclick="togglePin('${cardId}')" title="メイン枠として拡大(ピン留め)">📌</button>
+                    <button class="header-action-btn skip-back-btn" onclick="skipPlayer('${cardId}', -getSkipSec())" title="戻る">↺</button>
+                    <button class="header-action-btn skip-forward-btn" onclick="skipPlayer('${cardId}', getSkipSec())" title="進む">↻</button>
+                    <button class="header-action-btn playlist-nav-btn" id="playlistPrev_${cardId}" onclick="prevPlaylistItem('${cardId}')" title="再生リスト: 前の動画">⏮</button>
+                    <button class="header-action-btn playlist-nav-btn" id="playlistNext_${cardId}" onclick="nextPlaylistItem('${cardId}')" title="再生リスト: 次の動画">⏭</button>
+                    <button class="header-action-btn" onclick="toggleChat('${cardId}')" title="チャット欄の表示/非表示" style="margin-left: 2px;">💬</button>
+                    <span class="player-title" id="title_${cardId}">未ロード</span>
+                    
+                    <div style="margin-left: auto; display: flex; gap: calc(4px * var(--ui-scale));">
+                        <button class="header-action-btn" onclick="reloadPlayer('${cardId}')" title="再読み込み">🔄</button>
+                        <button class="header-action-btn" onclick="clearPlayer('${cardId}')" title="空にする">🧹</button>
+                        <button class="header-action-btn" style="color: #ff4757;" onclick="deletePlayer('${cardId}')" title="枠を削除して詰める">🗑</button>
+                        <button class="header-action-btn" onclick="moveCard('${cardId}', -1)" title="左(前)へ移動">◀</button>
+                        <button class="header-action-btn" onclick="moveCard('${cardId}', 1)" title="右(後)へ移動">▶</button>
+                    </div>
+                </div>
+                <div class="player-container-wrapper" id="wrapper_${cardId}">
+                    <div class="player-container" id="playerContainer_${cardId}">
+                        <div class="placeholder-box" id="placeholder_${cardId}">
+                            <input type="text" id="urlInput_${cardId}" placeholder="YouTube URLを入力">
+                            <div class="placeholder-actions">
+                                <button class="primary" onclick="loadSingleYT('${cardId}')">読み込む</button>
+                                <span style="font-size:0.8rem; color:#888;">または</span>
+                                <input type="file" accept="video/*" onchange="handleLocalSelect(event, '${cardId}')" style="width:130px; font-size:0.75rem;">
+                            </div>
+                        </div>
+                        <div id="videoWrapper_${cardId}" style="width:100%; height:100%; position:absolute; top:0; left:0; display:none;"></div>
+                        <!-- ★ 弾幕描画レイヤー -->
+                        <div class="danmaku-layer" id="danmakuLayer_${cardId}"></div>
+                    </div>
+                    <!-- ★ A側はただの空の箱(div)のみを用意し、iframeの生成はB側に委ねる -->
+                    <div class="chat-splitter" id="splitter_${cardId}"></div>
+                    <div class="chat-container" id="chatContainer_${cardId}"></div>
+                </div>
+                <div class="local-video-overlay" id="localOverlay_${cardId}" style="display:none;">
+                    <button onclick="togglePlayLocal('${cardId}')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>
+                    <div class="local-seek-container">
+                        <input type="range" id="localSeek_${cardId}" min="0" max="100" value="0" step="0.1" oninput="seekLocalVideo('${cardId}', this.value)">
+                        <div class="seek-tooltip" id="seekTooltip_${cardId}">00:00</div>
+                    </div>
+                    <span id="localTimeDisplay_${cardId}">00:00 / 00:00</span>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <span id="localVolIcon_${cardId}" style="font-size:0.8rem;">🔊</span>
+                        <input type="range" id="localVolume_${cardId}" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume('${cardId}', this.value)">
+                    </div>
+                </div>
+            `;
+            grid.appendChild(card);
+            setupSeekTooltip(cardId);
+            
+            const idxForSave = activeCardIds.length; 
+            const savedUrl = localStorage.getItem(`sync_url_${idxForSave}`);
+            if (savedUrl) {
+                document.getElementById(`urlInput_${cardId}`).value = savedUrl;
+                loadSingleYT(cardId);
+            }
+        }
+
+        function destroyPlayerCard(cardId) {
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            const card = document.getElementById(cardId);
+            if (card) card.remove();
+        }
+
+        // --- 再読み込み・クリア・削除 ---
+        function reloadPlayer(cardId) {
+            const lv = document.getElementById(`localVideo_${cardId}`);
+            if (lv && lv.src) {
+                lv.load();
+                if (isPlayingRequest) lv.play().catch(e=>{});
+                return;
+            }
+            if (ytPlayers[cardId]) {
+                loadSingleYT(cardId);
+            }
+        }
+
+        function clearPlayer(cardId) {
+            if (!confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
+            
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            const lv = document.getElementById(`localVideo_${cardId}`);
+            if (lv) { lv.pause(); lv.src = ""; lv.load(); }
+
+            document.getElementById(`title_${cardId}`).innerText = '未ロード';
+            document.getElementById(`playlistPrev_${cardId}`).style.display = 'none';
+            document.getElementById(`playlistNext_${cardId}`).style.display = 'none';
+            document.getElementById(`localOverlay_${cardId}`).style.display = 'none';
+            
+            // チャット欄のクリアとB側への通知
+            document.getElementById(`chatContainer_${cardId}`).style.display = 'none';
+            document.getElementById(`splitter_${cardId}`).style.display = 'none';
+            document.getElementById(`chatContainer_${cardId}`).innerHTML = '';
+            broadcastSyncCommand('closeChat', cardId);
+
+            const videoWrapper = document.getElementById(`videoWrapper_${cardId}`);
+            if (videoWrapper) {
+                videoWrapper.innerHTML = '';
+                videoWrapper.style.display = 'none';
+            }
+            
+            const placeholder = document.getElementById(`placeholder_${cardId}`);
+            if (placeholder) placeholder.style.display = 'flex';
+            
+            const urlInput = document.getElementById(`urlInput_${cardId}`);
+            if (urlInput) urlInput.value = '';
+
+            resaveUrlsBasedOnOrder();
+        }
+
+        function deletePlayer(cardId) {
+            if (!confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
+            
+            destroyPlayerCard(cardId);
+            playerCount--;
+            document.getElementById('activeCountDisplay').innerText = playerCount;
+            updateCardOrder();
+            updateLayout();
+            resaveUrlsBasedOnOrder();
+            saveSettings();
+        }
+
+        function resaveUrlsBasedOnOrder() {
+            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem(`sync_url_${i}`);
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            cards.forEach((card, index) => {
+                const input = document.getElementById(`urlInput_${card.id}`);
+                if (input && input.value.trim()) {
+                    localStorage.setItem(`sync_url_${index + 1}`, input.value.trim());
+                }
+            });
+        }
+
+        // --- 無停止入れ替え ---
+        function moveCard(cardId, direction) {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const currentIndex = cards.findIndex(c => c.id === cardId);
+            if (currentIndex === -1) return;
+            
+            const targetIndex = currentIndex + direction;
+            if (targetIndex < 0 || targetIndex >= cards.length) return; 
+
+            const currentOrder = cards[currentIndex].style.order;
+            cards[currentIndex].style.order = cards[targetIndex].style.order;
+            cards[targetIndex].style.order = currentOrder;
+
+            const newCards = Array.from(grid.children);
+            newCards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
+            
+            activeCardIds = newCards.map(c => c.id);
+
+            updateLayout(); 
+            resaveUrlsBasedOnOrder();
+        }
+
+        // --- ピン留めレイアウト ---
+        function togglePin(cardId) {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const target = document.getElementById(cardId);
+            const btn = target.querySelector('.pin-btn');
+
+            if (target.classList.contains('is-main')) {
+                target.classList.remove('is-main'); btn.classList.remove('active');
+            } else {
+                cards.forEach(c => { c.classList.remove('is-main'); const b = c.querySelector('.pin-btn'); if (b) b.classList.remove('active'); });
+                target.classList.add('is-main'); btn.classList.add('active');
+            }
+            updateLayout();
+        }
+
+        function updateLayout() {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const N = cards.length;
+            if (N === 0) return;
+
+            const hasPin = cards.some(c => c.classList.contains('is-main'));
+            const logicalCount = hasPin ? N + 3 : N; 
+            
+            let cols = 1, rows = 1;
+            if (logicalCount === 1) { cols = 1; rows = 1; }
+            else if (logicalCount === 2) {
+                const dir = document.getElementById('layout2Dir').value;
+                if (dir === 'horizontal') { cols = 2; rows = 1; } else { cols = 1; rows = 2; }
+            }
+            else if (logicalCount <= 4) { cols = 2; rows = 2; }
+            else if (logicalCount <= 6) { cols = 3; rows = 2; }
+            else if (logicalCount <= 9) { cols = 3; rows = 3; } 
+            else if (logicalCount <= 12) { cols = 4; rows = 3; }
+            else { cols = 4; rows = 4; }
+
+            grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+        }
+
+        // --- ★ チャット表示トグル（アプローチ2対応・B側への発信） ---
+        function toggleChat(cardId) {
+            const chatContainer = document.getElementById(`chatContainer_${cardId}`);
+            const splitter = document.getElementById(`splitter_${cardId}`);
+            
+            if (chatContainer.style.display === 'none' || !chatContainer.style.display) {
+                chatContainer.style.display = 'block'; splitter.style.display = 'block';
+                
+                const urlInput = document.getElementById(`urlInput_${cardId}`);
+                if (urlInput && urlInput.value.trim() !== '') {
+                    const vid = getYouTubeId(urlInput.value);
+                    if (vid) {
+                        const isArchive = urlInput.value.includes('list=') || !urlInput.value.includes('live');
+                        // ★ B側にチャットの表示（DOM注入）を依頼する
+                        window.postMessage({
+                            type: 'SYNC_CMD',
+                            action: 'openChat',
+                            containerId: `chatContainer_${cardId}`,
+                            videoId: vid,
+                            isArchive: isArchive
+                        }, '*');
+                    }
+                }
+            } else {
+                chatContainer.style.display = 'none'; splitter.style.display = 'none';
+                chatContainer.innerHTML = ''; // 注入されたiframeを削除
+                broadcastSyncCommand('closeChat', cardId); // B側に監視停止を通知
+            }
+        }
+
+        function updateChatLayout() {
+            const pos = document.getElementById('chatPosition').value;
+            const direction = pos === 'right' ? 'row' : 'column';
+            const cursor = pos === 'right' ? 'col-resize' : 'row-resize';
+            
+            activeCardIds.forEach(cardId => {
+                const wrapper = document.getElementById(`wrapper_${cardId}`);
+                const splitter = document.getElementById(`splitter_${cardId}`);
+                const chatContainer = document.getElementById(`chatContainer_${cardId}`);
+                if (wrapper && splitter && chatContainer) {
+                    wrapper.style.flexDirection = direction;
+                    splitter.style.cursor = cursor;
+                    if (pos === 'right') {
+                        splitter.style.width = '4px'; splitter.style.height = '100%';
+                        chatContainer.style.width = '300px'; chatContainer.style.height = 'auto';
+                    } else {
+                        splitter.style.width = '100%'; splitter.style.height = '4px';
+                        chatContainer.style.width = '100%'; chatContainer.style.height = '300px';
+                    }
+                }
+            });
+        }
+
+        // --- スプリッターのドラッグ実装（B側注入iframe対応） ---
+        function setupChatSplitters() {
+            let isDragging = false;
+            let currentSplitter = null;
+            let currentChat = null;
+            let currentIframe = null; 
+            let isHorizontal = true;
+
+            document.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('chat-splitter')) {
+                    isDragging = true; currentSplitter = e.target; currentChat = e.target.nextElementSibling;
+                    // B側が注入したiframeを取得
+                    currentIframe = currentChat.querySelector('iframe');
+                    isHorizontal = document.getElementById('chatPosition').value === 'right';
+                    currentSplitter.classList.add('dragging'); 
+                    if (currentIframe) currentIframe.style.pointerEvents = 'none';
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const wrapper = currentSplitter.parentElement;
+                const rect = wrapper.getBoundingClientRect();
+                if (isHorizontal) {
+                    let newWidth = rect.right - e.clientX;
+                    newWidth = Math.max(200, Math.min(newWidth, rect.width * 0.7)); 
+                    currentChat.style.width = newWidth + 'px';
+                } else {
+                    let newHeight = rect.bottom - e.clientY;
+                    newHeight = Math.max(150, Math.min(newHeight, rect.height * 0.7));
+                    currentChat.style.height = newHeight + 'px';
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false; 
+                    if (currentSplitter) currentSplitter.classList.remove('dragging');
+                    if (currentIframe) currentIframe.style.pointerEvents = 'auto';
+                }
+            });
+        }
+
+        // --- 読み込み処理（YouTube / Local） ---
+        function getPlaylistId(url) { const match = url.match(/[?&]list=([^#\&\?]+)/); return match ? match[1] : null; }
+        function getYouTubeId(url) { const match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/); return (match && match[2].length === 11) ? match[2] : null; }
+
+        function loadSingleYT(cardId) {
+            const urlInput = document.getElementById(`urlInput_${cardId}`);
+            const url = urlInput ? urlInput.value.trim() : '';
+            const videoId = getYouTubeId(url);
+            const playlistId = getPlaylistId(url);
+
+            if (!videoId && !playlistId) { alert('有効なYouTube URLを入力してください。'); return; }
+
+            localStorage.setItem(`sync_url_${cardId}`, url);
+            document.getElementById(`localOverlay_${cardId}`).style.display = 'none';
+            document.getElementById(`placeholder_${cardId}`).style.display = 'none';
+            
+            const videoWrapper = document.getElementById(`videoWrapper_${cardId}`);
+            videoWrapper.style.display = 'block';
+            videoWrapper.innerHTML = `<div id="ytPlayer_${cardId}"></div>`;
+
+            let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0 };
+            if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
+
+            ytPlayers[cardId] = new YT.Player(`ytPlayer_${cardId}`, {
+                videoId: videoId || undefined,
+                playerVars: playerVarsSetting,
+                events: {
+                    'onReady': (event) => {
+                        const videoData = event.target.getVideoData();
+                        document.getElementById(`title_${cardId}`).innerText = videoData ? videoData.title : 'YouTube動画';
+                        event.target.setVolume(document.getElementById('masterVolume').value);
+                        event.target.setPlaybackRate(currentPlaybackSpeed);
+
+                        if (playlistId) {
+                            document.getElementById(`playlistPrev_${cardId}`).style.display = 'inline-block';
+                            document.getElementById(`playlistNext_${cardId}`).style.display = 'inline-block';
+                        }
+                    }
+                }
+            });
+            resaveUrlsBasedOnOrder();
+        }
+
+        function prevPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].previousVideo(); }
+        function nextPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].nextVideo(); }
+
+        function handleLocalSelect(event, cardId) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById(`title_${cardId}`).innerText = `[Local] ${file.name}`;
+            
+            document.getElementById(`placeholder_${cardId}`).style.display = 'none';
+            const videoWrapper = document.getElementById(`videoWrapper_${cardId}`);
+            videoWrapper.style.display = 'block';
+            const videoUrl = URL.createObjectURL(file);
+            videoWrapper.innerHTML = `<video id="localVideo_${cardId}" src="${videoUrl}" preload="auto" class="custom-local-video"></video>`;
+
+            const video = document.getElementById(`localVideo_${cardId}`);
+            video.volume = document.getElementById('masterVolume').value / 100;
+            document.getElementById(`localVolume_${cardId}`).value = document.getElementById('masterVolume').value;
+            video.playbackRate = currentPlaybackSpeed;
+
+            video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
+
+            document.getElementById(`localOverlay_${cardId}`).style.display = 'flex';
+            resaveUrlsBasedOnOrder();
+        }
+
+        function togglePlayLocal(cardId) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (!video) return;
+            if (video.paused) video.play().catch(e=>{}); else video.pause();
+        }
+
+        function seekLocalVideo(cardId, value) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (!video || isNaN(video.duration)) return;
+            video.currentTime = (value / 100) * video.duration;
+        }
+
+        function changeLocalVideoVolume(cardId, val) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            const icon = document.getElementById(`localVolIcon_${cardId}`);
+            if (video) video.volume = val / 100;
+            if (icon) icon.innerText = val == 0 ? '🔇' : (val < 50 ? '🔉' : '🔊');
+        }
+
+        function updateLocalOverlayProgress(cardId) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            const seekRange = document.getElementById(`localSeek_${cardId}`);
+            const display = document.getElementById(`localTimeDisplay_${cardId}`);
+            if (!video || !seekRange || !display || isNaN(video.duration)) return;
+
+            seekRange.value = (video.currentTime / video.duration) * 100;
+            display.innerText = `${formatShortTime(video.currentTime)} / ${formatShortTime(video.duration)}`;
+        }
+
+        function setupSeekTooltip(cardId) {
+            const seekInput = document.getElementById(`localSeek_${cardId}`);
+            const tooltip = document.getElementById(`seekTooltip_${cardId}`);
+            if (!seekInput || !tooltip) return;
+
+            seekInput.addEventListener('mousemove', (e) => {
+                const video = document.getElementById(`localVideo_${cardId}`);
+                if (!video || isNaN(video.duration)) return;
+                const rect = seekInput.getBoundingClientRect();
+                const offsetX = e.clientX - rect.left;
+                const percent = Math.min(Math.max(0, offsetX / rect.width), 1);
+                tooltip.innerText = formatShortTime(percent * video.duration);
+                tooltip.style.left = `${percent * 100}%`;
+                tooltip.style.display = 'block';
+            });
+            seekInput.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+        }
+
+        // --- ★ 個別シーク（Dアニメには干渉させない） ---
+        function skipPlayer(cardId, seconds) {
+            const yt = ytPlayers[cardId];
+            const lv = document.getElementById(`localVideo_${cardId}`);
+            if (yt && typeof yt.getCurrentTime === 'function') {
+                yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
+            } else if (lv) {
+                lv.currentTime = Math.max(0, lv.currentTime + seconds);
+            }
+        }
+
+        /* --- 再生速度コントロール --- */
+        function changePlaybackSpeed(val) {
+            currentPlaybackSpeed = Math.min(2.0, Math.max(0.25, currentPlaybackSpeed + val));
+            currentPlaybackSpeed = parseFloat(currentPlaybackSpeed.toFixed(1)); 
+            document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
+            applyPlaybackSpeed();
+            saveSettings();
+        }
+
+        function applyPlaybackSpeed() {
+            document.querySelectorAll('.custom-local-video').forEach(v => v.playbackRate = currentPlaybackSpeed);
+            Object.values(ytPlayers).forEach(player => {
+                if (player && typeof player.setPlaybackRate === 'function') player.setPlaybackRate(currentPlaybackSpeed);
+            });
+            broadcastSyncCommand('speed', currentPlaybackSpeed);
+        }
+
+        /* --- 一括操作パネル ＆ ディレイスタート --- */
+        function togglePlayPauseAll() {
+            if (isPlayingRequest) {
+                pauseAll();
+            } else {
+                const isDelayEnabled = document.getElementById('enableDelaySync').checked;
+                if (isDelayEnabled) startDelayCountdown();
+                else playAll();
+            }
+        }
+
+        function startDelayCountdown() {
+            cancelCountdown();
+            isPlayingRequest = true; 
+            const playPauseBtn = document.getElementById('playPauseBtn');
+            playPauseBtn.innerText = '⏸ カウント中止';
+            playPauseBtn.classList.remove('primary');
+            playPauseBtn.classList.add('playing-state');
+
+            const overlay = document.getElementById('countdownOverlay');
+            overlay.style.display = 'block';
+
+            let count = parseInt(document.getElementById('delaySec').value, 10) || 3;
+            overlay.innerText = count;
+
+            countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    overlay.innerText = count;
+                    overlay.style.animation = 'none';
+                    overlay.offsetHeight; 
+                    overlay.style.animation = '';
+                } else if (count === 0) {
+                    overlay.innerText = 'START!';
+                    overlay.style.color = '#00ffcc';
+                    overlay.style.textShadow = '0 0 35px rgba(0,0,0,0.95), 0 0 15px #00ffcc';
+                    
+                    const pBtn = document.getElementById('playPauseBtn');
+                    pBtn.innerText = '⏸ 一括停止';
+                    
+                    playAllPlayersOnly(); 
+
+                    countdownTimer = setTimeout(() => {
+                        overlay.style.display = 'none';
+                        overlay.style.color = '#ff4757';
+                        overlay.style.textShadow = '0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757';
+                    }, 800);
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
+        }
+
+        function cancelCountdown() {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+            clearTimeout(countdownTimer);
+            const overlay = document.getElementById('countdownOverlay');
+            overlay.style.display = 'none';
+            overlay.style.color = '#ff4757';
+        }
+
+        function playAll() {
+            isPlayingRequest = true;
+            const btn = document.getElementById('playPauseBtn');
+            btn.innerText = '⏸ 一括停止';
+            btn.classList.remove('primary');
+            btn.classList.add('playing-state');
+            playAllPlayersOnly();
+        }
+
+        function pauseAll() {
+            isPlayingRequest = false;
+            cancelCountdown();
+            const btn = document.getElementById('playPauseBtn');
+            btn.innerText = '▶ 一括再生';
+            btn.classList.add('primary');
+            btn.classList.remove('playing-state');
+            pauseAllPlayersOnly();
+        }
+
+        function playAllPlayersOnly() {
+            broadcastSyncCommand('play');
+            setTimeout(() => { broadcastSyncCommand('seekTo', globalCurrentTime); }, 300);
+
+            document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
+            Object.values(ytPlayers).forEach(player => {
+                if (player && typeof player.playVideo === 'function') player.playVideo();
+            });
+        }
+
+        function pauseAllPlayersOnly() {
+            broadcastSyncCommand('pause');
+            document.querySelectorAll('.custom-local-video').forEach(v => v.pause());
+            Object.values(ytPlayers).forEach(player => {
+                if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+            });
+        }
+
+        // --- ★ 一括シーク ---
+        function skipAll(seconds) {
+            globalCurrentTime = Math.max(0, globalCurrentTime + seconds);
+            updateTimerDisplay();
+            
+            broadcastSyncCommand('seek', seconds);
+
+            document.querySelectorAll('.custom-local-video').forEach(v => {
+                v.currentTime = Math.max(0, v.currentTime + seconds);
+            });
+
+            Object.values(ytPlayers).forEach(player => {
+                if (player && typeof player.getCurrentTime === 'function') {
+                    player.seekTo(Math.max(0, player.getCurrentTime() + seconds), true);
+                }
+            });
+        }
+
+        function changeMasterVolume(value) {
+            document.querySelectorAll('.custom-local-video').forEach(v => {
+                v.volume = value / 100;
+                const cardId = v.id.split('_')[1];
+                const localVolInput = document.getElementById(`localVolume_${cardId}`);
+                if (localVolInput) localVolInput.value = value;
+            });
+            Object.values(ytPlayers).forEach(player => {
+                if (player && typeof player.setVolume === 'function') player.setVolume(value);
+            });
+        }
+
+        /* --- タイマー更新（グローバル時間計算） --- */
+        function resetTimerOffset() {
+            globalCurrentTime = 0;
+            updateTimerDisplay();
+        }
+
+        setInterval(() => {
+            const now = performance.now();
+            const delta = (now - lastTimeUpdate) / 1000;
+            lastTimeUpdate = now;
+
+            if (isPlayingRequest && countdownInterval === null) {
+                globalCurrentTime += delta * currentPlaybackSpeed;
+                updateTimerDisplay();
+            }
+        }, 100);
+
+        function editTimer() {
+            isEditingTimer = true;
+            const display = document.getElementById('mainTimer');
+            const input = document.getElementById('timerInput');
+            input.value = display.innerText;
+            display.style.display = 'none';
+            input.style.display = 'inline-block';
+            input.focus();
+        }
+
+        function finishEditTimer() {
+            if (!isEditingTimer) return;
+            isEditingTimer = false;
+            const display = document.getElementById('mainTimer');
+            const input = document.getElementById('timerInput');
+            
+            const parts = input.value.split(':').reverse();
+            let sec = 0;
+            if (parts[0]) sec += parseFloat(parts[0]) || 0;
+            if (parts[1]) sec += (parseFloat(parts[1]) || 0) * 60;
+            if (parts[2]) sec += (parseFloat(parts[2]) || 0) * 3600;
+            
+            globalCurrentTime = Math.max(0, sec);
+            
+            display.style.display = 'inline-block';
+            input.style.display = 'none';
+            updateTimerDisplay();
+        }
+
+        function requestExternalTime() {
+            broadcastSyncCommand('requestTime'); 
+        }
+
+        /* --- 下部オーバーレイのホバー --- */
+        function setupHoverController() {
+            const controller = document.getElementById('overlayController');
+            let hideTimer;
+            
+            document.addEventListener('mousemove', (e) => {
+                if (e.clientY > window.innerHeight - 80) {
+                    controller.classList.add('active'); clearTimeout(hideTimer);
+                } else {
+                    if (controller.classList.contains('active')) {
+                        clearTimeout(hideTimer);
+                        hideTimer = setTimeout(() => { if (!controller.matches(':hover')) controller.classList.remove('active'); }, 1500);
+                    }
+                }
+            });
+            controller.addEventListener('mouseenter', () => { controller.classList.add('active'); clearTimeout(hideTimer); });
+            controller.addEventListener('mouseleave', () => {
+                clearTimeout(hideTimer);
+                hideTimer = setTimeout(() => { controller.classList.remove('active'); }, 1000);
+            });
+        }
+
+        /* --- 保存・復元 --- */
+        function saveSettings() {
+            localStorage.setItem('sync_layout2_dir', document.getElementById('layout2Dir').value);
+            localStorage.setItem('sync_player_count', playerCount); 
+            localStorage.setItem('sync_ui_size', document.getElementById('uiSizeSelect').value);
+            localStorage.setItem('sync_chat_position', document.getElementById('chatPosition').value);
+            localStorage.setItem('sync_skip_sec', document.getElementById('skipSec').value); 
+            localStorage.setItem('sync_enable_delay_sync', document.getElementById('enableDelaySync').checked);
+            localStorage.setItem('sync_delay_sec', document.getElementById('delaySec').value);
+            localStorage.setItem('sync_playback_speed', currentPlaybackSpeed);
+            localStorage.setItem('sync_master_volume', document.getElementById('masterVolume').value);
+            localStorage.setItem('sync_enable_danmaku', document.getElementById('enableDanmaku').checked);
+            localStorage.setItem('sync_danmaku_size', document.getElementById('danmakuSize').value);
+            localStorage.setItem('sync_danmaku_speed', document.getElementById('danmakuSpeed').value);
+            localStorage.setItem('sync_danmaku_opacity', document.getElementById('danmakuOpacity').value);
+            localStorage.setItem('sync_danmaku_density', document.getElementById('danmakuDensity').value);
+        }
+
+        function loadSavedSettings() {
+            if (localStorage.getItem('sync_layout2_dir')) document.getElementById('layout2Dir').value = localStorage.getItem('sync_layout2_dir');
+            if (localStorage.getItem('sync_player_count')) {
+                playerCount = parseInt(localStorage.getItem('sync_player_count'), 10) || 2;
+                document.getElementById('activeCountDisplay').innerText = playerCount;
+            }
+            if (localStorage.getItem('sync_ui_size')) {
+                const size = localStorage.getItem('sync_ui_size');
+                document.getElementById('uiSizeSelect').value = size;
+                document.documentElement.setAttribute('data-ui-size', size);
+            }
+            if (localStorage.getItem('sync_chat_position')) document.getElementById('chatPosition').value = localStorage.getItem('sync_chat_position');
+            if (localStorage.getItem('sync_skip_sec')) document.getElementById('skipSec').value = localStorage.getItem('sync_skip_sec');
+            if (localStorage.getItem('sync_enable_delay_sync') !== null) document.getElementById('enableDelaySync').checked = localStorage.getItem('sync_enable_delay_sync') === 'true';
+            if (localStorage.getItem('sync_delay_sec')) document.getElementById('delaySec').value = localStorage.getItem('sync_delay_sec');
+            if (localStorage.getItem('sync_playback_speed')) {
+                currentPlaybackSpeed = parseFloat(localStorage.getItem('sync_playback_speed')) || 1.0;
+                document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
+            }
+            if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
+            if (localStorage.getItem('sync_enable_danmaku') !== null) document.getElementById('enableDanmaku').checked = localStorage.getItem('sync_enable_danmaku') === 'true';
+            if (localStorage.getItem('sync_danmaku_size')) document.getElementById('danmakuSize').value = localStorage.getItem('sync_danmaku_size');
+            if (localStorage.getItem('sync_danmaku_speed')) document.getElementById('danmakuSpeed').value = localStorage.getItem('sync_danmaku_speed');
+            if (localStorage.getItem('sync_danmaku_opacity')) document.getElementById('danmakuOpacity').value = localStorage.getItem('sync_danmaku_opacity');
+            if (localStorage.getItem('sync_danmaku_density')) document.getElementById('danmakuDensity').value = localStorage.getItem('sync_danmaku_density');
+            toggleDelaySettingView();
+        }
+
+        function clearAllSettings() {
+            if (confirm('すべての設定と保存URLをリセットしますか？')) { localStorage.clear(); location.reload(); }
+        }
+    </script>
+</body>
+</html>
