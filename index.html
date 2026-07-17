@@ -61,12 +61,28 @@
             transform: translateY(-100%);
         }
         .settings-container.open { transform: translateY(0); }
+        .settings-container.open .settings-content {
+            border-bottom: 2px solid #00ffcc; box-shadow: 0 10px 30px rgba(0, 255, 204, 0.15);
+        }
+        .settings-container.open .settings-trigger {
+            opacity: 1 !important; border: 2px solid #00ffcc; border-top: none; color: #00ffcc;
+            box-shadow: 0 10px 15px rgba(0, 255, 204, 0.15);
+        }
+
+        .settings-trigger {
+            position: absolute; bottom: -32px; right: 25px;
+            background: var(--panel-bg); border: 1px solid var(--border-color); border-top: none;
+            padding: 6px 16px; border-radius: 0 0 8px 8px; cursor: pointer;
+            opacity: 0.5; transition: all 0.2s; pointer-events: auto; z-index: 101;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 6px;
+            font-size: 0.9rem; font-weight: bold;
+        }
+        .settings-trigger:hover { opacity: 1; background-color: #1c1c24; }
 
         .settings-content {
-            background-color: var(--panel-bg); border-bottom: 2px solid #00ffcc;
+            background-color: var(--panel-bg); border-bottom: 1px solid var(--border-color);
             padding: 15px 25px; max-height: 400px; overflow-y: auto; pointer-events: auto;
             backdrop-filter: blur(10px); display: flex; gap: 25px; flex-wrap: wrap;
-            box-shadow: 0 10px 30px rgba(0, 255, 204, 0.15);
         }
 
         .settings-section {
@@ -100,10 +116,9 @@
         /* --- メインビュー --- */
         .main-view {
             width: 100vw; flex: 1; position: relative; background-color: #000;
-            transition: padding-bottom 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            box-sizing: border-box;
+            transition: padding-bottom 0.3s cubic-bezier(0.25, 1, 0.5, 1); box-sizing: border-box;
         }
-        .main-view.controller-active { padding-bottom: 60px; }
+        .main-view.controller-active { padding-bottom: 50px; } /* 押し上げ幅を少し縮小 */
 
         .players-grid {
             display: grid; width: 100%; height: 100%; gap: 6px; padding: 6px; box-sizing: border-box;
@@ -154,7 +169,7 @@
         }
         .delete-btn:hover { background-color: #52526e; color: #ff6b81; }
 
-        /* チャット関連 */
+        /* チャット・動画コンテナ */
         .player-container-wrapper {
             display: flex; flex-direction: row; width: 100%; height: 100%; position: relative; background: #000;
         }
@@ -194,15 +209,26 @@
         .placeholder-box input[type="text"] { width: 80%; max-width: 350px; margin-bottom: 10px; text-align: center; }
         .placeholder-actions { display: flex; gap: 10px; align-items: center; }
 
-        /* --- 下部一括操作メニュー --- */
+        /* --- 下部一括操作メニュー (横幅圧縮・スケール対応) --- */
         .overlay-controller {
             position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%);
             background-color: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
-            padding: 12px 25px; border-radius: 12px 12px 0 0; display: flex; align-items: center; gap: 15px;
+            padding: 8px 15px; border-radius: 12px 12px 0 0; display: flex; align-items: center; gap: 8px;
             box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7); z-index: 99; backdrop-filter: blur(8px);
-            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); max-width: 95vw; overflow-x: auto; 
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+            width: max-content; max-width: 98vw;
         }
         .overlay-controller.active { transform: translate(-50%, 0); }
+
+        /* ブラウザ幅が狭い場合はコントローラー全体を縮小して見切れを防ぐ */
+        @media (max-width: 900px) {
+            .overlay-controller { transform: translate(-50%, 100%) scale(0.85); transform-origin: bottom center; }
+            .overlay-controller.active { transform: translate(-50%, 0) scale(0.85); }
+        }
+        @media (max-width: 600px) {
+            .overlay-controller { transform: translate(-50%, 100%) scale(0.65); transform-origin: bottom center; }
+            .overlay-controller.active { transform: translate(-50%, 0) scale(0.65); }
+        }
 
         .controller-tab {
             position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
@@ -212,30 +238,26 @@
         }
         .overlay-controller.active .controller-tab { opacity: 1; }
         .controller-tab:hover { opacity: 1; background: #1c1c24; }
+        
         .overlay-controller button, .overlay-controller span, .overlay-controller label { white-space: nowrap; flex-shrink: 0; }
-
-        /* ロックボタン */
-        .lock-btn {
-            background: transparent; border: none; font-size: 1.2rem; cursor: pointer;
-            padding: 0; margin-right: 5px; transition: 0.2s; opacity: 0.7;
-        }
+        .lock-btn { background: transparent; border: none; font-size: 1.2rem; cursor: pointer; padding: 0; transition: 0.2s; opacity: 0.7; }
         .lock-btn:hover { opacity: 1; }
 
         /* 独立タイマーUI */
-        .sync-timer-container { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .sync-timer-container { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
         .sync-timer {
-            font-size: 1.3rem; font-family: monospace; background: #000; padding: 4px 12px;
+            font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 10px;
             border-radius: 15px; color: #00ffcc; border: 1px solid #00ffcc55; cursor: pointer; transition: 0.2s;
         }
         .sync-timer:hover { background: #111; border-color: #00ffcc; }
         .sync-timer-input {
-            font-size: 1.3rem; font-family: monospace; background: #000; padding: 2px 10px;
-            border-radius: 15px; color: #ff9f43; border: 1px solid #ff9f43; width: 110px;
+            font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 8px;
+            border-radius: 15px; color: #ff9f43; border: 1px solid #ff9f43; width: 100px;
             text-align: center; outline: none; display: none;
         }
         .timer-reset-btn {
             background-color: #222; color: #00ffcc; border: 1px solid #00ffcc33; border-radius: 50%;
-            width: 26px; height: 26px; font-size: 0.8rem; cursor: pointer; display: flex;
+            width: 24px; height: 24px; font-size: 0.75rem; cursor: pointer; display: flex;
             align-items: center; justify-content: center; transition: background 0.2s;
         }
         .timer-reset-btn:hover { background-color: #333; }
@@ -252,6 +274,7 @@
 </head>
 <body>
 
+    <!-- トップバー -->
     <div class="top-bar">
         <span style="color: #00ffcc; font-size: 0.85rem; font-weight: bold; margin-right: auto; letter-spacing: 1px;">アニメ同時視聴コントローラー</span>
         <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()">
@@ -351,42 +374,56 @@
         <div class="countdown-overlay" id="countdownOverlay">3</div>
     </div>
 
-    <!-- 下部操作メニュー -->
+    <!-- 下部操作メニュー（横幅圧縮済み） -->
     <div class="overlay-controller" id="overlayController">
         <div class="controller-tab">▲ 操作メニュー</div>
         
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
 
-        <!-- 独立タイマーUI -->
         <div class="sync-timer-container">
             <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力">00:00:00</div>
             <input type="text" id="timerInput" class="sync-timer-input" onblur="finishEditTimer()" onkeydown="if(event.key==='Enter')finishEditTimer()">
             <button class="timer-reset-btn" onclick="resetGlobalTimer()" title="タイマーを0にリセット">↺</button>
-            <button class="timer-reset-btn" id="requestExternalTimeBtn" onclick="requestExternalTime()" title="現在の再生時間を取得 (要アドオン)" style="margin-left: 2px;">⏱</button>
+            <button class="timer-reset-btn" id="requestExternalTimeBtn" onclick="requestExternalTime()" title="現在の再生時間を取得 (要アドオン)">⏱</button>
         </div>
         
-        <button class="primary" id="playPauseBtn" onclick="togglePlayPauseAll()" style="font-size:1rem; padding:6px 15px;">▶ 一括再生</button>
+        <button class="primary" id="playPauseBtn" onclick="togglePlayPauseAll()" style="font-size:0.95rem; padding:6px 12px;">▶ 一括再生</button>
         
-        <div style="display:flex; align-items:center; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 8px;">
+        <div style="display:flex; align-items:center; background: rgba(0,0,0,0.4); padding: 4px 6px; border-radius: 8px;">
             <button id="batchSkipBackBtn" onclick="skipAll(-getSkipSec())" title="一括10秒戻る" style="font-size:1rem;">↺</button>
-            <span id="skipSecDisplay" style="font-size:0.8rem; margin:0 8px; color:#aaa; font-family: monospace;">[10秒]</span>
+            <span id="skipSecDisplay" style="font-size:0.75rem; margin:0 4px; color:#aaa; font-family: monospace;">[10s]</span>
             <button id="batchSkipForwardBtn" onclick="skipAll(getSkipSec())" title="一括10秒進む" style="font-size:1rem;">↻</button>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 4px; margin-left: 5px; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 8px;">
-            <span style="font-size:0.8rem; color:#aaa;">速度:</span>
-            <button onclick="changePlaybackSpeed(-0.1)" style="padding: 2px 6px;" title="0.1倍減速">◀</button>
-            <span id="speedDisplay" style="font-family: monospace; font-weight: bold; width: 30px; text-align: center; color:#00ffcc;">1.0</span>
-            <button onclick="changePlaybackSpeed(0.1)" style="padding: 2px 6px;" title="0.1倍加速">▶</button>
+        <div style="display: flex; align-items: center; gap: 2px; background: rgba(0,0,0,0.4); padding: 4px 6px; border-radius: 8px;">
+            <span style="font-size:0.75rem; color:#aaa;">速度:</span>
+            <button onclick="changePlaybackSpeed(-0.1)" style="padding: 2px 6px;" title="0.1倍減速">➖</button>
+            <span id="speedDisplay" style="font-family: monospace; font-weight: bold; width: 28px; text-align: center; color:#00ffcc;">1.0</span>
+            <button onclick="changePlaybackSpeed(0.1)" style="padding: 2px 6px;" title="0.1倍加速">➕</button>
         </div>
 
-        <div style="display:flex; align-items:center; gap:5px; margin-left:5px;">
-            <span style="font-size:0.9rem;">🔊</span>
-            <input type="range" id="masterVolume" min="0" max="100" value="50" style="width:70px;" oninput="changeMasterVolume(this.value)">
+        <div style="display:flex; align-items:center; gap:2px;">
+            <span style="font-size:0.85rem;">🔊</span>
+            <input type="range" id="masterVolume" min="0" max="100" value="50" style="width:60px;" oninput="changeMasterVolume(this.value)">
         </div>
     </div>
 
     <script>
+        // --- ★ グローバル関数としてのフォーマット定義（エラー防止） ---
+        function formatTime(sec) {
+            const hrs = Math.floor(sec / 3600);
+            const mins = Math.floor((sec - hrs * 3600) / 60);
+            const secs = Math.floor(sec % 60);
+            const pad = (n) => n.toString().padStart(2, '0');
+            return hrs > 0 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
+        }
+
+        function formatShortTime(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
         // --- 状態管理・グローバル変数 ---
         let uniqueCardIdCounter = 0; 
         let activeCardIds = []; 
@@ -404,7 +441,7 @@
         let currentPlaybackSpeed = 1.0;
         let isControllerLocked = false;
         
-        // ★手動シーク検知用
+        // 手動シーク検知用フラグ
         let localSeekStartTime = {};
         let localSeekActive = {};
 
@@ -424,13 +461,11 @@
                     globalCurrentTime = parseFloat(event.data.time) || 0;
                     updateTimerDisplay();
                 } else if (newState === 'relativeSeekReport') {
-                    // ★アドオン（B）からの手動シークの差分を受信
                     if (document.getElementById('enableSeekSync').checked) {
                         const diff = parseFloat(event.data.diff);
                         if (!isNaN(diff)) {
-                            console.log("アドオンから手動シーク差分を受信:", diff);
-                            // Bへは送り返さずにローカルのみ同期
-                            applySeekToAll(diff, false);
+                            // アドオン(B)へは送り返さず、A内の全プレイヤーへ適用
+                            applySeekToAll(diff, false, null);
                         }
                     }
                 }
@@ -484,7 +519,7 @@
         function updateSkipDisplays() {
             const sec = getSkipSec();
             const display = document.getElementById('skipSecDisplay');
-            if (display) display.innerText = `[${sec}秒]`;
+            if (display) display.innerText = `[${sec}s]`;
 
             document.getElementById('batchSkipBackBtn').title = `一括${sec}秒戻る`;
             document.getElementById('batchSkipForwardBtn').title = `一括${sec}秒進む`;
@@ -510,7 +545,6 @@
             urls.forEach((url, index) => localStorage.setItem(`sync_url_${index + 1}`, url));
         }
 
-        // --- グリッド初期化 ---
         function initializeGrid() {
             const grid = document.getElementById('playersGrid');
 
@@ -525,7 +559,7 @@
                 destroyPlayerCard(removeId);
             }
 
-            updateCardLabelsAndOrder();
+            updateCardOrder();
             updateLayout();
             updateChatLayout();
             updateSkipDisplays();
@@ -533,16 +567,15 @@
             saveSettings();
         }
 
-        function updateCardLabelsAndOrder() {
+        function updateCardOrder() {
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.forEach((card, index) => {
                 card.style.order = index + 1;
-                const label = card.querySelector('.player-title');
-                // タイトルに枠番号は表示しないためここでは何もしない
             });
             activeCardIds = cards.map(c => c.id);
         }
 
+        // --- カード生成と破棄 ---
         function generateHeaderHTML(cardId) {
             const sec = getSkipSec();
             return `
@@ -585,6 +618,7 @@
                             </div>
                         </div>
                     </div>
+                    <!-- チャット関連 -->
                     <div class="chat-splitter" id="splitter_${cardId}"></div>
                     <div class="chat-container" id="chatContainer_${cardId}">
                         <iframe id="chatIframe_${cardId}" style="width:100%; height:100%; border:none;"></iframe>
@@ -593,8 +627,8 @@
                 <div class="local-video-overlay" id="localOverlay_${cardId}" style="display:none;">
                     <button onclick="togglePlayLocal('${cardId}')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>
                     <div class="local-seek-container">
-                        <!-- ★手動シークイベントを追加 -->
                         <input type="range" id="localSeek_${cardId}" min="0" max="100" value="0" step="0.1" 
+                            onmousedown="onLocalSeekStart('${cardId}')" ontouchstart="onLocalSeekStart('${cardId}')"
                             oninput="updateLocalTimeOnInput('${cardId}', this.value)"
                             onchange="onLocalSeekEnd('${cardId}')">
                         <div class="seek-tooltip" id="seekTooltip_${cardId}">00:00</div>
@@ -607,7 +641,6 @@
                 </div>
             `;
             grid.appendChild(card);
-            setupSeekEvents(cardId);
             setupSeekTooltip(cardId);
             
             const idxForSave = activeCardIds.length; 
@@ -618,84 +651,13 @@
             }
         }
 
-        // --- ★ ローカル動画の手動シーク検知と送信 ---
-        function setupSeekEvents(cardId) {
-            const input = document.getElementById(`localSeek_${cardId}`);
-            if (!input) return;
-            // マウス/タッチでドラッグを開始した瞬間の時間を記録
-            input.addEventListener('mousedown', () => onLocalSeekStart(cardId));
-            input.addEventListener('touchstart', () => onLocalSeekStart(cardId));
-        }
-
-        function onLocalSeekStart(cardId) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (video && !localSeekActive[cardId]) {
-                localSeekActive[cardId] = true;
-                localSeekStartTime[cardId] = video.currentTime;
-            }
-        }
-
-        // input中（ドラッグ中）は自身のアニメーションのみ更新する
-        function updateLocalTimeOnInput(cardId, value) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video || isNaN(video.duration)) return;
-            video.currentTime = (value / 100) * video.duration;
-            updateLocalOverlayProgress(cardId);
-        }
-
-        // マウスを離した時（change）に差分を計算して全体へ送信
-        function onLocalSeekEnd(cardId) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video || isNaN(video.duration)) return;
-            
-            const start = localSeekStartTime[cardId];
-            if (start !== undefined) {
-                const diff = video.currentTime - start;
-                delete localSeekStartTime[cardId];
-                localSeekActive[cardId] = false;
-                
-                if (document.getElementById('enableSeekSync').checked) {
-                    // 他の動画に差分を適用し、Bへも送信する
-                    syncSeekFromLocal(cardId, diff);
-                } else {
-                    if (cardId === getMasterLocalVideoId()) {
-                        globalCurrentTime = video.currentTime;
-                        updateTimerDisplay();
-                    }
-                }
-            }
-        }
-
-        function syncSeekFromLocal(sourceCardId, diff) {
-            globalCurrentTime = Math.max(0, globalCurrentTime + diff);
-            updateTimerDisplay();
-
-            // アドオン（B）へ手動シークの差分を送信
-            broadcastSyncCommand('seek', diff);
-
-            // 他のローカル動画
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                const id = v.id.replace('localVideo_', '');
-                if (id !== sourceCardId) {
-                    v.currentTime = Math.max(0, v.currentTime + diff);
-                }
-            });
-
-            // YouTube動画
-            Object.values(ytPlayers).forEach(player => {
-                if (player && typeof player.getCurrentTime === 'function') {
-                    player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
-                }
-            });
-        }
-
-
         function destroyPlayerCard(cardId) {
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
             const card = document.getElementById(cardId);
             if (card) card.remove();
         }
 
+        // --- ⏱ ボタンの自動非表示 ---
         function checkLocalVideoExists() {
             let hasLocal = false;
             document.querySelectorAll('.custom-local-video').forEach(v => {
@@ -749,10 +711,11 @@
 
         function deletePlayer(cardId) {
             if (!confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
+            
             destroyPlayerCard(cardId);
             playerCount--;
             document.getElementById('activeCountDisplay').innerText = playerCount;
-            updateCardLabelsAndOrder();
+            updateCardOrder();
             updateLayout();
             resaveUrlsBasedOnOrder();
             checkLocalVideoExists();
@@ -771,11 +734,13 @@
             });
         }
 
+        // --- 無停止入れ替え ---
         function moveCard(cardId, direction) {
             const grid = document.getElementById('playersGrid');
             const cards = Array.from(grid.children);
             const currentIndex = cards.findIndex(c => c.id === cardId);
             if (currentIndex === -1) return;
+            
             const targetIndex = currentIndex + direction;
             if (targetIndex < 0 || targetIndex >= cards.length) return; 
 
@@ -791,8 +756,10 @@
             resaveUrlsBasedOnOrder();
         }
 
+        // --- ピン留めレイアウト ---
         function togglePin(cardId) {
-            const cards = Array.from(document.getElementById('playersGrid').children);
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
             const target = document.getElementById(cardId);
             const btn = target.querySelector('.pin-btn');
 
@@ -859,6 +826,7 @@
             });
         }
 
+        // --- チャット表示トグルと配置変更 ---
         function toggleChat(cardId) {
             const chatContainer = document.getElementById(`chatContainer_${cardId}`);
             const splitter = document.getElementById(`splitter_${cardId}`);
@@ -900,6 +868,7 @@
             });
         }
 
+        // --- スプリッターのドラッグ実装 ---
         function setupChatSplitters() {
             let isDragging = false;
             let currentSplitter = null;
@@ -942,6 +911,7 @@
             });
         }
 
+        // --- 読み込み処理（YouTube / Local） ---
         function getPlaylistId(url) { const match = url.match(/[?&]list=([^#\&\?]+)/); return match ? match[1] : null; }
         function getYouTubeId(url) { const match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/); return (match && match[2].length === 11) ? match[2] : null; }
 
@@ -1022,7 +992,7 @@
             const video = document.getElementById(`localVideo_${cardId}`);
             const seekRange = document.getElementById(`localSeek_${cardId}`);
             const display = document.getElementById(`localTimeDisplay_${cardId}`);
-            // input中（ドラッグ中）は自身のアニメーションのみ更新し、他と競合させない
+            // ドラッグ中はアニメーションのみ更新、他と競合させない
             if (!video || !seekRange || !display || localSeekActive[cardId]) return;
 
             const dur = (isNaN(video.duration) || !isFinite(video.duration)) ? 0 : video.duration;
@@ -1034,12 +1004,6 @@
             display.innerText = `${formatShortTime(video.currentTime)} / ${formatShortTime(dur)}`;
         }
 
-        function formatShortTime(sec) {
-            const m = Math.floor(sec / 60);
-            const s = Math.floor(sec % 60);
-            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-        }
-
         function setupSeekTooltip(cardId) {
             const seekInput = document.getElementById(`localSeek_${cardId}`);
             const tooltip = document.getElementById(`seekTooltip_${cardId}`);
@@ -1048,6 +1012,7 @@
             seekInput.addEventListener('mousemove', (e) => {
                 const video = document.getElementById(`localVideo_${cardId}`);
                 if (!video || isNaN(video.duration)) return;
+
                 const rect = seekInput.getBoundingClientRect();
                 const offsetX = e.clientX - rect.left;
                 const percent = Math.min(Math.max(0, offsetX / rect.width), 1);
@@ -1058,7 +1023,45 @@
             seekInput.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
         }
 
-        // --- 個別シーク（アドオンには送信しない） ---
+        // --- ★ ローカル動画の手動シーク検知と送信 ---
+        function onLocalSeekStart(cardId) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (video && !localSeekActive[cardId]) {
+                localSeekActive[cardId] = true;
+                localSeekStartTime[cardId] = video.currentTime;
+            }
+        }
+
+        function updateLocalTimeOnInput(cardId, value) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (!video || isNaN(video.duration)) return;
+            video.currentTime = (value / 100) * video.duration;
+            updateLocalOverlayProgress(cardId);
+        }
+
+        function onLocalSeekEnd(cardId) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (!video || isNaN(video.duration)) return;
+            
+            const start = localSeekStartTime[cardId];
+            if (start !== undefined) {
+                const diff = video.currentTime - start;
+                delete localSeekStartTime[cardId];
+                localSeekActive[cardId] = false;
+                
+                if (document.getElementById('enableSeekSync').checked) {
+                    // sourceCardId(自身) を除外して同期
+                    applySeekToAll(diff, true, cardId);
+                } else {
+                    if (cardId === getMasterLocalVideoId()) {
+                        globalCurrentTime = video.currentTime;
+                        updateTimerDisplay();
+                    }
+                }
+            }
+        }
+
+        // --- 個別シークボタン（アドオンには送信しない） ---
         function skipPlayer(cardId, seconds) {
             const yt = ytPlayers[cardId];
             const lv = document.getElementById(`localVideo_${cardId}`);
@@ -1066,6 +1069,10 @@
                 yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
             } else if (lv) {
                 lv.currentTime = Math.max(0, lv.currentTime + seconds);
+                if (cardId === getMasterLocalVideoId()) {
+                    globalCurrentTime = lv.currentTime;
+                    updateTimerDisplay();
+                }
             }
         }
 
@@ -1098,7 +1105,6 @@
         }
 
         function startDelayCountdown() {
-            cancelCountdown();
             isPlayingRequest = true; 
             const playPauseBtn = document.getElementById('playPauseBtn');
             playPauseBtn.innerText = '⏸ カウント中止';
@@ -1132,17 +1138,16 @@
                         overlay.style.textShadow = '0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757';
                     }, 800);
                     clearInterval(countdownInterval);
+                    countdownInterval = null;
                 }
             }, 1000);
         }
 
         function cancelCountdown() {
-            clearInterval(countdownInterval);
-            countdownInterval = null;
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
             clearTimeout(countdownTimer);
             const overlay = document.getElementById('countdownOverlay');
-            overlay.style.display = 'none';
-            overlay.style.color = '#ff4757';
+            overlay.style.display = 'none'; overlay.style.color = '#ff4757';
         }
 
         function playAll() {
@@ -1166,7 +1171,6 @@
 
         function playAllPlayersOnly() {
             broadcastSyncCommand('play');
-
             setTimeout(() => { broadcastSyncCommand('seekTo', globalCurrentTime); }, 300);
 
             document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
@@ -1177,15 +1181,14 @@
 
         function pauseAllPlayersOnly() {
             broadcastSyncCommand('pause');
-
             document.querySelectorAll('.custom-local-video').forEach(v => v.pause());
             Object.values(ytPlayers).forEach(player => {
                 if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
             });
         }
 
-        // --- ★ 一括シーク（A側発信） ---
-        function applySeekToAll(diff, broadcastToAddon) {
+        // --- ★ 一括・連動シーク（相対時間を送る統合処理） ---
+        function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
             globalCurrentTime = Math.max(0, globalCurrentTime + diff);
             updateTimerDisplay();
             
@@ -1194,18 +1197,21 @@
             }
 
             document.querySelectorAll('.custom-local-video').forEach(v => {
-                v.currentTime = Math.max(0, v.currentTime + diff);
+                const id = v.id.replace('localVideo_', '');
+                if (id !== excludeCardId) {
+                    v.currentTime = Math.max(0, v.currentTime + diff);
+                }
             });
 
-            Object.values(ytPlayers).forEach(player => {
-                if (player && typeof player.getCurrentTime === 'function') {
+            Object.values(ytPlayers).forEach((player, key) => {
+                if (key !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
                     player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
                 }
             });
         }
 
         function skipAll(seconds) {
-            applySeekToAll(seconds, true);
+            applySeekToAll(seconds, true, null);
         }
 
         function changeMasterVolume(value) {
@@ -1220,7 +1226,7 @@
             });
         }
 
-        /* --- タイマー更新（グローバル時間計算） --- */
+        /* --- ★ 完全独立タイマー・アナログ入力・外部時間取得 --- */
         function getMasterLocalVideoId() {
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
@@ -1244,6 +1250,7 @@
             const delta = (now - lastTimeUpdate) / 1000;
             lastTimeUpdate = now;
 
+            // Durationの取得
             let newDuration = 0;
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
@@ -1256,10 +1263,10 @@
             }
             globalDuration = newDuration;
 
+            // タイマーの進行
             const masterLocalId = getMasterLocalVideoId();
             if (masterLocalId) {
                 const lv = document.getElementById(`localVideo_${masterLocalId}`);
-                // ★手動シーク中（ドラッグ中）はタイマーの追従を一時停止し、ガクガクするのを防ぐ
                 if (lv && !localSeekActive[masterLocalId]) {
                     globalCurrentTime = lv.currentTime;
                 }
@@ -1328,6 +1335,7 @@
             btn.innerText = isControllerLocked ? '🔒' : '🔓';
             saveSettings();
             if (isControllerLocked) showController();
+            else hideController();
         }
 
         function showController() {
