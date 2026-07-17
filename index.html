@@ -105,7 +105,7 @@
             box-sizing: border-box;
         }
         .main-view.controller-active {
-            padding-bottom: 60px; /* コントローラーの高さ分、動画エリアを上に圧縮する */
+            padding-bottom: 60px;
         }
 
         .players-grid {
@@ -118,7 +118,6 @@
             background-color: #121216; border-radius: 6px; overflow: hidden; position: relative;
             display: flex; flex-direction: column; border: 1px solid var(--border-color); transition: all 0.3s ease;
         }
-        /* 📌 メイン枠のスタイルはJS側で動的に span を付与するため、境界と影のみ設定 */
         .player-card.is-main {
             border: 2px solid #00ffcc;
             box-shadow: 0 0 15px rgba(0, 255, 204, 0.3); z-index: 2;
@@ -133,11 +132,9 @@
         }
         .player-card:hover .player-header { opacity: 1; pointer-events: auto; }
 
-        .player-title-label {
-            color: #00ebc7; font-weight: bold; font-size: 0.8rem; margin-right: 5px; white-space: nowrap;
-        }
         .player-title {
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; padding: 0 5px;
+            color: #00ebc7; font-weight: bold;
         }
 
         .header-action-btn {
@@ -287,7 +284,7 @@
                         <option value="vertical">上下に並べる</option>
                     </select>
                 </div>
-                <!-- ★ 新規追加：グリッド列数指定 -->
+                <!-- グリッド列数指定 -->
                 <div class="control-row">
                     <label style="font-size:0.9rem;" for="layoutCols">グリッド列数 (レイアウト):</label>
                     <select id="layoutCols" onchange="updateLayout(); saveSettings();">
@@ -358,7 +355,7 @@
     <div class="overlay-controller" id="overlayController">
         <div class="controller-tab">▲ 操作メニュー</div>
         
-        <!-- ★ ロックボタン追加 -->
+        <!-- ロックボタン -->
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
 
         <!-- 独立タイマーUI -->
@@ -399,7 +396,7 @@
         let isPlayingRequest = false;
         
         let globalCurrentTime = 0; 
-        let globalDuration = 0; // ★ 追加：総再生時間
+        let globalDuration = 0; 
         let isEditingTimer = false;
         let lastTimeUpdate = performance.now();
         
@@ -407,7 +404,7 @@
         let countdownInterval = null;
         let currentPlaybackSpeed = 1.0;
         let skipDebounceTimer = null;
-        let isControllerLocked = false; // ★ 追加：ロック状態
+        let isControllerLocked = false;
         
         let playerCount = 2; 
         const MAX_TOTAL_COUNT = 9;
@@ -498,18 +495,16 @@
             urls.forEach((url, index) => localStorage.setItem(`sync_url_${index + 1}`, url));
         }
 
-        // --- ★ グリッド初期化（ローカル/YouTubeの完全対等化・バグ修正済） ---
+        // --- グリッドの差分構築とレイアウト ---
         function initializeGrid() {
             const grid = document.getElementById('playersGrid');
 
-            // 枠が足りない場合は追加
             while (activeCardIds.length < playerCount) {
                 uniqueCardIdCounter++;
                 const newId = `card_${uniqueCardIdCounter}`;
                 activeCardIds.push(newId);
                 createPlayerCard(newId);
             }
-            // 枠が多すぎる場合は末尾から削除
             while (activeCardIds.length > playerCount) {
                 const removeId = activeCardIds.pop();
                 destroyPlayerCard(removeId);
@@ -519,35 +514,26 @@
             updateLayout();
             updateChatLayout();
             updateSkipDisplays();
-            checkLocalVideoExists(); // ⏱ボタンの表示/非表示を更新
+            checkLocalVideoExists();
             saveSettings();
         }
 
         function updateCardLabelsAndOrder() {
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
+            const cards = Array.from(document.getElementById('playersGrid').children);
             cards.forEach((card, index) => {
                 card.style.order = index + 1;
-                const label = card.querySelector('.player-title-label');
-                if (label) label.innerText = `枠 ${index + 1}`;
             });
             activeCardIds = cards.map(c => c.id);
         }
 
         // --- カード生成と破棄 ---
-        function createPlayerCard(cardId) {
-            const grid = document.getElementById('playersGrid');
-            const card = document.createElement('div');
-            card.className = 'player-card';
-            card.id = cardId;
-            card.style.order = activeCardIds.length;
-            
-            card.innerHTML = `
+        function generateHeaderHTML(cardId) {
+            const sec = getSkipSec();
+            return `
                 <div class="player-header">
-                    <span class="player-title-label">枠 X</span>
                     <button class="header-action-btn pin-btn" onclick="togglePin('${cardId}')" title="メイン枠として拡大(ピン留め)">📌</button>
-                    <button class="header-action-btn skip-back-btn" onclick="skipPlayer('${cardId}', -getSkipSec())" title="戻る">↺</button>
-                    <button class="header-action-btn skip-forward-btn" onclick="skipPlayer('${cardId}', getSkipSec())" title="進む">↻</button>
+                    <button class="header-action-btn skip-back-btn" onclick="skipPlayer('${cardId}', -getSkipSec())" title="${sec}秒戻る">↺</button>
+                    <button class="header-action-btn skip-forward-btn" onclick="skipPlayer('${cardId}', getSkipSec())" title="${sec}秒進む">↻</button>
                     <button class="header-action-btn playlist-nav-btn" id="playlistPrev_${cardId}" onclick="prevPlaylistItem('${cardId}')" title="再生リスト: 前の動画">⏮</button>
                     <button class="header-action-btn playlist-nav-btn" id="playlistNext_${cardId}" onclick="nextPlaylistItem('${cardId}')" title="再生リスト: 次の動画">⏭</button>
                     <button class="header-action-btn" onclick="toggleChat('${cardId}')" title="チャット欄の表示/非表示" style="margin-left: 2px;">💬</button>
@@ -561,6 +547,17 @@
                         <button class="header-action-btn" onclick="moveCard('${cardId}', 1)" title="右(後)へ移動">▶</button>
                     </div>
                 </div>
+            `;
+        }
+
+        function createPlayerCard(cardId) {
+            const grid = document.getElementById('playersGrid');
+            const card = document.createElement('div');
+            card.className = 'player-card';
+            card.id = cardId;
+            card.style.order = activeCardIds.length;
+            
+            card.innerHTML = generateHeaderHTML(cardId) + `
                 <div class="player-container-wrapper" id="wrapper_${cardId}">
                     <div class="player-container" id="playerContainer_${cardId}">
                         <div class="placeholder-box">
@@ -572,6 +569,7 @@
                             </div>
                         </div>
                     </div>
+                    <!-- チャット関連 -->
                     <div class="chat-splitter" id="splitter_${cardId}"></div>
                     <div class="chat-container" id="chatContainer_${cardId}">
                         <iframe id="chatIframe_${cardId}" style="width:100%; height:100%; border:none;"></iframe>
@@ -607,7 +605,6 @@
             if (card) card.remove();
         }
 
-        // --- ⏱ ボタンの自動非表示 ---
         function checkLocalVideoExists() {
             let hasLocal = false;
             document.querySelectorAll('.custom-local-video').forEach(v => {
@@ -664,6 +661,7 @@
             if (!confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
             
             destroyPlayerCard(cardId);
+            
             playerCount--;
             document.getElementById('activeCountDisplay').innerText = playerCount;
             updateCardLabelsAndOrder();
@@ -691,6 +689,7 @@
             const cards = Array.from(grid.children);
             const currentIndex = cards.findIndex(c => c.id === cardId);
             if (currentIndex === -1) return;
+            
             const targetIndex = currentIndex + direction;
             if (targetIndex < 0 || targetIndex >= cards.length) return; 
 
@@ -698,14 +697,19 @@
             cards[currentIndex].style.order = cards[targetIndex].style.order;
             cards[targetIndex].style.order = currentOrder;
 
-            updateCardLabelsAndOrder();
+            const newCards = Array.from(grid.children);
+            newCards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
+            
+            activeCardIds = newCards.map(c => c.id);
+
             updateLayout(); 
             resaveUrlsBasedOnOrder();
         }
 
         // --- ピン留めレイアウト ---
         function togglePin(cardId) {
-            const cards = Array.from(document.getElementById('playersGrid').children);
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
             const target = document.getElementById(cardId);
             const btn = target.querySelector('.pin-btn');
 
@@ -718,7 +722,6 @@
             updateLayout();
         }
 
-        // ★ 列数手動指定 ＆ ピン留め最適化
         function updateLayout() {
             const grid = document.getElementById('playersGrid');
             const cards = Array.from(grid.children);
@@ -728,13 +731,12 @@
             const hasPin = cards.some(c => c.classList.contains('is-main'));
             let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
 
-            // 2枠時のピン留め特別処理（最大化）
             if (N === 2) {
                 const dir = document.getElementById('layout2Dir').value;
                 if (dir === 'vertical') {
                     grid.style.gridTemplateColumns = `1fr`;
                     grid.style.gridTemplateRows = hasPin ? `2fr 1fr` : `1fr 1fr`;
-                } else { // horizontal
+                } else { 
                     if (hasPin) {
                         grid.style.gridTemplateColumns = `1fr`;
                         grid.style.gridTemplateRows = `2fr 1fr`;
@@ -747,7 +749,6 @@
                 return;
             }
 
-            // 3枠以上
             let cols = 1;
             const logicalCount = hasPin ? N + 3 : N;
             if (colSetting !== 'auto') {
@@ -817,22 +818,30 @@
             });
         }
 
-        // --- スプリッターのドラッグ実装（バグ修正済） ---
+        // --- スプリッターのドラッグ実装 ---
         function setupChatSplitters() {
-            let isDragging = false; let currentSplitter = null; let currentChat = null; let currentIframe = null; let isHorizontal = true;
+            let isDragging = false;
+            let currentSplitter = null;
+            let currentChat = null;
+            let currentIframe = null; 
+            let isHorizontal = true;
+
             document.addEventListener('mousedown', (e) => {
                 if (e.target.classList.contains('chat-splitter')) {
                     isDragging = true; currentSplitter = e.target; currentChat = e.target.nextElementSibling;
                     currentIframe = currentChat.querySelector('iframe');
                     isHorizontal = document.getElementById('chatPosition').value === 'right';
                     currentSplitter.classList.add('dragging'); 
+                    
                     if (currentIframe) currentIframe.style.pointerEvents = 'none';
                     e.preventDefault();
                 }
             });
+
             document.addEventListener('mousemove', (e) => {
                 if (!isDragging) return;
-                const rect = currentSplitter.parentElement.getBoundingClientRect();
+                const wrapper = currentSplitter.parentElement;
+                const rect = wrapper.getBoundingClientRect();
                 if (isHorizontal) {
                     let newWidth = rect.right - e.clientX;
                     newWidth = Math.max(200, Math.min(newWidth, rect.width * 0.7)); 
@@ -843,9 +852,11 @@
                     currentChat.style.height = newHeight + 'px';
                 }
             });
+
             document.addEventListener('mouseup', () => {
                 if (isDragging) {
-                    isDragging = false; if (currentSplitter) currentSplitter.classList.remove('dragging');
+                    isDragging = false; 
+                    if (currentSplitter) currentSplitter.classList.remove('dragging');
                     if (currentIframe) currentIframe.style.pointerEvents = 'auto';
                 }
             });
@@ -872,7 +883,8 @@
             if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
 
             ytPlayers[cardId] = new YT.Player(`ytPlayer_${cardId}`, {
-                videoId: videoId || undefined, playerVars: playerVarsSetting,
+                videoId: videoId || undefined,
+                playerVars: playerVarsSetting,
                 events: {
                     'onReady': (event) => {
                         const videoData = event.target.getVideoData();
@@ -907,6 +919,7 @@
             document.getElementById(`localVolume_${cardId}`).value = document.getElementById('masterVolume').value;
             video.playbackRate = currentPlaybackSpeed;
 
+            video.addEventListener('loadedmetadata', () => updateLocalOverlayProgress(cardId));
             video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
             document.getElementById(`localOverlay_${cardId}`).style.display = 'flex';
             resaveUrlsBasedOnOrder();
@@ -924,7 +937,6 @@
             if (!video || isNaN(video.duration)) return;
             video.currentTime = (value / 100) * video.duration;
             
-            // ★ 手動シーク時、ローカル動画の時間を一括タイマーに即反映
             if (cardId === getMasterLocalVideoId()) {
                 globalCurrentTime = video.currentTime;
                 updateTimerDisplay();
@@ -942,10 +954,15 @@
             const video = document.getElementById(`localVideo_${cardId}`);
             const seekRange = document.getElementById(`localSeek_${cardId}`);
             const display = document.getElementById(`localTimeDisplay_${cardId}`);
-            if (!video || !seekRange || !display || isNaN(video.duration)) return;
+            if (!video || !seekRange || !display) return;
 
-            seekRange.value = (video.currentTime / video.duration) * 100;
-            display.innerText = `${formatShortTime(video.currentTime)} / ${formatShortTime(video.duration)}`;
+            const dur = (isNaN(video.duration) || !isFinite(video.duration)) ? 0 : video.duration;
+            if (dur > 0) {
+                seekRange.value = (video.currentTime / dur) * 100;
+            } else {
+                seekRange.value = 0;
+            }
+            display.innerText = `${formatShortTime(video.currentTime)} / ${formatShortTime(dur)}`;
         }
 
         function setupSeekTooltip(cardId) {
@@ -956,6 +973,7 @@
             seekInput.addEventListener('mousemove', (e) => {
                 const video = document.getElementById(`localVideo_${cardId}`);
                 if (!video || isNaN(video.duration)) return;
+
                 const rect = seekInput.getBoundingClientRect();
                 const offsetX = e.clientX - rect.left;
                 const percent = Math.min(Math.max(0, offsetX / rect.width), 1);
@@ -966,7 +984,7 @@
             seekInput.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
         }
 
-        // --- 個別シーク（アドオンには送信しない） ---
+        // --- ★ 個別シーク ---
         function skipPlayer(cardId, seconds) {
             const yt = ytPlayers[cardId];
             const lv = document.getElementById(`localVideo_${cardId}`);
@@ -1078,8 +1096,7 @@
 
         function playAllPlayersOnly() {
             broadcastSyncCommand('play');
-
-            setTimeout(() => { broadcastSyncCommand('seek', globalCurrentTime); }, 300);
+            setTimeout(() => { broadcastSyncCommand('seekTo', globalCurrentTime); }, 300);
 
             document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
             Object.values(ytPlayers).forEach(player => {
@@ -1089,7 +1106,6 @@
 
         function pauseAllPlayersOnly() {
             broadcastSyncCommand('pause');
-
             document.querySelectorAll('.custom-local-video').forEach(v => v.pause());
             Object.values(ytPlayers).forEach(player => {
                 if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
@@ -1101,7 +1117,6 @@
             globalCurrentTime = Math.max(0, globalCurrentTime + seconds);
             updateTimerDisplay();
             
-            // ★ アドオン連携: 'seek' コマンドで相対時間を送る
             broadcastSyncCommand('seek', seconds);
 
             document.querySelectorAll('.custom-local-video').forEach(v => {
@@ -1136,7 +1151,6 @@
             return hrs > 0 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
         }
 
-        // ローカル動画が複数ある場合、一番若い order を持つものをマスターとする
         function getMasterLocalVideoId() {
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
@@ -1160,7 +1174,7 @@
             const delta = (now - lastTimeUpdate) / 1000;
             lastTimeUpdate = now;
 
-            // 1. Duration（総再生時間）の取得・更新
+            // Durationの取得
             let newDuration = 0;
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
@@ -1173,7 +1187,7 @@
             }
             globalDuration = newDuration;
 
-            // 2. 現在時間のカウントアップ（ローカル動画があればそちらを優先で追従）
+            // タイマーの進行
             const masterLocalId = getMasterLocalVideoId();
             if (masterLocalId) {
                 const lv = document.getElementById(`localVideo_${masterLocalId}`);
@@ -1181,7 +1195,6 @@
                     globalCurrentTime = lv.currentTime;
                 }
             } else {
-                // ローカル動画がない場合は自力でカウントアップ（独立時計）
                 if (isPlayingRequest && countdownInterval === null) {
                     globalCurrentTime += delta * currentPlaybackSpeed;
                 }
@@ -1194,7 +1207,6 @@
             isEditingTimer = true;
             const display = document.getElementById('mainTimer');
             const input = document.getElementById('timerInput');
-            // 総時間部分を削って現在時間のみを入力欄へ
             input.value = display.innerText.split(' / ')[0];
             display.style.display = 'none';
             input.style.display = 'inline-block';
@@ -1215,7 +1227,6 @@
             
             globalCurrentTime = Math.max(0, sec);
             
-            // ローカル動画がある場合は、手動入力した時間にローカル動画を飛ばす
             const masterLocalId = getMasterLocalVideoId();
             if (masterLocalId) {
                 const lv = document.getElementById(`localVideo_${masterLocalId}`);
@@ -1254,7 +1265,7 @@
             const controller = document.getElementById('overlayController');
             const mainView = document.getElementById('mainView');
             controller.classList.add('active');
-            mainView.classList.add('controller-active'); // 上に押し上げる
+            mainView.classList.add('controller-active'); 
         }
 
         function hideController() {
@@ -1262,7 +1273,7 @@
             const controller = document.getElementById('overlayController');
             const mainView = document.getElementById('mainView');
             controller.classList.remove('active');
-            mainView.classList.remove('controller-active'); // 押し上げ解除
+            mainView.classList.remove('controller-active'); 
         }
 
         function setupHoverController() {
@@ -1287,7 +1298,6 @@
         /* --- 保存・復元 --- */
         function saveSettings() {
             localStorage.setItem('sync_layout2_dir', document.getElementById('layout2Dir').value);
-            // 新規追加：列数設定の保存
             const colsEl = document.getElementById('layoutCols');
             if (colsEl) localStorage.setItem('sync_layout_cols', colsEl.value);
 
@@ -1330,7 +1340,10 @@
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
             
             if (localStorage.getItem('sync_controller_lock') === 'true') {
-                toggleControllerLock();
+                isControllerLocked = true;
+                const btn = document.getElementById('lockControllerBtn');
+                if (btn) btn.innerText = '🔒';
+                showController();
             }
 
             toggleDelaySettingView();
