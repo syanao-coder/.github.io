@@ -965,6 +965,12 @@
             display.innerText = `${formatShortTime(video.currentTime)} / ${formatShortTime(dur)}`;
         }
 
+         function formatShortTime(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
         function setupSeekTooltip(cardId) {
             const seekInput = document.getElementById(`localSeek_${cardId}`);
             const tooltip = document.getElementById(`seekTooltip_${cardId}`);
