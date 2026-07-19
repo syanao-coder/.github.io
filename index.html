@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>アニメ同時視聴コントローラー (Stable)</title>
+    <title>アニメ同時視聴コントローラー</title>
     <style>
-        /* --- UIサイズ可変用の変数定義 --- */
         :root {
             --bg-color: #08080a;
             --panel-bg: rgba(24, 24, 32, 0.95);
@@ -15,7 +14,6 @@
             --btn-bg: #2d2d3a;
             --btn-text: #ffffff;
             --border-color: #3a3a4a;
-            
             --ui-scale: 1.25;
             --header-height: calc(30px * var(--ui-scale));
             --header-font: calc(0.75rem * var(--ui-scale));
@@ -38,7 +36,6 @@
             display: flex; flex-direction: column; position: relative;
         }
 
-        /* --- トップバー --- */
         .top-bar {
             width: 100%; height: 35px; background-color: #0c0c10;
             border-bottom: 1px solid var(--border-color); display: flex;
@@ -54,7 +51,6 @@
         .settings-toggle-btn:hover { background: rgba(0, 255, 204, 0.1); }
         .settings-toggle-btn.active { background: #00ffcc; color: #000; }
 
-        /* --- 上部設定メニュー --- */
         .settings-container {
             position: absolute; top: 35px; left: 0; width: 100%; z-index: 100;
             pointer-events: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
@@ -97,7 +93,6 @@
         button.playing-state { background-color: #2e4a62; }
         button.playing-state:hover { background-color: #3f607d; }
 
-        /* --- メインビュー --- */
         .main-view {
             width: 100vw; flex: 1; position: relative; background-color: #000;
             transition: padding-bottom 0.3s cubic-bezier(0.25, 1, 0.5, 1); box-sizing: border-box;
@@ -109,7 +104,6 @@
             grid-auto-flow: dense; transition: all 0.3s ease;
         }
 
-        /* --- 動画カード --- */
         .player-card {
             background-color: #121216; border-radius: 6px; overflow: hidden; position: relative;
             display: flex; flex-direction: column; border: 1px solid var(--border-color); transition: all 0.3s ease;
@@ -153,7 +147,6 @@
         }
         .delete-btn:hover { background-color: #52526e; color: #ff6b81; }
 
-        /* チャット関連 */
         .player-container-wrapper {
             display: flex; flex-direction: row; width: 100%; height: 100%; position: relative; background: #000;
         }
@@ -169,7 +162,6 @@
         .chat-splitter:hover, .chat-splitter.dragging { background: #00ffcc; }
         .chat-container { display: none; width: 300px; background: #0c0c10; position: relative; }
 
-        /* ローカル動画用オーバーレイ */
         .local-video-overlay {
             position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.85);
             padding: calc(6px * var(--ui-scale)) calc(12px * var(--ui-scale)); display: flex; align-items: center;
@@ -194,7 +186,6 @@
         .placeholder-box input[type="text"] { width: 80%; max-width: 350px; margin-bottom: 10px; text-align: center; }
         .placeholder-actions { display: flex; gap: 10px; align-items: center; }
 
-        /* --- 下部一括操作メニュー --- */
         .overlay-controller {
             position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%);
             background-color: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
@@ -229,7 +220,6 @@
         }
         .lock-btn:hover { opacity: 1; }
 
-        /* 独立タイマーUI */
         .sync-timer-container { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
         .sync-timer {
             font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 10px;
@@ -248,6 +238,12 @@
         }
         .timer-reset-btn:hover { background-color: #333; }
 
+        .sync-indicator {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85); padding: 15px 30px; border-radius: 8px; color: #00ffcc;
+            font-weight: bold; font-size: 1.2rem; z-index: 105; pointer-events: none; display: none;
+            border: 1px solid #00ffcc; box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+        }
         .countdown-overlay {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             font-size: 10rem; font-weight: 900; color: #ff4757; text-shadow: 0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757;
@@ -260,7 +256,6 @@
 </head>
 <body>
 
-    <!-- トップバー -->
     <div class="top-bar">
         <span style="color: #00ffcc; font-size: 0.85rem; font-weight: bold; margin-right: auto; letter-spacing: 1px;">アニメ同時視聴コントローラー</span>
         <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()">
@@ -268,10 +263,8 @@
         </button>
     </div>
 
-    <!-- 上部設定プルダウンメニュー -->
     <div class="settings-container" id="settingsContainer">
         <div id="settingsContent" class="settings-content">
-            
             <div class="settings-section">
                 <h3>🖥 基本・レイアウト設定</h3>
                 <div class="control-row">
@@ -288,7 +281,6 @@
                         <option value="vertical">上下に並べる</option>
                     </select>
                 </div>
-                <!-- グリッド列数指定 -->
                 <div class="control-row">
                     <label style="font-size:0.9rem;" for="layoutCols">グリッド列数 (レイアウト):</label>
                     <select id="layoutCols" onchange="updateLayout(); saveSettings();">
@@ -349,22 +341,17 @@
                     <button onclick="clearAllSettings()" style="width:100%; background-color:#8e2430;">全設定・保存URLをリセット</button>
                 </div>
             </div>
-
         </div>
     </div>
 
-    <!-- メインビュー -->
     <div class="main-view" id="mainView">
-        <div class="players-grid" id="playersGrid">
-            <!-- 動的挿入 -->
-        </div>
+        <div class="players-grid" id="playersGrid"></div>
+        <div class="sync-indicator" id="syncIndicator">⏳ シーク待機中...</div>
         <div class="countdown-overlay" id="countdownOverlay">3</div>
     </div>
 
-    <!-- 下部操作メニュー -->
     <div class="overlay-controller" id="overlayController">
         <div class="controller-tab">▲ 操作メニュー</div>
-        
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
 
         <div class="sync-timer-container">
@@ -396,7 +383,6 @@
     </div>
 
     <script>
-        // --- ★ グローバル関数としてのフォーマット定義（エラー防止） ---
         function formatTime(sec) {
             const hrs = Math.floor(sec / 3600);
             const mins = Math.floor((sec - hrs * 3600) / 60);
@@ -428,9 +414,18 @@
         let currentPlaybackSpeed = 1.0;
         let isControllerLocked = false;
         
-        // 手動シーク検知用フラグ
         let localSeekStartTime = {};
         let localSeekActive = {};
+
+        // --- シーク同期待機（Sync Waiter）状態管理 ---
+        let isWaitingForSync = false;
+        let wasPlayingBeforeSeek = false;
+        let syncStatus = {
+            external: true, // trueで準備完了
+            local: {},      // cardId -> boolean
+            yt: {}          // cardId -> boolean
+        };
+        let syncTimeoutId = null;
 
         let playerCount = 2; 
         const MAX_TOTAL_COUNT = 9;
@@ -454,6 +449,15 @@
                             applySeekToAll(diff, false, null);
                         }
                     }
+                } else if (newState === 'seekStart') {
+                    if (document.getElementById('enableSeekSync').checked) {
+                        startSyncWait(true);
+                    }
+                } else if (newState === 'seekReady') {
+                    if (document.getElementById('enableSeekSync').checked) {
+                        syncStatus.external = true;
+                        checkAllReady();
+                    }
                 }
             }
         });
@@ -467,7 +471,6 @@
             updateSkipDisplays(); 
         }
 
-        // --- UI・設定メニュー ---
         function toggleSettings() {
             const container = document.getElementById('settingsContainer');
             const btn = document.getElementById('topSettingsBtn');
@@ -505,7 +508,7 @@
         function updateSkipDisplays() {
             const sec = getSkipSec();
             const display = document.getElementById('skipSecDisplay');
-            if (display) display.innerText = `[${sec}秒]`;
+            if (display) display.innerText = `[${sec}s]`;
 
             document.getElementById('batchSkipBackBtn').title = `一括${sec}秒戻る`;
             document.getElementById('batchSkipForwardBtn').title = `一括${sec}秒進む`;
@@ -514,14 +517,13 @@
             document.querySelectorAll('.skip-forward-btn').forEach(btn => btn.title = `${sec}秒進む`);
         }
 
-        // --- 枠数増減 ---
         function changePlayerCount(diff) {
             playerCount = Math.min(Math.max(1, playerCount + diff), MAX_TOTAL_COUNT);
             document.getElementById('activeCountDisplay').innerText = playerCount;
             if (diff < 0) compactSavedUrls();
             initializeGrid();
         }
-        
+
         function compactSavedUrls() {
             let urls = [];
             for (let i = 1; i <= MAX_TOTAL_COUNT; i++) {
@@ -532,7 +534,7 @@
             urls.forEach((url, index) => localStorage.setItem(`sync_url_${index + 1}`, url));
         }
 
-        // --- グリッド初期化 ---
+        // --- グリッド構築 ---
         function initializeGrid() {
             const grid = document.getElementById('playersGrid');
 
@@ -563,7 +565,6 @@
             activeCardIds = cards.map(c => c.id);
         }
 
-        // --- カード生成と破棄 ---
         function generateHeaderHTML(cardId) {
             const sec = getSkipSec();
             return `
@@ -594,7 +595,7 @@
             card.id = cardId;
             card.style.order = activeCardIds.length;
             
-            card.innerHTML = `
+            card.innerHTML = generateHeaderHTML(cardId) + `
                 <div class="player-container-wrapper" id="wrapper_${cardId}">
                     <div class="player-container" id="playerContainer_${cardId}">
                         <div class="placeholder-box">
@@ -606,23 +607,21 @@
                             </div>
                         </div>
                     </div>
-                    <!-- チャット関連 -->
                     <div class="chat-splitter" id="splitter_${cardId}"></div>
                     <div class="chat-container" id="chatContainer_${cardId}">
                         <iframe id="chatIframe_${cardId}" style="width:100%; height:100%; border:none;"></iframe>
                     </div>
                 </div>
-                ${generateHeaderHTML(cardId)}
                 <div class="local-video-overlay" id="localOverlay_${cardId}" style="display:none;">
                     <button onclick="togglePlayLocal('${cardId}')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>
                     <div class="local-seek-container">
-                        <!-- ★手動シークイベント。マウスアップ等を追加 -->
                         <input type="range" id="localSeek_${cardId}" min="0" max="100" value="0" step="0.1" 
                             onmousedown="onLocalSeekStart('${cardId}')" ontouchstart="onLocalSeekStart('${cardId}')"
                             oninput="updateLocalTimeOnInput('${cardId}', this.value)"
                             onchange="onLocalSeekEnd('${cardId}')"
                             onmouseup="onLocalSeekEnd('${cardId}')"
-                            ontouchend="onLocalSeekEnd('${cardId}')">
+                            ontouchend="onLocalSeekEnd('${cardId}')"
+                            onmouseleave="onLocalSeekEnd('${cardId}')">
                         <div class="seek-tooltip" id="seekTooltip_${cardId}">00:00</div>
                     </div>
                     <span id="localTimeDisplay_${cardId}">00:00 / 00:00</span>
@@ -643,67 +642,6 @@
             }
         }
 
-        // --- ★ ローカル動画の手動シーク検知と送信 ---
-        function onLocalSeekStart(cardId) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (video && !localSeekActive[cardId]) {
-                localSeekActive[cardId] = true;
-                localSeekStartTime[cardId] = video.currentTime;
-            }
-        }
-
-        function updateLocalTimeOnInput(cardId, value) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video || isNaN(video.duration)) return;
-            video.currentTime = (value / 100) * video.duration;
-            updateLocalOverlayProgress(cardId);
-        }
-
-        function onLocalSeekEnd(cardId) {
-            localSeekActive[cardId] = false; // ★ 確実にフラグを下ろす
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video || isNaN(video.duration)) return;
-            
-            const start = localSeekStartTime[cardId];
-            if (start !== undefined) {
-                const diff = video.currentTime - start;
-                delete localSeekStartTime[cardId];
-                
-                if (document.getElementById('enableSeekSync').checked) {
-                    applySeekToAll(diff, true, cardId);
-                } else {
-                    if (cardId === getMasterLocalVideoId()) {
-                        globalCurrentTime = video.currentTime;
-                        updateTimerDisplay();
-                    }
-                }
-            }
-        }
-
-        // --- 一括シークのコア処理 ---
-        function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
-            globalCurrentTime = Math.max(0, globalCurrentTime + diff);
-            updateTimerDisplay();
-            
-            if (broadcastToAddon) {
-                broadcastSyncCommand('seek', diff);
-            }
-
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                const id = v.id.replace('localVideo_', '');
-                if (id !== excludeCardId) {
-                    v.currentTime = Math.max(0, v.currentTime + diff);
-                }
-            });
-
-            Object.values(ytPlayers).forEach((player, key) => {
-                if (key !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
-                    player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
-                }
-            });
-        }
-
-
         function destroyPlayerCard(cardId) {
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
             const card = document.getElementById(cardId);
@@ -719,7 +657,6 @@
             if (extBtn) extBtn.style.display = hasLocal ? 'none' : 'flex';
         }
 
-        // --- 再読み込み・クリア・削除 ---
         function reloadPlayer(cardId) {
             const lv = document.getElementById(`localVideo_${cardId}`);
             if (lv && lv.src) {
@@ -787,7 +724,6 @@
             });
         }
 
-        // --- 無停止入れ替え ---
         function moveCard(cardId, direction) {
             const grid = document.getElementById('playersGrid');
             const cards = Array.from(grid.children);
@@ -809,7 +745,6 @@
             resaveUrlsBasedOnOrder();
         }
 
-        // --- ピン留めレイアウト ---
         function togglePin(cardId) {
             const grid = document.getElementById('playersGrid');
             const cards = Array.from(grid.children);
@@ -830,6 +765,14 @@
             const cards = Array.from(grid.children);
             const N = cards.length;
             if (N === 0) return;
+
+            if (N === 1) {
+                grid.style.gridTemplateColumns = `1fr`;
+                grid.style.gridTemplateRows = `1fr`;
+                cards[0].style.gridColumn = 'span 1';
+                cards[0].style.gridRow = 'span 1';
+                return;
+            }
 
             const hasPin = cards.some(c => c.classList.contains('is-main'));
             let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
@@ -879,7 +822,7 @@
             });
         }
 
-        // --- チャット表示トグルと配置変更 ---
+        // --- チャット ---
         function toggleChat(cardId) {
             const chatContainer = document.getElementById(`chatContainer_${cardId}`);
             const splitter = document.getElementById(`splitter_${cardId}`);
@@ -921,7 +864,6 @@
             });
         }
 
-        // --- スプリッターのドラッグ実装 ---
         function setupChatSplitters() {
             let isDragging = false;
             let currentSplitter = null;
@@ -999,10 +941,23 @@
                             document.getElementById(`playlistPrev_${cardId}`).style.display = 'inline-block';
                             document.getElementById(`playlistNext_${cardId}`).style.display = 'inline-block';
                         }
+                    },
+                    'onStateChange': (event) => {
+                        handleYtStateChange(cardId, event.data);
                     }
                 }
             });
             resaveUrlsBasedOnOrder();
+        }
+
+        function handleYtStateChange(cardId, state) {
+            if (isWaitingForSync) {
+                // シーク後のバッファ完了（PAUSED=2、または何らかの理由で再生開始されたPLAYING=1）
+                if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.PLAYING) {
+                    syncStatus.yt[cardId] = true;
+                    checkAllReady();
+                }
+            }
         }
 
         function prevPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].previousVideo(); }
@@ -1022,10 +977,22 @@
             document.getElementById(`localVolume_${cardId}`).value = document.getElementById('masterVolume').value;
             video.playbackRate = currentPlaybackSpeed;
 
-            // ★ メタデータ読み込み時に duration をタイマーに反映するため追加
             video.addEventListener('loadedmetadata', () => updateLocalOverlayProgress(cardId));
             video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
             
+            // シーク・バッファ足並み揃え用リスナー
+            video.addEventListener('seeking', () => {
+                if (isWaitingForSync) {
+                    syncStatus.local[cardId] = false;
+                }
+            });
+            video.addEventListener('seeked', () => {
+                if (isWaitingForSync) {
+                    syncStatus.local[cardId] = true;
+                    checkAllReady();
+                }
+            });
+
             document.getElementById(`localOverlay_${cardId}`).style.display = 'flex';
             resaveUrlsBasedOnOrder();
             checkLocalVideoExists();
@@ -1067,6 +1034,7 @@
             seekInput.addEventListener('mousemove', (e) => {
                 const video = document.getElementById(`localVideo_${cardId}`);
                 if (!video || isNaN(video.duration)) return;
+
                 const rect = seekInput.getBoundingClientRect();
                 const offsetX = e.clientX - rect.left;
                 const percent = Math.min(Math.max(0, offsetX / rect.width), 1);
@@ -1077,6 +1045,92 @@
             seekInput.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
         }
 
+        // --- 手動シーク検知・待機ルーティン ---
+        function onLocalSeekStart(cardId) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (video && !localSeekActive[cardId]) {
+                localSeekActive[cardId] = true;
+                localSeekStartTime[cardId] = video.currentTime;
+                
+                // シーク開始時に足並み揃え待機を開始
+                if (document.getElementById('enableSeekSync').checked) {
+                    startSyncWait(false);
+                }
+            }
+        }
+
+        function updateLocalTimeOnInput(cardId, value) {
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (!video || isNaN(video.duration)) return;
+            video.currentTime = (value / 100) * video.duration;
+            updateLocalOverlayProgress(cardId);
+        }
+
+        function onLocalSeekEnd(cardId) {
+            if (!localSeekActive[cardId]) return; 
+            localSeekActive[cardId] = false; 
+            
+            const video = document.getElementById(`localVideo_${cardId}`);
+            if (!video || isNaN(video.duration)) return;
+            
+            const start = localSeekStartTime[cardId];
+            if (start !== undefined) {
+                const diff = video.currentTime - start;
+                delete localSeekStartTime[cardId];
+                
+                if (document.getElementById('enableSeekSync').checked) {
+                    applySeekToAll(diff, true, cardId);
+                    
+                    // 操作元の動画はシーク済みのため、即座に準備完了とする
+                    syncStatus.local[cardId] = true;
+                    checkAllReady();
+                } else {
+                    if (cardId === getMasterLocalVideoId()) {
+                        globalCurrentTime = video.currentTime;
+                        updateTimerDisplay();
+                    }
+                }
+            }
+            if (!document.getElementById('enableSeekSync').checked) {
+                if (isPlayingRequest && video.paused) {
+                    video.play().catch(e=>{});
+                }
+            }
+        }
+
+        // --- 一括シークのコア処理 ---
+        function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
+            globalCurrentTime = Math.max(0, globalCurrentTime + diff);
+            updateTimerDisplay();
+            
+            if (broadcastToAddon) {
+                broadcastSyncCommand('seek', diff);
+                if (isWaitingForSync) {
+                    syncStatus.external = false; // アドオン側の準備完了待ち
+                }
+            }
+
+            document.querySelectorAll('.custom-local-video').forEach(v => {
+                const id = v.id.replace('localVideo_', '');
+                if (id !== excludeCardId) {
+                    v.currentTime = Math.max(0, v.currentTime + diff);
+                    if (isWaitingForSync) {
+                        syncStatus.local[id] = false; // 対象ローカル動画の準備完了待ちに設定
+                    }
+                }
+            });
+
+            // 既存の数値キーバグをObject.entriesで修正
+            Object.entries(ytPlayers).forEach(([id, player]) => {
+                if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
+                    player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
+                    if (isWaitingForSync) {
+                        syncStatus.yt[id] = false; // 対象YouTubeの準備完了待ちに設定
+                    }
+                }
+            });
+        }
+
         // --- 個別シーク（アドオンには送信しない） ---
         function skipPlayer(cardId, seconds) {
             const yt = ytPlayers[cardId];
@@ -1085,6 +1139,95 @@
                 yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
             } else if (lv) {
                 lv.currentTime = Math.max(0, lv.currentTime + seconds);
+                if (cardId === getMasterLocalVideoId()) {
+                    globalCurrentTime = lv.currentTime;
+                    updateTimerDisplay();
+                }
+            }
+        }
+
+        // --- シーク時限定 Sync Waiter（足並み揃えシステム） ---
+        function startSyncWait(initiatedByExternal = false) {
+            if (isWaitingForSync) {
+                // 既にシーク待機中の場合はセーフティタイマーを延長して終了
+                if (syncTimeoutId) clearTimeout(syncTimeoutId);
+                syncTimeoutId = setTimeout(() => {
+                    console.log("[Sync Wait] セーフティタイムアウト：強制再生します");
+                    endSyncWait(true);
+                }, 4000);
+                return;
+            }
+
+            isWaitingForSync = true;
+            wasPlayingBeforeSeek = isPlayingRequest;
+
+            // 再生中の場合は一旦内部的に停止
+            pauseAllPlayersOnly();
+
+            // インジケーター表示
+            const indicator = document.getElementById('syncIndicator');
+            if (indicator) indicator.style.display = 'block';
+
+            // 監視ステータスの初期化
+            syncStatus.external = !initiatedByExternal; 
+            syncStatus.local = {};
+            syncStatus.yt = {};
+
+            // ロード済みかつ有効なプレイヤーのみ監視対象とする
+            activeCardIds.forEach(cardId => {
+                const lv = document.getElementById(`localVideo_${cardId}`);
+                if (lv && lv.src && lv.src !== window.location.href) {
+                    syncStatus.local[cardId] = false;
+                }
+                const yt = ytPlayers[cardId];
+                if (yt && typeof yt.getPlayerState === 'function') {
+                    syncStatus.yt[cardId] = false;
+                }
+            });
+
+            // ネットワーク詰まり等によるフリーズを防止する4秒のセーフティタイムアウト
+            if (syncTimeoutId) clearTimeout(syncTimeoutId);
+            syncTimeoutId = setTimeout(() => {
+                console.log("[Sync Wait] セーフティタイムアウト：強制再生します");
+                endSyncWait(true);
+            }, 4000);
+        }
+
+        function checkAllReady() {
+            if (!isWaitingForSync) return;
+
+            // アドオン（外部再生先）のバッファ完了チェック
+            if (!syncStatus.external) return;
+
+            // ローカル動画のバッファ完了チェック
+            for (let cardId in syncStatus.local) {
+                if (syncStatus.local[cardId] === false) return;
+            }
+
+            // YouTubeプレイヤーのバッファ完了チェック
+            for (let cardId in syncStatus.yt) {
+                if (syncStatus.yt[cardId] === false) return;
+            }
+
+            // 全員のバッファが完了
+            endSyncWait(false);
+        }
+
+        function endSyncWait(forced = false) {
+            if (!isWaitingForSync) return;
+
+            isWaitingForSync = false;
+            if (syncTimeoutId) {
+                clearTimeout(syncTimeoutId);
+                syncTimeoutId = null;
+            }
+
+            const indicator = document.getElementById('syncIndicator');
+            if (indicator) indicator.style.display = 'none';
+
+            // シーク前に再生中だった場合のみ一斉再生を再開
+            if (wasPlayingBeforeSeek) {
+                playAllPlayersOnly();
             }
         }
 
@@ -1151,13 +1294,13 @@
                         overlay.style.textShadow = '0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757';
                     }, 800);
                     clearInterval(countdownInterval);
+                    countdownInterval = null;
                 }
             }, 1000);
         }
 
         function cancelCountdown() {
-            clearInterval(countdownInterval);
-            countdownInterval = null;
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
             clearTimeout(countdownTimer);
             const overlay = document.getElementById('countdownOverlay');
             overlay.style.display = 'none';
@@ -1185,6 +1328,7 @@
 
         function playAllPlayersOnly() {
             broadcastSyncCommand('play');
+            setTimeout(() => { broadcastSyncCommand('seekTo', globalCurrentTime); }, 300);
 
             document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
             Object.values(ytPlayers).forEach(player => {
@@ -1194,15 +1338,17 @@
 
         function pauseAllPlayersOnly() {
             broadcastSyncCommand('pause');
-
             document.querySelectorAll('.custom-local-video').forEach(v => v.pause());
             Object.values(ytPlayers).forEach(player => {
                 if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
             });
         }
 
-        // --- ★ 一括シーク ---
         function skipAll(seconds) {
+            // 一括スキップ時にもシーク同期待機（Sync Waiter）を適用
+            if (document.getElementById('enableSeekSync').checked) {
+                startSyncWait(false);
+            }
             applySeekToAll(seconds, true, null);
         }
 
@@ -1242,7 +1388,6 @@
             const delta = (now - lastTimeUpdate) / 1000;
             lastTimeUpdate = now;
 
-            // Durationの取得
             let newDuration = 0;
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
@@ -1255,7 +1400,6 @@
             }
             globalDuration = newDuration;
 
-            // タイマーの進行
             const masterLocalId = getMasterLocalVideoId();
             if (masterLocalId) {
                 const lv = document.getElementById(`localVideo_${masterLocalId}`);
@@ -1263,7 +1407,7 @@
                     globalCurrentTime = lv.currentTime;
                 }
             } else {
-                if (isPlayingRequest && countdownInterval === null) {
+                if (isPlayingRequest && countdownInterval === null && !isWaitingForSync) {
                     globalCurrentTime += delta * currentPlaybackSpeed;
                 }
             }
@@ -1379,11 +1523,7 @@
             localStorage.setItem('sync_playback_speed', currentPlaybackSpeed);
             localStorage.setItem('sync_master_volume', document.getElementById('masterVolume').value);
             localStorage.setItem('sync_controller_lock', isControllerLocked);
-            
-            const enableSeekSyncCheckbox = document.getElementById('enableSeekSync');
-            if (enableSeekSyncCheckbox) {
-                localStorage.setItem('sync_enable_seek_sync', enableSeekSyncCheckbox.checked);
-            }
+            localStorage.setItem('sync_enable_seek_sync', document.getElementById('enableSeekSync').checked);
         }
 
         function loadSavedSettings() {
@@ -1412,11 +1552,7 @@
                 document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
             }
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
-            
-            const enableSeekSyncCheckbox = document.getElementById('enableSeekSync');
-            if (enableSeekSyncCheckbox && localStorage.getItem('sync_enable_seek_sync') !== null) {
-                enableSeekSyncCheckbox.checked = localStorage.getItem('sync_enable_seek_sync') === 'true';
-            }
+            if (localStorage.getItem('sync_enable_seek_sync') !== null) document.getElementById('enableSeekSync').checked = localStorage.getItem('sync_enable_seek_sync') === 'true';
             
             if (localStorage.getItem('sync_controller_lock') === 'true') {
                 isControllerLocked = true;
