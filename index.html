@@ -288,6 +288,7 @@
                         <option value="vertical">上下に並べる</option>
                     </select>
                 </div>
+                <!-- グリッド列数指定 -->
                 <div class="control-row">
                     <label style="font-size:0.9rem;" for="layoutCols">グリッド列数 (レイアウト):</label>
                     <select id="layoutCols" onchange="updateLayout(); saveSettings();">
@@ -450,7 +451,6 @@
                     if (document.getElementById('enableSeekSync').checked) {
                         const diff = parseFloat(event.data.diff);
                         if (!isNaN(diff)) {
-                            // アドオン(B)へは送り返さず、A内の全プレイヤーへ適用
                             applySeekToAll(diff, false, null);
                         }
                     }
@@ -532,7 +532,7 @@
             urls.forEach((url, index) => localStorage.setItem(`sync_url_${index + 1}`, url));
         }
 
-        // --- グリッド初期化（対等化・完全無停止） ---
+        // --- グリッド初期化 ---
         function initializeGrid() {
             const grid = document.getElementById('playersGrid');
 
@@ -594,7 +594,7 @@
             card.id = cardId;
             card.style.order = activeCardIds.length;
             
-            card.innerHTML = generateHeaderHTML(cardId) + `
+            card.innerHTML = `
                 <div class="player-container-wrapper" id="wrapper_${cardId}">
                     <div class="player-container" id="playerContainer_${cardId}">
                         <div class="placeholder-box">
@@ -612,14 +612,17 @@
                         <iframe id="chatIframe_${cardId}" style="width:100%; height:100%; border:none;"></iframe>
                     </div>
                 </div>
+                ${generateHeaderHTML(cardId)}
                 <div class="local-video-overlay" id="localOverlay_${cardId}" style="display:none;">
                     <button onclick="togglePlayLocal('${cardId}')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>
                     <div class="local-seek-container">
-                        <!-- ★手動シークイベント -->
+                        <!-- ★手動シークイベント。マウスアップ等を追加 -->
                         <input type="range" id="localSeek_${cardId}" min="0" max="100" value="0" step="0.1" 
                             onmousedown="onLocalSeekStart('${cardId}')" ontouchstart="onLocalSeekStart('${cardId}')"
                             oninput="updateLocalTimeOnInput('${cardId}', this.value)"
-                            onchange="onLocalSeekEnd('${cardId}')">
+                            onchange="onLocalSeekEnd('${cardId}')"
+                            onmouseup="onLocalSeekEnd('${cardId}')"
+                            ontouchend="onLocalSeekEnd('${cardId}')">
                         <div class="seek-tooltip" id="seekTooltip_${cardId}">00:00</div>
                     </div>
                     <span id="localTimeDisplay_${cardId}">00:00 / 00:00</span>
@@ -641,13 +644,6 @@
         }
 
         // --- ★ ローカル動画の手動シーク検知と送信 ---
-        function setupSeekEvents(cardId) {
-            const input = document.getElementById(`localSeek_${cardId}`);
-            if (!input) return;
-            input.addEventListener('mousedown', () => onLocalSeekStart(cardId));
-            input.addEventListener('touchstart', () => onLocalSeekStart(cardId));
-        }
-
         function onLocalSeekStart(cardId) {
             const video = document.getElementById(`localVideo_${cardId}`);
             if (video && !localSeekActive[cardId]) {
@@ -664,6 +660,7 @@
         }
 
         function onLocalSeekEnd(cardId) {
+            localSeekActive[cardId] = false; // ★ 確実にフラグを下ろす
             const video = document.getElementById(`localVideo_${cardId}`);
             if (!video || isNaN(video.duration)) return;
             
@@ -671,7 +668,6 @@
             if (start !== undefined) {
                 const diff = video.currentTime - start;
                 delete localSeekStartTime[cardId];
-                localSeekActive[cardId] = false;
                 
                 if (document.getElementById('enableSeekSync').checked) {
                     applySeekToAll(diff, true, cardId);
@@ -684,7 +680,7 @@
             }
         }
 
-        // --- 一括シークのコア処理（ループ防止） ---
+        // --- 一括シークのコア処理 ---
         function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
             globalCurrentTime = Math.max(0, globalCurrentTime + diff);
             updateTimerDisplay();
@@ -1026,7 +1022,7 @@
             document.getElementById(`localVolume_${cardId}`).value = document.getElementById('masterVolume').value;
             video.playbackRate = currentPlaybackSpeed;
 
-            // ★ メタデータが読み込まれたら即座に duration をタイマーに反映
+            // ★ メタデータ読み込み時に duration をタイマーに反映するため追加
             video.addEventListener('loadedmetadata', () => updateLocalOverlayProgress(cardId));
             video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
             
@@ -1071,7 +1067,6 @@
             seekInput.addEventListener('mousemove', (e) => {
                 const video = document.getElementById(`localVideo_${cardId}`);
                 if (!video || isNaN(video.duration)) return;
-
                 const rect = seekInput.getBoundingClientRect();
                 const offsetX = e.clientX - rect.left;
                 const percent = Math.min(Math.max(0, offsetX / rect.width), 1);
@@ -1384,7 +1379,11 @@
             localStorage.setItem('sync_playback_speed', currentPlaybackSpeed);
             localStorage.setItem('sync_master_volume', document.getElementById('masterVolume').value);
             localStorage.setItem('sync_controller_lock', isControllerLocked);
-            localStorage.setItem('sync_enable_seek_sync', document.getElementById('enableSeekSync').checked);
+            
+            const enableSeekSyncCheckbox = document.getElementById('enableSeekSync');
+            if (enableSeekSyncCheckbox) {
+                localStorage.setItem('sync_enable_seek_sync', enableSeekSyncCheckbox.checked);
+            }
         }
 
         function loadSavedSettings() {
@@ -1413,7 +1412,11 @@
                 document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
             }
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
-            if (localStorage.getItem('sync_enable_seek_sync') !== null) document.getElementById('enableSeekSync').checked = localStorage.getItem('sync_enable_seek_sync') === 'true';
+            
+            const enableSeekSyncCheckbox = document.getElementById('enableSeekSync');
+            if (enableSeekSyncCheckbox && localStorage.getItem('sync_enable_seek_sync') !== null) {
+                enableSeekSyncCheckbox.checked = localStorage.getItem('sync_enable_seek_sync') === 'true';
+            }
             
             if (localStorage.getItem('sync_controller_lock') === 'true') {
                 isControllerLocked = true;
