@@ -190,14 +190,6 @@
         }
         .local-video-overlay span { font-size: var(--header-font); font-family: monospace; }
 
-        .placeholder-box {
-            width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center;
-            align-items: center; background-color: #121218; border: 2px dashed var(--border-color);
-            box-sizing: border-box; padding: 20px;
-        }
-        .placeholder-box input[type="text"] { width: 80%; max-width: 350px; margin-bottom: 10px; text-align: center; }
-        .placeholder-actions { display: flex; gap: 10px; align-items: center; }
-
         .overlay-controller {
             position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%);
             background-color: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
@@ -458,15 +450,20 @@
             const select = document.getElementById('syncMasterSelect');
             const optExt = document.getElementById('optMasterExternal');
             if (optExt) {
-                if (isExternalActive) {
-                    optExt.text = externalSiteName ? `外部配信サイト (${externalSiteName})` : "外部配信サイト (接続中)";
-                    optExt.disabled = false;
-                } else {
-                    optExt.text = "外部配信サイト (未接続)";
-                    optExt.disabled = true;
-                    if (select && select.value === 'external') {
-                        select.value = 'internal';
-                    }
+                const targetText = isExternalActive 
+                    ? (externalSiteName ? `外部配信サイト (${externalSiteName})` : "外部配信サイト (接続中)")
+                    : "外部配信サイト (未接続)";
+                const targetDisabled = !isExternalActive;
+
+                // 値が実際に変化したときのみ書き換える（DOMの再描画バグ・プルダウン閉じ対策）
+                if (optExt.text !== targetText) {
+                    optExt.text = targetText;
+                }
+                if (optExt.disabled !== targetDisabled) {
+                    optExt.disabled = targetDisabled;
+                }
+                if (targetDisabled && select && select.value === 'external') {
+                    select.value = 'internal';
                 }
             }
         }
@@ -521,7 +518,8 @@
                 if (event.data.siteName) {
                     externalSiteName = event.data.siteName;
                 }
-                updateMasterOptions();
+                // メッセージ受信時に毎回innerHTMLをクリアするとプルダウンメニューが閉じられてしまうため、
+                // 通信時のupdateMasterOptions()の呼び出しを削除し、動的更新はupdateMasterBadge()のみに一任します。
 
                 const newState = event.data.state; 
                 if (newState === 'timeReport') {
