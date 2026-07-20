@@ -221,6 +221,11 @@
         .lock-btn:hover { opacity: 1; }
 
         .sync-timer-container { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+        .sync-master-badge {
+            font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px;
+            background: #2d2d3a; color: #aaa; border: 1px solid var(--border-color);
+            margin-right: 4px; font-family: sans-serif; cursor: help;
+        }
         .sync-timer {
             font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 10px;
             border-radius: 15px; color: #00ffcc; border: 1px solid #00ffcc55; cursor: pointer; transition: 0.2s;
@@ -355,10 +360,11 @@
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
 
         <div class="sync-timer-container">
-            <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力">00:00:00</div>
+            <div id="syncMasterBadge" class="sync-master-badge" title="タイマーと全体の時間の基準になっている対象">基準: 内部</div>
+            <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力(全動画をその時間へ同期)">00:00:00</div>
             <input type="text" id="timerInput" class="sync-timer-input" onblur="finishEditTimer()" onkeydown="if(event.key==='Enter')finishEditTimer()">
-            <button class="timer-reset-btn" onclick="resetGlobalTimer()" title="タイマーを0にリセット">↺</button>
-            <button class="timer-reset-btn" id="requestExternalTimeBtn" onclick="requestExternalTime()" title="現在の再生時間を取得 (要アドオン)" style="margin-left: 2px;">⏱</button>
+            <button class="timer-reset-btn" onclick="resetGlobalTimer()" title="タイマーを0にリセット (全動画同期)">↺</button>
+            <button class="timer-reset-btn" id="requestExternalTimeBtn" onclick="requestExternalTime()" title="現在の外部アニメ動画の時間を取得して同期" style="margin-left: 2px;">⏱</button>
         </div>
         
         <button class="primary" id="playPauseBtn" onclick="togglePlayPauseAll()" style="font-size:0.95rem; padding:6px 12px;">▶ 一括再生</button>
@@ -431,6 +437,42 @@
         let playerCount = 2; 
         const MAX_TOTAL_COUNT = 9;
 
+        // --- マスター（時間基準）判定ロジック ---
+        function getMasterLocalVideoId() {
+            const cards = Array.from(document.getElementById('playersGrid').children);
+            cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
+            for (let card of cards) {
+                const lv = document.getElementById(`localVideo_${card.id}`);
+                if (lv) return card.id;
+            }
+            return null;
+        }
+
+        function getCurrentMasterType() {
+            if (isExternalActive) return 'external';
+            if (getMasterLocalVideoId()) return 'local';
+            return 'internal';
+        }
+
+        function updateMasterBadge() {
+            const badge = document.getElementById('syncMasterBadge');
+            if (!badge) return;
+            const type = getCurrentMasterType();
+            if (type === 'external') {
+                badge.innerText = '基準: 外部アニメ';
+                badge.style.color = '#ff9f43'; 
+                badge.style.borderColor = '#ff9f4355';
+            } else if (type === 'local') {
+                badge.innerText = '基準: ローカル';
+                badge.style.color = '#00ffcc';
+                badge.style.borderColor = '#00ffcc55';
+            } else {
+                badge.innerText = '基準: YouTube等';
+                badge.style.color = '#aaa';
+                badge.style.borderColor = '#aaa55';
+            }
+        }
+
         // --- アドオン通信 ---
         function broadcastSyncCommand(action, value = null) {
             window.postMessage({ type: 'SYNC_CMD', action: action, value: value }, '*');
@@ -446,7 +488,6 @@
                     updateTimerDisplay();
                 } else if (newState === 'relativeSeekReport') {
                     if (document.getElementById('enableSeekSync').checked) {
-                        // event.data.diff と event.data.time の両キーに対応（不整合対策）
                         const diff = parseFloat(event.data.diff !== undefined ? event.data.diff : event.data.time);
                         if (!isNaN(diff) && isFinite(diff)) {
                             applySeekToAll(diff, false, null);
@@ -598,7 +639,6 @@
             card.id = cardId;
             card.style.order = activeCardIds.length;
             
-            // onmouseleaveを排除し、ドラッグをはみ出しても正常完了させる構成に変更
             card.innerHTML = generateHeaderHTML(cardId) + `
                 <div class="player-container-wrapper" id="wrapper_${cardId}">
                     <div class="player-container" id="playerContainer_${cardId}">
@@ -955,7 +995,6 @@
 
         function handleYtStateChange(cardId, state) {
             if (isWaitingForSync) {
-                // シークに伴ってバッファ（state 3）が始まった場合のみ待機フラグをfalseにする（ロック対策）
                 if (state === YT.PlayerState.BUFFERING) {
                     syncStatus.yt[cardId] = false;
                 } else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.PLAYING) {
@@ -985,11 +1024,8 @@
             video.addEventListener('loadedmetadata', () => updateLocalOverlayProgress(cardId));
             video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
             
-            // シーク・バッファ足並み揃え用リスナー
             video.addEventListener('seeking', () => {
-                if (isWaitingForSync) {
-                    syncStatus.local[cardId] = false;
-                }
+                if (isWaitingForSync) syncStatus.local[cardId] = false;
             });
             video.addEventListener('seeked', () => {
                 if (isWaitingForSync) {
@@ -1057,7 +1093,6 @@
                 localSeekActive[cardId] = true;
                 localSeekStartTime[cardId] = video.currentTime;
                 
-                // シーク開始時に足並み揃え待機を開始
                 if (document.getElementById('enableSeekSync').checked) {
                     startSyncWait(false);
                 }
@@ -1087,7 +1122,6 @@
                     if (!isNaN(diff) && isFinite(diff)) {
                         applySeekToAll(diff, true, cardId);
                     }
-                    // 操作元の動画はすでにシーク済みのため即座に完了とする
                     syncStatus.local[cardId] = true;
                     checkAllReady();
                 } else {
@@ -1121,7 +1155,7 @@
                 if (id !== excludeCardId) {
                     v.currentTime = Math.max(0, v.currentTime + diff);
                     if (isWaitingForSync) {
-                        syncStatus.local[id] = false; // 対象ローカル動画の準備完了待ち
+                        syncStatus.local[id] = false; 
                     }
                 }
             });
@@ -1129,7 +1163,6 @@
             Object.entries(ytPlayers).forEach(([id, player]) => {
                 if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
                     player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
-                    // YouTubeは基本準備完了とし、実際のバッファ開始時のみfalse（待機）に変更
                 }
             });
         }
@@ -1163,23 +1196,19 @@
             isWaitingForSync = true;
             wasPlayingBeforeSeek = isPlayingRequest;
 
-            // 再生中の場合は一旦内部的に停止
             pauseAllPlayersOnly();
 
-            // インジケーター表示
             const indicator = document.getElementById('syncIndicator');
             if (indicator) indicator.style.display = 'block';
 
-            // 監視ステータスの初期化
             if (isExternalActive) {
                 syncStatus.external = !initiatedByExternal; 
             } else {
-                syncStatus.external = true; // アドオンが接続されていない場合は待機をスキップ
+                syncStatus.external = true; 
             }
             syncStatus.local = {};
             syncStatus.yt = {};
 
-            // ロード済みかつ有効なプレイヤーのみ監視対象とする
             activeCardIds.forEach(cardId => {
                 const lv = document.getElementById(`localVideo_${cardId}`);
                 if (lv && lv.src && lv.src !== window.location.href) {
@@ -1187,13 +1216,10 @@
                 }
                 const yt = ytPlayers[cardId];
                 if (yt && typeof yt.getPlayerState === 'function') {
-                    // 一時停止中のYouTubeがイベントを返さない問題への対策として初期状態はtrue（準備完了）とし、
-                    // シーク処理中に実際にバッファ状態（state 3）に入った場合のみ一時的に待機リストへ加える
                     syncStatus.yt[cardId] = true;
                 }
             });
 
-            // 4秒のセーフティタイムアウト
             if (syncTimeoutId) clearTimeout(syncTimeoutId);
             syncTimeoutId = setTimeout(() => {
                 console.log("[Sync Wait] セーフティタイムアウト：強制再生します");
@@ -1203,21 +1229,13 @@
 
         function checkAllReady() {
             if (!isWaitingForSync) return;
-
-            // アドオン（外部再生先）のバッファ完了チェック
             if (!syncStatus.external) return;
-
-            // ローカル動画のバッファ完了チェック
             for (let cardId in syncStatus.local) {
                 if (syncStatus.local[cardId] === false) return;
             }
-
-            // YouTubeプレイヤーのバッファ完了チェック
             for (let cardId in syncStatus.yt) {
                 if (syncStatus.yt[cardId] === false) return;
             }
-
-            // 全員のバッファが完了
             endSyncWait(false);
         }
 
@@ -1233,7 +1251,6 @@
             const indicator = document.getElementById('syncIndicator');
             if (indicator) indicator.style.display = 'none';
 
-            // シーク前に再生中だった場合のみ再生再開
             if (wasPlayingBeforeSeek) {
                 playAllPlayersOnly();
             }
@@ -1336,10 +1353,12 @@
 
         function playAllPlayersOnly() {
             broadcastSyncCommand('play');
-            setTimeout(() => { broadcastSyncCommand('seekTo', globalCurrentTime); }, 300);
+            // 【重要】これまでの強制seekTo送信を廃止し、純粋な「再生」指示のみにしました。
+            // これにより、外部動画が独自にシーク・一時停止している最中に一括再生を押しても、
+            // タイマー時刻へ勝手に巻き戻されることがなくなります。
 
             document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
-            Object.values(ytPlayers).forEach(player => {
+            Object.entries(ytPlayers).forEach(([id, player]) => {
                 if (player && typeof player.playVideo === 'function') player.playVideo();
             });
         }
@@ -1372,20 +1391,11 @@
         }
 
         /* --- タイマー更新（グローバル時間計算） --- */
-        function getMasterLocalVideoId() {
-            const cards = Array.from(document.getElementById('playersGrid').children);
-            cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
-            for (let card of cards) {
-                const lv = document.getElementById(`localVideo_${card.id}`);
-                if (lv) return card.id;
-            }
-            return null;
-        }
-
         function updateTimerDisplay() {
             if (!isEditingTimer) {
                 const cur = formatTime(globalCurrentTime);
                 const dur = formatTime(globalDuration);
+                // 外部マスターの場合など、母数が0の時は現在時刻のみを表示
                 document.getElementById('mainTimer').innerText = globalDuration > 0 ? `${cur} / ${dur}` : cur;
             }
         }
@@ -1395,25 +1405,35 @@
             const delta = (now - lastTimeUpdate) / 1000;
             lastTimeUpdate = now;
 
+            updateMasterBadge();
+
+            const masterType = getCurrentMasterType();
             let newDuration = 0;
             const cards = Array.from(document.getElementById('playersGrid').children);
             cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
             
-            for (let card of cards) {
-                const yt = ytPlayers[card.id];
-                const lv = document.getElementById(`localVideo_${card.id}`);
-                if (lv && !isNaN(lv.duration)) { newDuration = lv.duration; break; }
-                else if (yt && typeof yt.getDuration === 'function') { newDuration = yt.getDuration() || 0; break; }
+            if (masterType === 'local') {
+                const masterLocalId = getMasterLocalVideoId();
+                const lv = document.getElementById(`localVideo_${masterLocalId}`);
+                if (lv && !isNaN(lv.duration)) newDuration = lv.duration;
+            } else if (masterType === 'internal') {
+                for (let card of cards) {
+                    const yt = ytPlayers[card.id];
+                    if (yt && typeof yt.getDuration === 'function') { newDuration = yt.getDuration() || 0; break; }
+                }
+            } else {
+                newDuration = 0; // 外部マスター時は母数非表示
             }
             globalDuration = newDuration;
 
-            const masterLocalId = getMasterLocalVideoId();
-            if (masterLocalId) {
+            if (masterType === 'local') {
+                const masterLocalId = getMasterLocalVideoId();
                 const lv = document.getElementById(`localVideo_${masterLocalId}`);
                 if (lv && !localSeekActive[masterLocalId]) {
                     globalCurrentTime = lv.currentTime;
                 }
             } else {
+                // 外部動画マスターの場合、A側が再生状態なら時計が独自に進む（ズレは [⏱] ボタンで手動補正）
                 if (isPlayingRequest && countdownInterval === null && !isWaitingForSync) {
                     globalCurrentTime += delta * currentPlaybackSpeed;
                 }
@@ -1446,11 +1466,16 @@
             
             globalCurrentTime = Math.max(0, sec);
             
-            const masterLocalId = getMasterLocalVideoId();
-            if (masterLocalId) {
-                const lv = document.getElementById(`localVideo_${masterLocalId}`);
-                if (lv) lv.currentTime = globalCurrentTime;
-            }
+            // 手動でタイマー時刻を入力した場合のみ、全動画をその時間へ強制的にシーク同期させる
+            broadcastSyncCommand('seekTo', globalCurrentTime);
+            document.querySelectorAll('.custom-local-video').forEach(v => {
+                v.currentTime = globalCurrentTime;
+            });
+            Object.entries(ytPlayers).forEach(([id, player]) => {
+                if (player && typeof player.seekTo === 'function') {
+                    player.seekTo(globalCurrentTime, true);
+                }
+            });
 
             display.style.display = 'inline-block';
             input.style.display = 'none';
@@ -1459,11 +1484,16 @@
 
         function resetGlobalTimer() {
             globalCurrentTime = 0;
-            const masterLocalId = getMasterLocalVideoId();
-            if (masterLocalId) {
-                const lv = document.getElementById(`localVideo_${masterLocalId}`);
-                if (lv) lv.currentTime = 0;
-            }
+            // 0にリセットした場合も全動画を強制同期
+            broadcastSyncCommand('seekTo', 0);
+            document.querySelectorAll('.custom-local-video').forEach(v => {
+                v.currentTime = 0;
+            });
+            Object.entries(ytPlayers).forEach(([id, player]) => {
+                if (player && typeof player.seekTo === 'function') {
+                    player.seekTo(0, true);
+                }
+            });
             updateTimerDisplay();
         }
 
