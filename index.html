@@ -116,7 +116,7 @@
             border: 2px solid #00ffcc; box-shadow: 0 0 15px rgba(0, 255, 204, 0.3); z-index: 2;
         }
 
-        /* にゅっと出る押し下げ式ヘッダー設計 */
+        /* 押し下げ式（にゅっと出る）ヘッダー設定 */
         .player-header {
             position: relative; height: 0; overflow: hidden; background-color: #0c0c10;
             display: flex; justify-content: flex-start; align-items: center; padding: 0 10px;
@@ -124,7 +124,7 @@
             transition: height 0.18s cubic-bezier(0.25, 1, 0.5, 1), border-bottom 0.18s ease;
             flex-shrink: 0; box-sizing: border-box; border-bottom: 0px solid transparent;
         }
-        /* チャット判定保護用の極小透明マージンを上部に確保 */
+        /* チャタリング判定保護用の極小透明マージンを上部に確保 */
         .player-card::before {
             content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; z-index: 15;
         }
@@ -233,6 +233,11 @@
         .lock-btn:hover { opacity: 1; }
 
         .sync-timer-container { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+        .sync-master-badge {
+            font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px;
+            background: #2d2d3a; color: #aaa; border: 1px solid var(--border-color);
+            margin-right: 4px; font-family: sans-serif; cursor: help;
+        }
         .sync-timer {
             font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 10px;
             border-radius: 15px; color: #00ffcc; border: 1px solid #00ffcc55; cursor: pointer; transition: 0.2s;
@@ -249,14 +254,6 @@
             align-items: center; justify-content: center; transition: background 0.2s;
         }
         .timer-reset-btn:hover { background-color: #333; }
-
-        .countdown-overlay {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 10rem; font-weight: 900; color: #ff4757; text-shadow: 0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757;
-            z-index: 1000; pointer-events: none; display: none; font-family: 'Arial Black', sans-serif;
-            text-align: center; animation: countdownPulse 1s ease-in-out infinite;
-        }
-        @keyframes countdownPulse { 0% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; } 50% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; } }
     </style>
     <script src="https://www.youtube.com/iframe_api"></script>
 </head>
@@ -372,6 +369,7 @@
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
 
         <div class="sync-timer-container">
+            <div id="syncMasterBadge" class="sync-master-badge" title="タイマーと全体の時間の基準になっている対象">基準: 内部</div>
             <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力(全動画をその時間へ同期)">00:00:00</div>
             <input type="text" id="timerInput" class="sync-timer-input" onblur="finishEditTimer()" onkeydown="if(event.key==='Enter')finishEditTimer()">
             <button class="timer-reset-btn" onclick="resetGlobalTimer()" title="タイマーを0にリセット (全動画同期)">↺</button>
@@ -961,6 +959,48 @@
         }
 
         // --- 読み込み処理（YouTube / Local） ---
+        function getPlaylistId(url) { const match = url.match(/[?&]list=([^#\&\?]+)/); return match ? match[1] : null; }
+        function getYouTubeId(url) { const match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/); return (match && match[2].length === 11) ? match[2] : null; }
+
+        function loadSingleYT(cardId) {
+            const urlInput = document.getElementById(`urlInput_${cardId}`);
+            const url = urlInput ? urlInput.value.trim() : '';
+            const videoId = getYouTubeId(url);
+            const playlistId = getPlaylistId(url);
+
+            if (!videoId && !playlistId) { alert('有効なYouTube URLを入力してください。'); return; }
+
+            localStorage.setItem(`sync_url_${cardId}`, url);
+            document.getElementById(`localOverlay_${cardId}`).style.display = 'none';
+            const container = document.getElementById(`playerContainer_${cardId}`);
+            container.innerHTML = `<div id="ytPlayer_${cardId}"></div>`;
+
+            let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0 };
+            if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
+
+            ytPlayers[cardId] = new YT.Player(`ytPlayer_${cardId}`, {
+                videoId: videoId || undefined,
+                playerVars: playerVarsSetting,
+                events: {
+                    'onReady': (event) => {
+                        const videoData = event.target.getVideoData();
+                        document.getElementById(`title_${cardId}`).innerText = videoData ? videoData.title : 'YouTube動画';
+                        event.target.setVolume(document.getElementById('masterVolume').value);
+                        event.target.setPlaybackRate(currentPlaybackSpeed);
+
+                        if (playlistId) {
+                            document.getElementById(`playlistPrev_${cardId}`).style.display = 'inline-block';
+                            document.getElementById(`playlistNext_${cardId}`).style.display = 'inline-block';
+                        }
+                    }
+                }
+            });
+            resaveUrlsBasedOnOrder();
+        }
+
+        function prevPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].previousVideo(); }
+        function nextPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].nextVideo(); }
+
         function handleLocalSelect(event, cardId) {
             const file = event.target.files[0];
             if (!file) return;
@@ -977,7 +1017,7 @@
 
             video.addEventListener('loadedmetadata', () => updateLocalOverlayProgress(cardId));
             video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
-            
+
             document.getElementById(`localOverlay_${cardId}`).style.display = 'flex';
             resaveUrlsBasedOnOrder();
             checkLocalVideoExists();
@@ -1237,6 +1277,8 @@
             const now = performance.now();
             const delta = (now - lastTimeUpdate) / 1000;
             lastTimeUpdate = now;
+
+            updateMasterBadge();
 
             const masterType = getCurrentMasterType();
             let newDuration = 0;
