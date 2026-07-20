@@ -426,6 +426,7 @@
             yt: {}          // cardId -> boolean
         };
         let syncTimeoutId = null;
+        let isExternalActive = false; // アドオンがアクティブに動作しているかの接続状態フラグ
 
         let playerCount = 2; 
         const MAX_TOTAL_COUNT = 9;
@@ -437,6 +438,7 @@
 
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'EXTERNAL_SYNC_EVENT') {
+                isExternalActive = true; // アドオンからのシグナル受信で疎通をマーク
                 const newState = event.data.state; 
                 
                 if (newState === 'timeReport') {
@@ -444,8 +446,9 @@
                     updateTimerDisplay();
                 } else if (newState === 'relativeSeekReport') {
                     if (document.getElementById('enableSeekSync').checked) {
-                        const diff = parseFloat(event.data.diff);
-                        if (!isNaN(diff)) {
+                        // event.data.diff と event.data.time の両キーに対応（不整合対策）
+                        const diff = parseFloat(event.data.diff !== undefined ? event.data.diff : event.data.time);
+                        if (!isNaN(diff) && isFinite(diff)) {
                             applySeekToAll(diff, false, null);
                         }
                     }
@@ -595,6 +598,7 @@
             card.id = cardId;
             card.style.order = activeCardIds.length;
             
+            // onmouseleaveを排除し、ドラッグをはみ出しても正常完了させる構成に変更
             card.innerHTML = generateHeaderHTML(cardId) + `
                 <div class="player-container-wrapper" id="wrapper_${cardId}">
                     <div class="player-container" id="playerContainer_${cardId}">
@@ -620,8 +624,7 @@
                             oninput="updateLocalTimeOnInput('${cardId}', this.value)"
                             onchange="onLocalSeekEnd('${cardId}')"
                             onmouseup="onLocalSeekEnd('${cardId}')"
-                            ontouchend="onLocalSeekEnd('${cardId}')"
-                            onmouseleave="onLocalSeekEnd('${cardId}')">
+                            ontouchend="onLocalSeekEnd('${cardId}')">
                         <div class="seek-tooltip" id="seekTooltip_${cardId}">00:00</div>
                     </div>
                     <span id="localTimeDisplay_${cardId}">00:00 / 00:00</span>
@@ -952,8 +955,10 @@
 
         function handleYtStateChange(cardId, state) {
             if (isWaitingForSync) {
-                // シーク後のバッファ完了（PAUSED=2、または何らかの理由で再生開始されたPLAYING=1）
-                if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.PLAYING) {
+                // シークに伴ってバッファ（state 3）が始まった場合のみ待機フラグをfalseにする（ロック対策）
+                if (state === YT.PlayerState.BUFFERING) {
+                    syncStatus.yt[cardId] = false;
+                } else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.PLAYING) {
                     syncStatus.yt[cardId] = true;
                     checkAllReady();
                 }
@@ -1079,9 +1084,10 @@
                 delete localSeekStartTime[cardId];
                 
                 if (document.getElementById('enableSeekSync').checked) {
-                    applySeekToAll(diff, true, cardId);
-                    
-                    // 操作元の動画はシーク済みのため、即座に準備完了とする
+                    if (!isNaN(diff) && isFinite(diff)) {
+                        applySeekToAll(diff, true, cardId);
+                    }
+                    // 操作元の動画はすでにシーク済みのため即座に完了とする
                     syncStatus.local[cardId] = true;
                     checkAllReady();
                 } else {
@@ -1115,18 +1121,15 @@
                 if (id !== excludeCardId) {
                     v.currentTime = Math.max(0, v.currentTime + diff);
                     if (isWaitingForSync) {
-                        syncStatus.local[id] = false; // 対象ローカル動画の準備完了待ちに設定
+                        syncStatus.local[id] = false; // 対象ローカル動画の準備完了待ち
                     }
                 }
             });
 
-            // 既存の数値キーバグをObject.entriesで修正
             Object.entries(ytPlayers).forEach(([id, player]) => {
                 if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
                     player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
-                    if (isWaitingForSync) {
-                        syncStatus.yt[id] = false; // 対象YouTubeの準備完了待ちに設定
-                    }
+                    // YouTubeは基本準備完了とし、実際のバッファ開始時のみfalse（待機）に変更
                 }
             });
         }
@@ -1149,7 +1152,6 @@
         // --- シーク時限定 Sync Waiter（足並み揃えシステム） ---
         function startSyncWait(initiatedByExternal = false) {
             if (isWaitingForSync) {
-                // 既にシーク待機中の場合はセーフティタイマーを延長して終了
                 if (syncTimeoutId) clearTimeout(syncTimeoutId);
                 syncTimeoutId = setTimeout(() => {
                     console.log("[Sync Wait] セーフティタイムアウト：強制再生します");
@@ -1169,7 +1171,11 @@
             if (indicator) indicator.style.display = 'block';
 
             // 監視ステータスの初期化
-            syncStatus.external = !initiatedByExternal; 
+            if (isExternalActive) {
+                syncStatus.external = !initiatedByExternal; 
+            } else {
+                syncStatus.external = true; // アドオンが接続されていない場合は待機をスキップ
+            }
             syncStatus.local = {};
             syncStatus.yt = {};
 
@@ -1181,11 +1187,13 @@
                 }
                 const yt = ytPlayers[cardId];
                 if (yt && typeof yt.getPlayerState === 'function') {
-                    syncStatus.yt[cardId] = false;
+                    // 一時停止中のYouTubeがイベントを返さない問題への対策として初期状態はtrue（準備完了）とし、
+                    // シーク処理中に実際にバッファ状態（state 3）に入った場合のみ一時的に待機リストへ加える
+                    syncStatus.yt[cardId] = true;
                 }
             });
 
-            // ネットワーク詰まり等によるフリーズを防止する4秒のセーフティタイムアウト
+            // 4秒のセーフティタイムアウト
             if (syncTimeoutId) clearTimeout(syncTimeoutId);
             syncTimeoutId = setTimeout(() => {
                 console.log("[Sync Wait] セーフティタイムアウト：強制再生します");
@@ -1225,7 +1233,7 @@
             const indicator = document.getElementById('syncIndicator');
             if (indicator) indicator.style.display = 'none';
 
-            // シーク前に再生中だった場合のみ一斉再生を再開
+            // シーク前に再生中だった場合のみ再生再開
             if (wasPlayingBeforeSeek) {
                 playAllPlayersOnly();
             }
@@ -1345,7 +1353,6 @@
         }
 
         function skipAll(seconds) {
-            // 一括スキップ時にもシーク同期待機（Sync Waiter）を適用
             if (document.getElementById('enableSeekSync').checked) {
                 startSyncWait(false);
             }
