@@ -51,6 +51,40 @@
         .settings-toggle-btn:hover { background: rgba(0, 255, 204, 0.1); }
         .settings-toggle-btn.active { background: #00ffcc; color: #000; }
 
+        /* トップバー内の枠数増減コントロール 【− n ＋】 */
+        .topbar-count-group {
+            display: flex; align-items: center; gap: 2px; margin-left: 14px;
+            background: rgba(0, 0, 0, 0.45); border: 1px solid var(--border-color);
+            border-radius: 6px; padding: 1px 3px;
+        }
+        .topbar-count-btn {
+            background: transparent; border: none; color: #00ffcc; cursor: pointer;
+            font-size: 0.7rem; line-height: 1; padding: 3px 5px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center; transition: background 0.15s;
+        }
+        .topbar-count-btn:hover:not(:disabled) { background: rgba(0, 255, 204, 0.18); }
+        .topbar-count-btn:disabled { opacity: 0.28; cursor: default; }
+        .topbar-count-value {
+            font-family: monospace; font-weight: bold; font-size: 0.85rem; color: #fff;
+            min-width: 16px; text-align: center; user-select: none;
+        }
+
+        /* マイリスト・セッションボタンの文字色バグ修正 */
+        #topSessionBtn {
+            border: 1px solid #ff9f43 !important;
+            color: #ff9f43 !important;
+            margin-right: 8px;
+            background: transparent;
+        }
+        #topSessionBtn:hover {
+            background: rgba(255, 159, 67, 0.1) !important;
+        }
+        #topSessionBtn.active {
+            background: #ff9f43 !important;
+            color: #000000 !important;
+            border-color: #ff9f43 !important;
+        }
+
         .settings-container {
             position: absolute; top: 35px; left: 0; width: 100%; z-index: 100;
             pointer-events: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
@@ -60,7 +94,7 @@
 
         .settings-content {
             background-color: var(--panel-bg); border-bottom: 2px solid #00ffcc;
-            padding: 15px 25px; max-height: 400px; overflow-y: auto; pointer-events: auto;
+            padding: 15px 25px; max-height: 450px; overflow-y: auto; pointer-events: auto;
             backdrop-filter: blur(10px); display: flex; gap: 25px; flex-wrap: wrap;
             box-shadow: 0 10px 30px rgba(0, 255, 204, 0.15);
         }
@@ -105,12 +139,17 @@
 
         .players-grid {
             display: grid; width: 100%; height: 100%; gap: 6px; padding: 6px; box-sizing: border-box;
-            grid-auto-flow: dense; transition: all 0.3s ease;
+            grid-auto-flow: dense;
+            /* 注意: 以前ここに transition: all 0.3s ease; があったが、
+               grid-template-columns/rows のトラック数変化までアニメーション対象になり、
+               枠数を変えた際に中間的な不正なサイズ比で止まる不具合の原因だったため削除。
+               枠自体の見た目変化は .player-card 側の transition で十分カバーされる。 */
         }
 
         .player-card {
             background-color: #121216; border-radius: 6px; overflow: hidden; position: relative;
             display: flex; flex-direction: column; border: 1px solid var(--border-color); transition: all 0.3s ease;
+            min-width: 0; min-height: 0; /* グリッドアイテムのデフォルトmin-width:autoによる突っ張り(＝レイアウト崩れ)を防止 */
         }
         .player-card.is-main {
             border: 2px solid #00ffcc; box-shadow: 0 0 15px rgba(0, 255, 204, 0.3); z-index: 2;
@@ -160,102 +199,78 @@
         .delete-btn:hover { background-color: #52526e; color: #ff6b81; }
 
         .player-container-wrapper {
-            display: flex; flex-direction: row; width: 100%; flex: 1; position: relative; background: #000; min-height: 0;
+            display: flex; flex-direction: row; width: 100%; flex: 1; position: relative; background: #000; min-height: 0; min-width: 0;
         }
-        .player-container { flex: 1; position: relative; background-color: #000; min-width: 100px; min-height: 100px; }
-        .player-container iframe, .player-container video {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;
-        }
+        .player-container { flex: 1; position: relative; background-color: #000; min-width: 0; min-height: 100px; display: flex; flex-direction: column; }
+        .player-container iframe,.player-container video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
         .custom-local-video { cursor: pointer; }
-
-        .chat-splitter {
-            display: none; width: 4px; background: #1c1c24; z-index: 5; transition: background 0.2s; cursor: col-resize;
-        }
-        .chat-splitter:hover, .chat-splitter.dragging { background: #00ffcc; }
+        .chat-splitter { display: none; width: 4px; background: #1c1c24; z-index: 5; transition: background 0.2s; cursor: col-resize; }
+        .chat-splitter:hover,.chat-splitter.dragging { background: #00ffcc; }
         .chat-container { display: none; width: 300px; background: #0c0c10; position: relative; }
-
-        .local-video-overlay {
-            position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.85);
-            padding: calc(6px * var(--ui-scale)) calc(12px * var(--ui-scale)); display: flex; align-items: center;
-            gap: 12px; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 9;
-        }
+        .local-video-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.85); padding: calc(6px * var(--ui-scale)) calc(12px * var(--ui-scale)); display: flex; align-items: center; gap: 12px; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 9; }
         .player-card:hover .local-video-overlay { opacity: 1; pointer-events: auto; }
         .local-seek-container { position: relative; flex: 1; display: flex; align-items: center; }
         .local-seek-container input[type="range"] { width: 100%; height: 5px; cursor: pointer; }
-        .seek-tooltip {
-            position: absolute; bottom: 25px; background: rgba(0, 0, 0, 0.9); color: #00ffcc;
-            padding: 3px 6px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; pointer-events: none;
-            transform: translateX(-50%); white-space: nowrap; border: 1px solid var(--border-color); display: none;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 20;
-        }
+        .seek-tooltip { position: absolute; bottom: 25px; background: rgba(0, 0, 0, 0.9); color: #00ffcc; padding: 3px 6px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; pointer-events: none; transform: translateX(-50%); white-space: nowrap; border: 1px solid var(--border-color); display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 20; }
         .local-video-overlay span { font-size: var(--header-font); font-family: monospace; }
-
-        .overlay-controller {
-            position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%);
-            background-color: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
-            padding: 10px 20px; border-radius: 12px 12px 0 0; display: flex; align-items: center; gap: 12px;
-            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7); z-index: 99; backdrop-filter: blur(8px);
-            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); max-width: 95vw;
-        }
+        .placeholder-box { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #121218; border: 2px dashed var(--border-color); box-sizing: border-box; padding: 20px; overflow-y: auto; }
+        .placeholder-box input[type="text"] { width: 80%; max-width: 350px; margin-bottom: 10px; text-align: center; }
+        .placeholder-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
+        .overlay-controller { position: absolute; bottom: 0; left: 50%; transform: translate(-50%, 100%); background-color: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none; padding: 10px 20px; border-radius: 12px 12px 0 0; display: flex; align-items: center; gap: 12px; box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7); z-index: 99; backdrop-filter: blur(8px); transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); max-width: 95vw; }
         .overlay-controller.active { transform: translate(-50%, 0); }
-
-        @media (max-width: 750px) {
-            .overlay-controller { transform: translate(-50%, 100%) scale(0.85); transform-origin: bottom center; }
-            .overlay-controller.active { transform: translate(-50%, 0) scale(0.85); }
-        }
-        @media (max-width: 550px) {
-            .overlay-controller { transform: translate(-50%, 100%) scale(0.7); transform-origin: bottom center; }
-            .overlay-controller.active { transform: translate(-50%, 0) scale(0.7); }
-        }
-
-        .controller-tab {
-            position: absolute; top: -24px; left: 50%; transform: translateX(-50%);
-            background: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none;
-            padding: 2px 20px; border-radius: 8px 8px 0 0; color: #fff; font-size: 0.75rem;
-            opacity: 0.5; transition: opacity 0.2s; cursor: pointer; pointer-events: auto;
-        }
-        .overlay-controller.active .controller-tab { opacity: 1; }
-        .controller-tab:hover { opacity: 1; background: #1c1c24; }
+        @media (max-width: 750px) { .overlay-controller { transform: translate(-50%, 100%) scale(0.85); transform-origin: bottom center; } .overlay-controller.active { transform: translate(-50%, 0) scale(0.85); } }
+        @media (max-width: 550px) { .overlay-controller { transform: translate(-50%, 100%) scale(0.7); transform-origin: bottom center; } .overlay-controller.active { transform: translate(-50%, 0) scale(0.7); } }
+        .controller-tab { position: absolute; top: -24px; left: 50%; transform: translateX(-50%); background: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-bottom: none; padding: 2px 20px; border-radius: 8px 8px 0 0; color: #fff; font-size: 0.75rem; opacity: 0.5; transition: opacity 0.2s; cursor: pointer; pointer-events: auto; }
+        .overlay-controller.active .controller-tab { opacity: 1; } .controller-tab:hover { opacity: 1; background: #1c1c24; }
         .overlay-controller button, .overlay-controller span, .overlay-controller label { white-space: nowrap; flex-shrink: 0; }
-
-        .lock-btn {
-            background: transparent; border: none; font-size: 1.2rem; cursor: pointer;
-            padding: 0; margin-right: 5px; transition: 0.2s; opacity: 0.7;
-        }
-        .lock-btn:hover { opacity: 1; }
-
+        .lock-btn { background: transparent; border: none; font-size: 1.2rem; cursor: pointer; padding: 0; margin-right: 5px; transition: 0.2s; opacity: 0.7; } .lock-btn:hover { opacity: 1; }
         .sync-timer-container { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-        .sync-master-badge {
-            font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px;
-            background: #2d2d3a; color: #aaa; border: 1px solid var(--border-color);
-            margin-right: 4px; font-family: sans-serif; cursor: help;
-        }
-        .sync-timer {
-            font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 10px;
-            border-radius: 15px; color: #00ffcc; border: 1px solid #00ffcc55; cursor: pointer; transition: 0.2s;
-        }
+        .sync-master-badge { font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #2d2d3a; color: #aaa; border: 1px solid var(--border-color); margin-right: 4px; font-family: sans-serif; cursor: help; display: inline-block; }
+        .sync-timer { font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 10px; border-radius: 15px; color: #00ffcc; border: 1px solid #00ffcc55; cursor: pointer; transition: 0.2s; }
         .sync-timer:hover { background: #111; border-color: #00ffcc; }
-        .sync-timer-input {
-            font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 8px;
-            border-radius: 15px; color: #ff9f43; border: 1px solid #ff9f43; width: 100px;
-            text-align: center; outline: none; display: none;
-        }
-        .timer-reset-btn {
-            background-color: #222; color: #00ffcc; border: 1px solid #00ffcc33; border-radius: 50%;
-            width: 24px; height: 24px; font-size: 0.75rem; cursor: pointer; display: flex;
-            align-items: center; justify-content: center; transition: background 0.2s;
-        }
+        .sync-timer-input { font-size: 1.2rem; font-family: monospace; background: #000; padding: 2px 8px; border-radius: 15px; color: #ff9f43; border: 1px solid #ff9f43; width: 100px; text-align: center; outline: none; display: none; }
+        .timer-reset-btn { background-color: #222; color: #00ffcc; border: 1px solid #00ffcc33; border-radius: 50%; width: 24px; height: 24px; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
         .timer-reset-btn:hover { background-color: #333; }
+        .countdown-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 10rem; font-weight: 900; color: #ff4757; text-shadow: 0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757; z-index: 1000; pointer-events: none; display: none; font-family: 'Arial Black', sans-serif; text-align: center; animation: countdownPulse 1s ease-in-out infinite; }
+        @keyframes countdownPulse { 0% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; } 50% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(0.9); opacity: 0.6; } }
     </style>
     <script src="https://www.youtube.com/iframe_api"></script>
 </head>
 <body>
 
     <div class="top-bar">
-        <span style="color: #00ffcc; font-size: 0.85rem; font-weight: bold; margin-right: auto; letter-spacing: 1px;">アニメ同時視聴コントローラー</span>
-        <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()">
-            <span id="topSettingsArrow">▼</span> 設定メニュー
-        </button>
+        <span style="color:#00ffcc; font-size:0.85rem; font-weight:bold; letter-spacing:1px;">アニメ同時視聴コントローラー</span>
+        <div class="topbar-count-group" style="margin-right:auto;" title="視聴枠数の増減（最大9枠）">
+            <button class="topbar-count-btn" id="topCountMinus" onclick="changePlayerCount(-1)" title="枠を1つ減らす">➖</button>
+            <span class="topbar-count-value" id="topActiveCountDisplay">2</span>
+            <button class="topbar-count-btn" id="topCountPlus" onclick="changePlayerCount(1)" title="枠を1つ増やす">➕</button>
+        </div>
+        <button id="topSessionBtn" class="settings-toggle-btn" onclick="toggleSessionMenu()">📂 マイリスト・セッション</button>
+        <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()"><span id="topSettingsArrow">▼</span> 設定メニュー</button>
+    </div>
+
+    <div class="settings-container" id="sessionContainer">
+        <div class="settings-content" style="border-bottom: 2px solid #ff9f43; max-height:450px;">
+            <div class="settings-section">
+                <h3>💾 現在の状態をマイリストに保存</h3>
+                <div class="control-row">
+                    <input type="text" id="sessionNameInput" placeholder="セッション名を入力 (空欄時は自動命名)" style="width:200px;">
+                    <button class="primary" onclick="saveSessionManual()" style="background:#ff9f43; color:#000;">保存する</button>
+                </div>
+                <div class="control-row" style="margin-top:15px; border-top:1px solid #333; padding-top:10px;">
+                    <label style="font-size:0.9rem;">ファイル操作（インポート・エクスポート）:</label>
+                </div>
+                <div class="control-row">
+                    <button onclick="exportSessionFile()" style="background:#444;">セッションの書き出し (.json)</button>
+                    <span style="font-size:0.8rem; color:#888;">または</span>
+                    <input type="file" id="importFileInput" accept=".json" onchange="importSessionFile(event)" style="font-size:0.75rem; width:160px;">
+                </div>
+            </div>
+            <div class="settings-section" style="flex:2; min-width:300px;">
+                <h3>📂 マイリスト・自動バックアップ履歴 (最大50件)</h3>
+                <div id="sessionHistoryList" style="max-height:220px; overflow-y:auto; border:1px solid #333; border-radius:4px; padding:5px; background:rgba(0,0,0,0.3);"></div>
+            </div>
+        </div>
     </div>
 
     <div class="settings-container" id="settingsContainer">
@@ -296,6 +311,7 @@
                         <option value="internal">内部タイマー（独立進行）</option>
                         <option value="external" id="optMasterExternal">外部配信サイト（未接続）</option>
                     </select>
+                    <div id="syncMasterBadge" class="sync-master-badge" title="タイマーと全体の時間の基準になっている対象">基準: 内部タイマー</div>
                 </div>
                 <div class="control-row">
                     <label style="font-size:0.9rem;">戻るスキップ秒数:</label>
@@ -304,26 +320,17 @@
                     <input type="number" id="skipSecForward" value="10" min="1" max="180" step="1" class="compact-number-input" onchange="updateSkipDisplays(); saveSettings();"> 秒
                 </div>
                 <div class="control-row" style="margin-top:10px;">
-                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;">
-                        <input type="checkbox" id="confirmReset" onchange="saveSettings()" checked>
-                        箒アイコン（🧹）クリック時に確認表示する
-                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="confirmReset" onchange="saveSettings()" checked> 箒アイコン（🧹）クリック時に確認表示する</label>
                 </div>
                 <div class="control-row">
-                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;">
-                        <input type="checkbox" id="confirmDelete" onchange="saveSettings()" checked>
-                        ゴミ箱アイコン（🗑）クリック時に確認表示する
-                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="confirmDelete" onchange="saveSettings()" checked> ゴミ箱アイコン（🗑）クリック時に確認表示する</label>
                 </div>
                 <div class="control-row" style="margin-top:5px;">
-                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;">
-                        <input type="checkbox" id="enableDelaySync" onchange="toggleDelaySettingView()">
-                        ディレイスタート（カウントダウン）を有効にする
-                    </label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="enableDelaySync" onchange="toggleDelaySettingView()"> ディレイスタート（カウントダウン）を有効にする</label>
                 </div>
                 <div class="control-row" id="delaySecContainer" style="display:none;">
                     <label style="font-size:0.9rem;">ディレイ秒数:</label>
-                    <input type="number" id="delaySec" value="3" min="1" max="10" style="width: 50px;" onchange="saveSettings()"> 秒
+                    <input type="number" id="delaySec" value="3" min="1" max="10" style="width:50px;" onchange="saveSettings()"> 秒
                 </div>
             </div>
 
@@ -359,30 +366,24 @@
     <div class="overlay-controller" id="overlayController">
         <div class="controller-tab">▲ 操作メニュー</div>
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
-
         <div class="sync-timer-container">
-            <div id="syncMasterBadge" class="sync-master-badge" title="タイマーと全体の時間の基準になっている対象">基準: 内部</div>
             <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力(全動画をその時間へ同期)">00:00:00</div>
             <input type="text" id="timerInput" class="sync-timer-input" onblur="finishEditTimer()" onkeydown="if(event.key==='Enter')finishEditTimer()">
             <button class="timer-reset-btn" onclick="resetGlobalTimer()" title="タイマーを0にリセット (全動画同期)">↺</button>
-            <button class="timer-reset-btn" id="requestExternalTimeBtn" onclick="requestExternalTime()" title="現在の外部動画の時間を取得してタイマーに同期" style="margin-left: 2px;">⏱</button>
+            <button class="timer-reset-btn" id="requestExternalTimeBtn" onclick="requestExternalTime()" title="現在の外部動画の時間を取得してタイマーに同期" style="margin-left:2px;">⏱</button>
         </div>
-        
         <button class="primary" id="playPauseBtn" onclick="togglePlayPauseAll()" style="font-size:0.95rem; padding:6px 12px;">▶ 一括再生</button>
-        
-        <div style="display:flex; align-items:center; background: rgba(0,0,0,0.4); padding: 4px 6px; border-radius: 8px;">
+        <div style="display:flex; align-items:center; background:rgba(0,0,0,0.4); padding:4px 6px; border-radius:8px;">
             <button id="batchSkipBackBtn" onclick="skipAll(-getSkipSecBack())" title="一括戻る" style="font-size:1rem;">↺</button>
-            <span id="skipSecDisplay" style="font-size:0.75rem; margin:0 4px; color:#aaa; font-family: monospace;">[10s / 10s]</span>
+            <span id="skipSecDisplay" style="font-size:0.75rem; margin:0 4px; color:#aaa; font-family:monospace;">[10s / 10s]</span>
             <button id="batchSkipForwardBtn" onclick="skipAll(getSkipSecForward())" title="一括進む" style="font-size:1rem;">↻</button>
         </div>
-
-        <div style="display: flex; align-items: center; gap: 2px; background: rgba(0,0,0,0.4); padding: 4px 6px; border-radius: 8px;">
+        <div style="display:flex; align-items:center; gap:2px; background:rgba(0,0,0,0.4); padding:4px 6px; border-radius:8px;">
             <span style="font-size:0.75rem; color:#aaa;">速度:</span>
-            <button onclick="changePlaybackSpeed(-0.1)" style="padding: 2px 6px;" title="0.1倍減速">➖</button>
-            <span id="speedDisplay" style="font-family: monospace; font-weight: bold; width: 28px; text-align: center; color:#00ffcc;">1.0</span>
-            <button onclick="changePlaybackSpeed(0.1)" style="padding: 2px 6px;" title="0.1倍加速">➕</button>
+            <button onclick="changePlaybackSpeed(-0.1)" style="padding:2px 6px;" title="0.1倍減速">➖</button>
+            <span id="speedDisplay" style="font-family:monospace; font-weight:bold; width:28px; text-align:center; color:#00ffcc;">1.0</span>
+            <button onclick="changePlaybackSpeed(0.1)" style="padding:2px 6px;" title="0.1倍加速">➕</button>
         </div>
-
         <div style="display:flex; align-items:center; gap:2px;">
             <span style="font-size:0.85rem;">🔊</span>
             <input type="range" id="masterVolume" min="0" max="100" value="50" style="width:60px;" oninput="changeMasterVolume(this.value)">
@@ -395,223 +396,295 @@
             const mins = Math.floor((sec - hrs * 3600) / 60);
             const secs = Math.floor(sec % 60);
             const pad = (n) => n.toString().padStart(2, '0');
-            return hrs > 0 ? `${pad(hrs)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
+            return hrs > 0 ? pad(hrs) + ':' + pad(mins) + ':' + pad(secs) : pad(mins) + ':' + pad(secs);
         }
-
         function formatShortTime(sec) {
             const m = Math.floor(sec / 60);
             const s = Math.floor(sec % 60);
-            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            return m.toString().padStart(2, '0') + ':' + s.toString().padStart(2, '0');
+        }
+        function escapeJsString(str) {
+            if (!str) return '';
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, ' ').replace(/\r/g, '');
+        }
+        function getPlaylistId(url) {
+            if (!url) return null;
+            const match = url.match(/[?&]list=([^#\&\?]+)/);
+            return match ? match[1] : null;
+        }
+        function getYouTubeId(url) {
+            if (!url) return null;
+            const trimmed = url.trim();
+            if (trimmed.includes('/shorts/')) {
+                alert('ショート動画は同時視聴に対応していません。通常の動画を選択してください。');
+                return null;
+            }
+            if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+            const match = trimmed.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/);
+            return (match && match[2].length === 11) ? match[2] : null;
         }
 
-        // --- 状態管理・グローバル変数 ---
         let uniqueCardIdCounter = 0; 
         let activeCardIds = []; 
         let ytPlayers = {};
-        
         let isPlayingRequest = false;
-        
         let globalCurrentTime = 0; 
         let globalDuration = 0; 
         let isEditingTimer = false;
         let lastTimeUpdate = performance.now();
-        
         let countdownTimer = null;
         let countdownInterval = null;
         let currentPlaybackSpeed = 1.0;
         let isControllerLocked = false;
-        
         let localSeekStartTime = {};
         let localSeekActive = {};
-
-        let isExternalActive = false; // アドオン接続状態フラグ
-        let externalSiteName = "";    // 外部配信サイト名保持
-
+        let isExternalActive = false; 
+        let externalSiteName = "";    
+        let activeScrapeCardId = null; 
+        let scrapedPopupRef = null;    
         let playerCount = 2; 
         const MAX_TOTAL_COUNT = 9;
 
-        // --- マスター（時間基準）判定・表示ロジック ---
+        // DOMロード完了時の安定起動
+        document.addEventListener('DOMContentLoaded', () => { initApp(); });
+        function initApp() {
+            loadSavedSettings();
+            updatePlayerCountDisplay();
+            initializeGrid();
+            setupHoverController();
+            setupChatSplitters(); 
+            updateSkipDisplays(); 
+            startTimerTick();
+        }
+        function onYouTubeIframeAPIReady() {}
+
+        // 枠数表示は「設定メニュー内」と「トップバー」の2箇所にあるため、
+        // 片方だけ更新して食い違うことがないよう必ずこの関数経由で更新する。
+        function updatePlayerCountDisplay() {
+            const settingsEl = document.getElementById('activeCountDisplay');
+            if (settingsEl) settingsEl.innerText = playerCount;
+            const topEl = document.getElementById('topActiveCountDisplay');
+            if (topEl) topEl.innerText = playerCount;
+            const minusBtn = document.getElementById('topCountMinus');
+            if (minusBtn) minusBtn.disabled = (playerCount <= 1);
+            const plusBtn = document.getElementById('topCountPlus');
+            if (plusBtn) plusBtn.disabled = (playerCount >= MAX_TOTAL_COUNT);
+        }
+
+        function setSelectValueSafe(id, value, fallback) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (value !== undefined && value !== null && el.querySelector('option[value="' + value + '"]')) {
+                el.value = value;
+            } else if (fallback !== undefined) {
+                el.value = fallback;
+            }
+        }
+        function getSortedCards() {
+            return Array.from(document.getElementById('playersGrid').children)
+                .sort((a, b) => (parseInt(a.style.order, 10) || 0) - (parseInt(b.style.order, 10) || 0));
+        }
         function getMasterLocalVideoId() {
-            const cards = Array.from(document.getElementById('playersGrid').children);
-            cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
+            const cards = getSortedCards();
             for (let card of cards) {
-                const lv = document.getElementById(`localVideo_${card.id}`);
+                const lv = document.getElementById('localVideo_' + card.id);
                 if (lv) return card.id;
             }
             return null;
         }
-
         function getCurrentMasterType() {
             const select = document.getElementById('syncMasterSelect');
             return select ? select.value : 'internal';
         }
-
         function updateMasterBadge() {
             const select = document.getElementById('syncMasterSelect');
             const optExt = document.getElementById('optMasterExternal');
             if (optExt) {
-                const targetText = isExternalActive 
-                    ? (externalSiteName ? `外部配信サイト (${externalSiteName})` : "外部配信サイト (接続中)")
-                    : "外部配信サイト (未接続)";
+                const targetText = isExternalActive ? (externalSiteName ? '外部配信サイト (' + externalSiteName + ')' : '外部配信サイト (接続中)') : '外部配信サイト (未接続)';
                 const targetDisabled = !isExternalActive;
-
-                // 値が実際に変化したときのみ書き換える（DOMの再描画バグ・プルダウン閉じ対策）
-                if (optExt.text !== targetText) {
-                    optExt.text = targetText;
-                }
-                if (optExt.disabled !== targetDisabled) {
-                    optExt.disabled = targetDisabled;
-                }
-                if (targetDisabled && select && select.value === 'external') {
-                    select.value = 'internal';
+                if (optExt.text !== targetText) optExt.text = targetText;
+                if (optExt.disabled !== targetDisabled) optExt.disabled = targetDisabled;
+                if (targetDisabled && select && select.value === 'external') select.value = 'internal';
+            }
+            const badge = document.getElementById('syncMasterBadge');
+            if (badge && select) {
+                const mode = select.value;
+                if (mode === 'external') {
+                    const label = externalSiteName ? '外部配信サイト (' + externalSiteName + ')' : '外部配信サイト';
+                    badge.innerText = '基準: ' + label;
+                    badge.style.color = '#ff9f43'; badge.style.borderColor = '#ff9f4355';
+                } else if (mode.startsWith('local_')) {
+                    const opt = select.querySelector('option[value="' + mode + '"]');
+                    const label = opt ? opt.text.replace(/ローカル動画\s*\[枠\d+\]\s*/, "") : 'ローカル動画';
+                    badge.innerText = '基準: ' + label;
+                    badge.style.color = '#00ffcc'; badge.style.borderColor = '#00ffcc55';
+                } else {
+                    badge.innerText = '基準: 内部タイマー';
+                    badge.style.color = '#aaa'; badge.style.borderColor = '#aaa55';
                 }
             }
         }
-
         function updateMasterOptions() {
             const select = document.getElementById('syncMasterSelect');
             if (!select) return;
             const currentVal = select.value;
-
-            // 外部配信サイト以外のローカルオプションを一度クリア
             const toRemove = [];
             for (let option of select.options) {
-                if (option.value.startsWith('local_')) {
-                    toRemove.push(option);
-                }
+                if (option.value.startsWith('local_')) toRemove.push(option);
             }
             toRemove.forEach(opt => opt.remove());
-
-            // 枠順をソートして現在有効なローカル動画を追加
-            const cards = Array.from(document.getElementById('playersGrid').children);
-            cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
-            
+            const cards = getSortedCards();
             cards.forEach((card, index) => {
-                const lv = document.getElementById(`localVideo_${card.id}`);
+                const lv = document.getElementById('localVideo_' + card.id);
                 if (lv && lv.src && lv.src !== window.location.href) {
-                    const titleText = document.getElementById(`title_${card.id}`).innerText;
-                    const cleanTitle = titleText.replace("[Local] ", "").substring(0, 15);
+                    const titleText = document.getElementById('title_' + card.id).innerText;
+                    const cleanTitle = titleText.replace("[Local] ", "").replace("[再選択待ち] ", "").substring(0, 15);
                     const opt = document.createElement('option');
-                    opt.value = `local_${card.id}`;
-                    opt.text = `ローカル動画 [枠${index + 1}] (${cleanTitle})`;
+                    opt.value = 'local_' + card.id;
+                    opt.text = 'ローカル動画 [枠' + (index + 1) + '] (' + cleanTitle + ')';
                     select.appendChild(opt);
                 }
             });
-
-            // 以前の選択状態を可能な限り復元
-            if (select.querySelector(`option[value="${currentVal}"]`)) {
-                select.value = currentVal;
-            } else {
-                select.value = 'internal';
-            }
+            if (select.querySelector('option[value="' + currentVal + '"]')) select.value = currentVal;
+            else select.value = 'internal';
             updateMasterBadge();
         }
 
-        // --- アドオン通信 ---
         function broadcastSyncCommand(action, value = null) {
             window.postMessage({ type: 'SYNC_CMD', action: action, value: value }, '*');
         }
-
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'EXTERNAL_SYNC_EVENT') {
+                const wasActive = isExternalActive;
                 isExternalActive = true; 
-                if (event.data.siteName) {
-                    externalSiteName = event.data.siteName;
+                if (event.data.siteName) externalSiteName = event.data.siteName;
+                if (!wasActive) {
+                    const select = document.getElementById('syncMasterSelect');
+                    if (select) { select.value = 'external'; saveSettings(); }
                 }
-                // メッセージ受信時に毎回innerHTMLをクリアするとプルダウンメニューが閉じられてしまうため、
-                // 通信時のupdateMasterOptions()の呼び出しを削除し、動的更新はupdateMasterBadge()のみに一任します。
-
+                updateMasterBadge();
                 const newState = event.data.state; 
                 if (newState === 'timeReport') {
                     globalCurrentTime = parseFloat(event.data.time) || 0;
                     updateTimerDisplay();
                 } else if (newState === 'relativeSeekReport') {
                     const diff = parseFloat(event.data.diff !== undefined ? event.data.diff : event.data.time);
-                    if (!isNaN(diff) && isFinite(diff)) {
-                        applySeekToAll(diff, false, null);
-                    }
+                    if (!isNaN(diff) && isFinite(diff)) applySeekToAll(diff, false, null);
+                } else if (newState === 'youtubeScrapeReport') {
+                    if (activeScrapeCardId && event.data.items) showScrapedResults(activeScrapeCardId, event.data.items);
+                } else if (newState === 'addYoutubeVideo') {
+                    if (event.data.url) addOrFillVideoSlot(event.data.url, event.data.title);
                 }
             }
         });
 
-        // --- 初期化 ---
-        function onYouTubeIframeAPIReady() {
-            loadSavedSettings();
-            initializeGrid();
-            setupHoverController();
-            setupChatSplitters(); 
-            updateSkipDisplays(); 
+        function addOrFillVideoSlot(url, title) {
+            let emptyCardId = null;
+            for (let id of activeCardIds) {
+                const lv = document.getElementById('localVideo_' + id);
+                const yt = ytPlayers[id];
+                if (!lv && !yt) { emptyCardId = id; break; }
+            }
+            if (!emptyCardId) {
+                if (playerCount >= MAX_TOTAL_COUNT) {
+                    alert('最大枠数 (9枠) に達しているため、新しい枠を追加できません。');
+                    return;
+                }
+                playerCount++;
+                updatePlayerCountDisplay();
+                initializeGrid();
+                emptyCardId = activeCardIds[activeCardIds.length - 1];
+            }
+            saveVideoToHistory(title || url, url, '', false);
+            const input = document.getElementById('urlInput_' + emptyCardId);
+            if (input) input.value = url;
+            localStorage.setItem('sync_url_' + emptyCardId, url);
+            loadSingleYT(emptyCardId);
         }
 
         function toggleSettings() {
             const container = document.getElementById('settingsContainer');
             const btn = document.getElementById('topSettingsBtn');
             const arrow = document.getElementById('topSettingsArrow');
+            const sessionContainer = document.getElementById('sessionContainer');
+            if (sessionContainer.classList.contains('open')) toggleSessionMenu(false);
             if (container.classList.contains('open')) {
                 container.classList.remove('open'); btn.classList.remove('active'); arrow.innerText = '▼';
             } else {
                 container.classList.add('open'); btn.classList.add('active'); arrow.innerText = '▲';
             }
         }
-
+        function toggleSessionMenu(forceClose) {
+            const container = document.getElementById('sessionContainer');
+            const btn = document.getElementById('topSessionBtn');
+            const settingsContainer = document.getElementById('settingsContainer');
+            if (settingsContainer.classList.contains('open')) {
+                const sBtn = document.getElementById('topSettingsBtn');
+                const arrow = document.getElementById('topSettingsArrow');
+                settingsContainer.classList.remove('open'); sBtn.classList.remove('active'); arrow.innerText = '▼';
+            }
+            if (container.classList.contains('open') || forceClose === false) {
+                container.classList.remove('open'); btn.classList.remove('active');
+            } else {
+                container.classList.add('open'); btn.classList.add('active');
+                updateSessionListUI();
+            }
+        }
         function changeUiSize(size) {
             document.documentElement.setAttribute('data-ui-size', size);
             saveSettings();
         }
-
         function toggleDelaySettingView() {
             document.getElementById('delaySecContainer').style.display = document.getElementById('enableDelaySync').checked ? 'flex' : 'none';
             saveSettings();
         }
-
         function getSkipSecBack() { return parseFloat(document.getElementById('skipSecBack').value) || 10; }
         function getSkipSecForward() { return parseFloat(document.getElementById('skipSecForward').value) || 10; }
-
         function updateSkipDisplays() {
             const backSec = getSkipSecBack();
             const forwardSec = getSkipSecForward();
             const display = document.getElementById('skipSecDisplay');
-            if (display) display.innerText = `[${backSec}s / ${forwardSec}s]`;
-
-            document.getElementById('batchSkipBackBtn').title = `一括${backSec}秒戻る`;
-            document.getElementById('batchSkipForwardBtn').title = `一括${forwardSec}秒進む`;
-
-            document.querySelectorAll('.skip-back-btn').forEach(btn => btn.title = `${backSec}秒戻る`);
-            document.querySelectorAll('.skip-forward-btn').forEach(btn => btn.title = `${forwardSec}秒進む`);
+            if (display) display.innerText = '[' + backSec + 's / ' + forwardSec + 's]';
+            document.getElementById('batchSkipBackBtn').title = '一括' + backSec + '秒戻る';
+            document.getElementById('batchSkipForwardBtn').title = '一括' + forwardSec + '秒進む';
+            document.querySelectorAll('.skip-back-btn').forEach(btn => btn.title = backSec + '秒戻る');
+            document.querySelectorAll('.skip-forward-btn').forEach(btn => btn.title = forwardSec + '秒進む');
         }
-
         function changePlayerCount(diff) {
             playerCount = Math.min(Math.max(1, playerCount + diff), MAX_TOTAL_COUNT);
-            document.getElementById('activeCountDisplay').innerText = playerCount;
+            markSessionLineupChanged();
+            updatePlayerCountDisplay();
             if (diff < 0) compactSavedUrls();
             initializeGrid();
         }
-
         function compactSavedUrls() {
             let urls = [];
             for (let i = 1; i <= MAX_TOTAL_COUNT; i++) {
-                const url = localStorage.getItem(`sync_url_${i}`);
+                const url = localStorage.getItem('sync_url_' + i);
                 if (url && url.trim()) urls.push(url.trim());
             }
-            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem(`sync_url_${i}`);
-            urls.forEach((url, index) => localStorage.setItem(`sync_url_${index + 1}`, url));
+            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem('sync_url_' + i);
+            urls.forEach((url, index) => localStorage.setItem('sync_url_' + (index + 1), url));
         }
-
-        // --- グリッド構築 ---
         function initializeGrid() {
             const grid = document.getElementById('playersGrid');
-
             while (activeCardIds.length < playerCount) {
                 uniqueCardIdCounter++;
-                const newId = `card_${uniqueCardIdCounter}`;
+                const newId = 'card_' + uniqueCardIdCounter;
                 activeCardIds.push(newId);
-                createPlayerCard(newId);
+                // 個別カード生成で例外が出ても、以降のレイアウト確定処理を必ず実行させる。
+                // （未定義関数の呼び出し等でここが中断すると updateLayout() に到達せず
+                //   グリッドが暗黙の縦1列のままになるため）
+                try {
+                    createPlayerCard(newId);
+                } catch (e) {
+                    console.error('createPlayerCard failed for ' + newId + ':', e);
+                }
             }
             while (activeCardIds.length > playerCount) {
                 const removeId = activeCardIds.pop();
-                destroyPlayerCard(removeId);
+                try { destroyPlayerCard(removeId); } catch (e) { console.error(e); }
             }
-
             updateCardOrder();
             updateLayout();
             updateChatLayout();
@@ -620,375 +693,121 @@
             updateMasterOptions();
             saveSettings();
         }
-
         function updateCardOrder() {
-            const cards = Array.from(document.getElementById('playersGrid').children);
-            cards.forEach((card, index) => {
-                card.style.order = index + 1;
-            });
+            const cards = getSortedCards();
+            cards.forEach((card, index) => { card.style.order = index + 1; });
             activeCardIds = cards.map(c => c.id);
         }
 
         function generateHeaderHTML(cardId) {
             const backSec = getSkipSecBack();
             const forwardSec = getSkipSecForward();
-            return `
-                <div class="player-header">
-                    <button class="header-action-btn pin-btn" onclick="togglePin('${cardId}')" title="メイン枠として拡大(ピン留め)">📌</button>
-                    <button class="header-action-btn skip-back-btn" onclick="skipPlayer('${cardId}', -getSkipSecBack())" title="${backSec}秒戻る">↺</button>
-                    <button class="header-action-btn skip-forward-btn" onclick="skipPlayer('${cardId}', getSkipSecForward())" title="${forwardSec}秒進む">↻</button>
-                    <button class="header-action-btn playlist-nav-btn" id="playlistPrev_${cardId}" onclick="prevPlaylistItem('${cardId}')" title="再生リスト: 前の動画">⏮</button>
-                    <button class="header-action-btn playlist-nav-btn" id="playlistNext_${cardId}" onclick="nextPlaylistItem('${cardId}')" title="再生リスト: 次の動画">⏭</button>
-                    <span class="player-title" id="title_${cardId}">未ロード</span>
-                    
-                    <div style="margin-left: auto; display: flex; gap: calc(4px * var(--ui-scale));">
-                        <button class="header-action-btn" onclick="reloadPlayer('${cardId}')" title="再読み込み">🔄</button>
-                        <button class="header-action-btn" onclick="resetPlayer('${cardId}')" title="空にする">🧹</button>
-                        <button class="delete-btn" onclick="deletePlayer('${cardId}')" title="枠を削除して詰める">🗑</button>
-                        <button class="header-action-btn" style="margin-left: 5px;" onclick="moveCard('${cardId}', -1)" title="左(前)へ移動">◀</button>
-                        <button class="header-action-btn" onclick="moveCard('${cardId}', 1)" title="右(後)へ移動">▶</button>
-                    </div>
-                </div>
-            `;
+            return '<div class="player-header">' +
+                '<button class="header-action-btn pin-btn" onclick="togglePin(\'' + cardId + '\')" title="メイン枠として拡大(ピン留め)">📌</button>' +
+                '<button class="header-action-btn skip-back-btn" onclick="skipPlayer(\'' + cardId + '\', -getSkipSecBack())" title="' + backSec + '秒戻る">↺</button>' +
+                '<button class="header-action-btn skip-forward-btn" onclick="skipPlayer(\'' + cardId + '\', getSkipSecForward())" title="' + forwardSec + '秒進む">↻</button>' +
+                '<button class="header-action-btn playlist-nav-btn" id="playlistPrev_' + cardId + '" onclick="prevPlaylistItem(\'' + cardId + '\')" title="再生リスト: 前の動画">⏮</button>' +
+                '<button class="header-action-btn playlist-nav-btn" id="playlistNext_' + cardId + '" onclick="nextPlaylistItem(\'' + cardId + '\')" title="再生リスト: 次の動画">⏭</button>' +
+                '<span class="player-title" id="title_' + cardId + '">未ロード</span>' +
+                '<div style="margin-left: auto; display: flex; gap: calc(4px * var(--ui-scale));">' +
+                    '<button class="header-action-btn" onclick="reloadPlayer(\'' + cardId + '\')" title="再読み込み">🔄</button>' +
+                    '<button class="header-action-btn" onclick="resetPlayer(\'' + cardId + '\')" title="空にする">🧹</button>' +
+                    '<button class="delete-btn" onclick="deletePlayer(\'' + cardId + '\')" title="枠を削除して詰める">🗑</button>' +
+                    '<button class="header-action-btn" style="margin-left: 5px;" onclick="moveCard(\'' + cardId + '\', -1)" title="左(前)へ移動">◀</button>' +
+                    '<button class="header-action-btn" onclick="moveCard(\'' + cardId + '\', 1)" title="右(後)へ移動">▶</button>' +
+                '</div>' +
+            '</div>';
         }
-
+        function generatePlaceholderHTML(cardId) {
+            return '<div style="width: 100%; height: 100%; display: flex; flex-direction: column; background-color: #121218; box-sizing: border-box; padding: 20px; overflow-y: auto;">' +
+                // 入力欄と操作ボタンを flex:1 の領域に入れ、justify-content:center で枠内の垂直中央へ寄せる
+                '<div style="flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%;">' +
+                    '<div style="text-align:center; margin-bottom:10px; width:100%;">' +
+                        '<input type="text" id="urlInput_' + cardId + '" placeholder="YouTube URLを入力、または検索ワード" style="width:80%; max-width:350px;">' +
+                    '</div>' +
+                    '<div class="placeholder-actions">' +
+                        '<button class="primary" onclick="loadSingleYT(\'' + cardId + '\')">読み込む</button>' +
+                        '<button onclick="triggerYtTop(\'' + cardId + '\')" style="background:#ff4757; color:#fff; font-weight:bold;">別窓でYouTubeを開く</button>' +
+                        '<input type="file" accept="video/*" onchange="handleLocalSelect(event, \'' + cardId + '\')" style="width:130px; font-size:0.75rem;">' +
+                    '</div>' +
+                '</div>' +
+                // 履歴ギャラリーは伸縮させず下部に固定（履歴が無い場合は高さ0になり入力欄が完全な中央に来る）
+                '<div style="flex: 0 0 auto; width:100%;">' +
+                    generateHistoryGalleryHTML(cardId) +
+                '</div>' +
+            '</div>';
+        }
         function createPlayerCard(cardId) {
             const grid = document.getElementById('playersGrid');
             const card = document.createElement('div');
-            card.className = 'player-card';
-            card.id = cardId;
+            card.className = 'player-card'; card.id = cardId;
             card.style.order = activeCardIds.length;
             
-            card.innerHTML = generateHeaderHTML(cardId) + `
-                <div class="player-container-wrapper" id="wrapper_${cardId}">
-                    <div class="player-container" id="playerContainer_${cardId}">
-                        <div class="placeholder-box">
-                            <input type="text" id="urlInput_${cardId}" placeholder="YouTube URLを入力">
-                            <div class="placeholder-actions">
-                                <button class="primary" onclick="loadSingleYT('${cardId}')">読み込む</button>
-                                <span style="font-size:0.8rem; color:#888;">または</span>
-                                <input type="file" accept="video/*" onchange="handleLocalSelect(event, '${cardId}')" style="width:130px; font-size:0.75rem;">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="chat-splitter" id="splitter_${cardId}"></div>
-                    <div class="chat-container" id="chatContainer_${cardId}">
-                        <iframe id="chatIframe_${cardId}" style="width:100%; height:100%; border:none;"></iframe>
-                    </div>
-                </div>
-                <div class="local-video-overlay" id="localOverlay_${cardId}" style="display:none;">
-                    <button onclick="togglePlayLocal('${cardId}')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>
-                    <div class="local-seek-container">
-                        <input type="range" id="localSeek_${cardId}" min="0" max="100" value="0" step="0.1" 
-                            onmousedown="onLocalSeekStart('${cardId}')" ontouchstart="onLocalSeekStart('${cardId}')"
-                            oninput="updateLocalTimeOnInput('${cardId}', this.value)"
-                            onchange="onLocalSeekEnd('${cardId}')"
-                            onmouseup="onLocalSeekEnd('${cardId}')"
-                            ontouchend="onLocalSeekEnd('${cardId}')">
-                        <div class="seek-tooltip" id="seekTooltip_${cardId}">00:00</div>
-                    </div>
-                    <span id="localTimeDisplay_${cardId}">00:00 / 00:00</span>
-                    <div style="display:flex; align-items:center; gap:5px;">
-                        <span id="localVolIcon_${cardId}" style="font-size:0.8rem;">🔊</span>
-                        <input type="range" id="localVolume_${cardId}" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume('${cardId}', this.value)">
-                    </div>
-                </div>
-            `;
+            card.innerHTML = generateHeaderHTML(cardId) +
+                '<div class="player-container-wrapper" id="wrapper_' + cardId + '">' +
+                    '<div class="player-container" id="playerContainer_' + cardId + '">' +
+                        generatePlaceholderHTML(cardId) +
+                    '</div>' +
+                    '<div class="chat-splitter" id="splitter_' + cardId + '"></div>' +
+                    '<div class="chat-container" id="chatContainer_' + cardId + '">' +
+                        '<iframe id="chatIframe_' + cardId + '" style="width:100%; height:100%; border:none;"></iframe>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="local-video-overlay" id="localOverlay_' + cardId + '" style="display:none;">' +
+                    '<button onclick="togglePlayLocal(\'' + cardId + '\')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>' +
+                    '<div class="local-seek-container">' +
+                        '<input type="range" id="localSeek_' + cardId + '" min="0" max="100" value="0" step="0.1" ' +
+                            'onmousedown="onLocalSeekStart(\'' + cardId + '\')" ontouchstart="onLocalSeekStart(\'' + cardId + '\')" ' +
+                            'oninput="updateLocalTimeOnInput(\'' + cardId + '\', this.value)" ' +
+                            'onchange="onLocalSeekEnd(\'' + cardId + '\')" onmouseup="onLocalSeekEnd(\'' + cardId + '\')" ontouchend="onLocalSeekEnd(\'' + cardId + '\')">' +
+                        '<div class="seek-tooltip" id="seekTooltip_' + cardId + '">00:00</div>' +
+                    '</div>' +
+                    '<span id="localTimeDisplay_' + cardId + '">00:00 / 00:00</span>' +
+                    '<div style="display:flex; align-items:center; gap:5px;"><span id="localVolIcon_' + cardId + '" style="font-size:0.8rem;">🔊</span>' +
+                        '<input type="range" id="localVolume_' + cardId + '" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume(\'' + cardId + '\', this.value)">' +
+                    '</div>' +
+                '</div>';
             grid.appendChild(card);
             setupSeekTooltip(cardId);
             
             const idxForSave = activeCardIds.length; 
-            const savedUrl = localStorage.getItem(`sync_url_${idxForSave}`);
+            const savedUrl = localStorage.getItem('sync_url_' + idxForSave);
             if (savedUrl) {
-                document.getElementById(`urlInput_${cardId}`).value = savedUrl;
-                loadSingleYT(cardId);
+                setTimeout(() => {
+                    const inputEl = document.getElementById('urlInput_' + cardId);
+                    if(inputEl) inputEl.value = savedUrl;
+                    loadSingleYT(cardId);
+                }, 50);
             }
         }
-
-        function destroyPlayerCard(cardId) {
-            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
-            const card = document.getElementById(cardId);
-            if (card) card.remove();
-        }
-
-        function checkLocalVideoExists() {
-            let hasLocal = false;
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                if (v.src && v.src !== window.location.href) hasLocal = true;
-            });
-            const extBtn = document.getElementById('requestExternalTimeBtn');
-            if (extBtn) extBtn.style.display = hasLocal ? 'none' : 'flex';
-        }
-
-        function reloadPlayer(cardId) {
-            const lv = document.getElementById(`localVideo_${cardId}`);
-            if (lv && lv.src) {
-                lv.load();
-                if (isPlayingRequest) lv.play().catch(e=>{});
-                return;
-            }
-            if (ytPlayers[cardId]) {
-                loadSingleYT(cardId);
-            }
-        }
-
-        function resetPlayer(cardId) {
-            const needsConfirm = document.getElementById('confirmReset').checked;
-            if (needsConfirm && !confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
-            
-            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
-            const lv = document.getElementById(`localVideo_${cardId}`);
-            if (lv) { lv.pause(); lv.src = ""; lv.load(); }
-
-            document.getElementById(`title_${cardId}`).innerText = '未ロード';
-            document.getElementById(`playlistPrev_${cardId}`).style.display = 'none';
-            document.getElementById(`playlistNext_${cardId}`).style.display = 'none';
-            document.getElementById(`localOverlay_${cardId}`).style.display = 'none';
-            
-            document.getElementById(`chatContainer_${cardId}`).style.display = 'none';
-            document.getElementById(`splitter_${cardId}`).style.display = 'none';
-            document.getElementById(`chatIframe_${cardId}`).src = '';
-
-            document.getElementById(`playerContainer_${cardId}`).innerHTML = `
-                <div class="placeholder-box">
-                    <input type="text" id="urlInput_${cardId}" placeholder="YouTube URLを入力">
-                    <div class="placeholder-actions">
-                        <button class="primary" onclick="loadSingleYT('${cardId}')">読み込む</button>
-                        <span style="font-size:0.8rem; color:#888;">または</span>
-                        <input type="file" accept="video/*" onchange="handleLocalSelect(event, '${cardId}')" style="width:130px; font-size:0.75rem;">
-                    </div>
-                </div>
-            `;
-            resaveUrlsBasedOnOrder();
-            checkLocalVideoExists();
-            updateMasterOptions();
-        }
-
-        function deletePlayer(cardId) {
-            const needsConfirm = document.getElementById('confirmDelete').checked;
-            if (needsConfirm && !confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
-            
-            destroyPlayerCard(cardId);
-            playerCount--;
-            document.getElementById('activeCountDisplay').innerText = playerCount;
-            updateCardOrder();
-            updateLayout();
-            resaveUrlsBasedOnOrder();
-            checkLocalVideoExists();
-            updateMasterOptions();
-            saveSettings();
-        }
-
-        function resaveUrlsBasedOnOrder() {
-            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem(`sync_url_${i}`);
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
-            cards.forEach((card, index) => {
-                const input = document.getElementById(`urlInput_${card.id}`);
-                if (input && input.value.trim()) {
-                    localStorage.setItem(`sync_url_${index + 1}`, input.value.trim());
-                }
-            });
-        }
-
-        function moveCard(cardId, direction) {
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
-            const currentIndex = cards.findIndex(c => c.id === cardId);
-            if (currentIndex === -1) return;
-            
-            const targetIndex = currentIndex + direction;
-            if (targetIndex < 0 || targetIndex >= cards.length) return; 
-
-            const currentOrder = cards[currentIndex].style.order;
-            cards[currentIndex].style.order = cards[targetIndex].style.order;
-            cards[targetIndex].style.order = currentOrder;
-
-            const newCards = Array.from(grid.children);
-            newCards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
-            activeCardIds = newCards.map(c => c.id);
-
-            updateLayout(); 
-            resaveUrlsBasedOnOrder();
-            updateMasterOptions();
-        }
-
-        function togglePin(cardId) {
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
-            const target = document.getElementById(cardId);
-            const btn = target.querySelector('.pin-btn');
-
-            if (target.classList.contains('is-main')) {
-                target.classList.remove('is-main'); btn.classList.remove('active');
-            } else {
-                cards.forEach(c => { c.classList.remove('is-main'); const b = c.querySelector('.pin-btn'); if (b) b.classList.remove('active'); });
-                target.classList.add('is-main'); btn.classList.add('active');
-            }
-            updateLayout();
-        }
-
-        function updateLayout() {
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
-            const N = cards.length;
-            if (N === 0) return;
-
-            if (N === 1) {
-                grid.style.gridTemplateColumns = `1fr`;
-                grid.style.gridTemplateRows = `1fr`;
-                cards[0].style.gridColumn = 'span 1';
-                cards[0].style.gridRow = 'span 1';
-                return;
-            }
-
-            const hasPin = cards.some(c => c.classList.contains('is-main'));
-            let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
-
-            if (N === 2) {
-                const dir = document.getElementById('layout2Dir').value;
-                if (dir === 'vertical') {
-                    grid.style.gridTemplateColumns = `1fr`;
-                    grid.style.gridTemplateRows = hasPin ? `2fr 1fr` : `1fr 1fr`;
-                } else { 
-                    if (hasPin) {
-                        grid.style.gridTemplateColumns = `1fr`;
-                        grid.style.gridTemplateRows = `2fr 1fr`;
-                    } else {
-                        grid.style.gridTemplateColumns = `1fr 1fr`;
-                        grid.style.gridTemplateRows = `1fr`;
-                    }
-                }
-                cards.forEach(c => { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; });
-                return;
-            }
-
-            let cols = 1;
-            const logicalCount = hasPin ? N + 3 : N;
-            if (colSetting !== 'auto') {
-                cols = parseInt(colSetting, 10);
-            } else {
-                if (logicalCount <= 4) cols = 2;
-                else if (logicalCount <= 6) cols = 3;
-                else if (logicalCount <= 9) cols = 3;
-                else cols = 4;
-            }
-
-            const rows = Math.ceil(logicalCount / cols);
-            grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-            grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-
-            cards.forEach(c => {
-                if (c.classList.contains('is-main')) {
-                    const spanCol = Math.min(2, cols);
-                    c.style.gridColumn = `span ${spanCol}`;
-                    c.style.gridRow = `span 2`;
-                } else {
-                    c.style.gridColumn = `span 1`;
-                    c.style.gridRow = `span 1`;
-                }
-            });
-        }
-
-        function updateChatLayout() {
-            const pos = document.getElementById('chatPosition').value;
-            const direction = pos === 'right' ? 'row' : 'column';
-            const cursor = pos === 'right' ? 'col-resize' : 'row-resize';
-            
-            activeCardIds.forEach(cardId => {
-                const wrapper = document.getElementById(`wrapper_${cardId}`);
-                const splitter = document.getElementById(`splitter_${cardId}`);
-                const chatContainer = document.getElementById(`chatContainer_${cardId}`);
-                if (wrapper && splitter && chatContainer) {
-                    wrapper.style.flexDirection = direction;
-                    splitter.style.cursor = cursor;
-                    if (pos === 'right') {
-                        splitter.style.width = '4px'; splitter.style.height = '100%';
-                        chatContainer.style.width = '300px'; chatContainer.style.height = 'auto';
-                    } else {
-                        splitter.style.width = '100%'; splitter.style.height = '4px';
-                        chatContainer.style.width = '100%'; chatContainer.style.height = '300px';
-                    }
-                }
-            });
-        }
-
-        function setupChatSplitters() {
-            let isDragging = false;
-            let currentSplitter = null;
-            let currentChat = null;
-            let currentIframe = null; 
-            let isHorizontal = true;
-
-            document.addEventListener('mousedown', (e) => {
-                if (e.target.classList.contains('chat-splitter')) {
-                    isDragging = true; currentSplitter = e.target; currentChat = e.target.nextElementSibling;
-                    currentIframe = currentChat.querySelector('iframe');
-                    isHorizontal = document.getElementById('chatPosition').value === 'right';
-                    currentSplitter.classList.add('dragging'); 
-                    
-                    if (currentIframe) currentIframe.style.pointerEvents = 'none';
-                    e.preventDefault();
-                }
-            });
-
-            document.addEventListener('mousemove', (e) => {
-                if (!isDragging) return;
-                const wrapper = currentSplitter.parentElement;
-                const rect = wrapper.getBoundingClientRect();
-                if (isHorizontal) {
-                    let newWidth = rect.right - e.clientX;
-                    newWidth = Math.max(200, Math.min(newWidth, rect.width * 0.7)); 
-                    currentChat.style.width = newWidth + 'px';
-                } else {
-                    let newHeight = rect.bottom - e.clientY;
-                    newHeight = Math.max(150, Math.min(newHeight, rect.height * 0.7));
-                    currentChat.style.height = newHeight + 'px';
-                }
-            });
-
-            document.addEventListener('mouseup', () => {
-                if (isDragging) {
-                    isDragging = false; 
-                    if (currentSplitter) currentSplitter.classList.remove('dragging');
-                    if (currentIframe) currentIframe.style.pointerEvents = 'auto';
-                }
-            });
-        }
-
-        // --- 読み込み処理（YouTube / Local） ---
-        function getPlaylistId(url) { const match = url.match(/[?&]list=([^#\&\?]+)/); return match ? match[1] : null; }
-        function getYouTubeId(url) { const match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/); return (match && match[2].length === 11) ? match[2] : null; }
 
         function loadSingleYT(cardId) {
-            const urlInput = document.getElementById(`urlInput_${cardId}`);
-            const url = urlInput ? urlInput.value.trim() : '';
+            const urlInput = document.getElementById('urlInput_' + cardId);
+            const url = urlInput ? urlInput.value.trim() : (localStorage.getItem('sync_url_' + cardId) || '');
             const videoId = getYouTubeId(url);
             const playlistId = getPlaylistId(url);
-
             if (!videoId && !playlistId) { alert('有効なYouTube URLを入力してください。'); return; }
 
-            localStorage.setItem(`sync_url_${cardId}`, url);
-            document.getElementById(`localOverlay_${cardId}`).style.display = 'none';
-            const container = document.getElementById(`playerContainer_${cardId}`);
-            container.innerHTML = `<div id="ytPlayer_${cardId}"></div>`;
+            localStorage.setItem('sync_url_' + cardId, url);
+            markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
+            document.getElementById('localOverlay_' + cardId).style.display = 'none';
+            const container = document.getElementById('playerContainer_' + cardId);
+            container.innerHTML = '<div id="ytPlayer_' + cardId + '"></div>';
 
             let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0 };
             if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
 
-            ytPlayers[cardId] = new YT.Player(`ytPlayer_${cardId}`, {
-                videoId: videoId || undefined,
-                playerVars: playerVarsSetting,
+            ytPlayers[cardId] = new YT.Player('ytPlayer_' + cardId, {
+                videoId: videoId || undefined, playerVars: playerVarsSetting,
                 events: {
                     'onReady': (event) => {
                         const videoData = event.target.getVideoData();
-                        document.getElementById(`title_${cardId}`).innerText = videoData ? videoData.title : 'YouTube動画';
+                        document.getElementById('title_' + cardId).innerText = videoData ? videoData.title : 'YouTube動画';
                         event.target.setVolume(document.getElementById('masterVolume').value);
                         event.target.setPlaybackRate(currentPlaybackSpeed);
-
                         if (playlistId) {
-                            document.getElementById(`playlistPrev_${cardId}`).style.display = 'inline-block';
-                            document.getElementById(`playlistNext_${cardId}`).style.display = 'inline-block';
+                            document.getElementById('playlistPrev_' + cardId).style.display = 'inline-block';
+                            document.getElementById('playlistNext_' + cardId).style.display = 'inline-block';
                         }
                     }
                 }
@@ -999,150 +818,699 @@
         function prevPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].previousVideo(); }
         function nextPlaylistItem(cardId) { if (ytPlayers[cardId]) ytPlayers[cardId].nextVideo(); }
 
-        function handleLocalSelect(event, cardId) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            document.getElementById(`title_${cardId}`).innerText = `[Local] ${file.name}`;
-            const container = document.getElementById(`playerContainer_${cardId}`);
-            const videoUrl = URL.createObjectURL(file);
-            container.innerHTML = `<video id="localVideo_${cardId}" src="${videoUrl}" preload="auto" class="custom-local-video" onclick="togglePlayLocal('${cardId}')"></video>`;
-
-            const video = document.getElementById(`localVideo_${cardId}`);
-            video.volume = document.getElementById('masterVolume').value / 100;
-            document.getElementById(`localVolume_${cardId}`).value = document.getElementById('masterVolume').value;
-            video.playbackRate = currentPlaybackSpeed;
-
-            video.addEventListener('loadedmetadata', () => updateLocalOverlayProgress(cardId));
-            video.addEventListener('timeupdate', () => updateLocalOverlayProgress(cardId));
-
-            document.getElementById(`localOverlay_${cardId}`).style.display = 'flex';
-            resaveUrlsBasedOnOrder();
-            checkLocalVideoExists();
-            updateMasterOptions();
-        }
-
-        function togglePlayLocal(cardId) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video) return;
-            if (video.paused) video.play().catch(e=>{}); else video.pause();
-        }
-
-        function changeLocalVideoVolume(cardId, val) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            const icon = document.getElementById(`localVolIcon_${cardId}`);
-            if (video) video.volume = val / 100;
-            if (icon) icon.innerText = val == 0 ? '🔇' : (val < 50 ? '🔉' : '🔊');
-        }
-
-        function updateLocalOverlayProgress(cardId) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            const seekRange = document.getElementById(`localSeek_${cardId}`);
-            const display = document.getElementById(`localTimeDisplay_${cardId}`);
-            if (!video || !seekRange || !display || localSeekActive[cardId]) return;
-
-            const dur = (isNaN(video.duration) || !isFinite(video.duration)) ? 0 : video.duration;
-            if (dur > 0) {
-                seekRange.value = (video.currentTime / dur) * 100;
+        function triggerYtTop(cardId) {
+            const input = document.getElementById('urlInput_' + cardId);
+            const query = input ? input.value.trim() : '';
+            if (query) {
+                window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(query), 'yt_popup', 'width=900,height=700');
             } else {
-                seekRange.value = 0;
+                window.open('https://www.youtube.com/', 'yt_popup', 'width=900,height=700');
             }
-            display.innerText = `${formatShortTime(video.currentTime)} / ${formatShortTime(dur)}`;
+        }
+
+        function restorePlaceholderDefault(cardId) {
+            const container = document.getElementById('playerContainer_' + cardId);
+            if (container) container.innerHTML = generatePlaceholderHTML(cardId);
+        }
+
+        function saveVideoToHistory(title, url, thumbnail, isLocal = false) {
+            let history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
+            history = history.filter(item => item.url !== url && item.title !== title);
+            let calculatedThumb = thumbnail;
+            if (!isLocal) {
+                const vid = getYouTubeId(url);
+                calculatedThumb = vid ? 'https://img.youtube.com/vi/' + vid + '/mqdefault.jpg' : '';
+            }
+            history.unshift({ title: title, url: url, thumbnail: calculatedThumb, isLocal: isLocal, timestamp: Date.now() });
+            if (history.length > 30) history = history.slice(0, 30);
+            localStorage.setItem('sync_video_history', JSON.stringify(history));
+            activeCardIds.forEach(id => {
+                const lv = document.getElementById('localVideo_' + id);
+                const yt = ytPlayers[id];
+                if (!lv && !yt) restorePlaceholderDefault(id);
+            });
+        }
+
+        function generateHistoryGalleryHTML(cardId) {
+            const history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
+            if (history.length === 0) return '';
+            let html = '<div style="width:100%; margin-top:12px; border-top:1px dashed #333; padding-top:8px;">' +
+                '<div style="font-size:0.75rem; color:#888; margin-bottom:6px; text-align:left; display:flex; justify-content:space-between;">' +
+                    '<span>🕒 最近使った動画（最大30件）</span>' +
+                    '<button onclick="clearVideoHistory(\'' + cardId + '\')" style="background:transparent; border:none; color:#ff4757; font-size:0.7rem; cursor:pointer;">履歴消去</button>' +
+                '</div><div style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
+            history.forEach(item => {
+                const safeTitle = escapeJsString(item.title);
+                const safeUrl = escapeJsString(item.url || item.title);
+                const thumbSrc = item.thumbnail || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='68' viewBox='0 0 120 68'><rect width='100%' height='100%' fill='%23222'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%23666' font-size='10'>Local</text></svg>";
+                const loadArgs = item.isLocal 
+                    ? 'alert(\'ローカル動画「' + safeTitle + '」を復元するため、枠内の「ファイルを選択」から該当ファイルを再アップロードしてください。\')'
+                    : 'loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')';
+                html += '<div style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="' + loadArgs + '">' +
+                    '<img src="' + thumbSrc + '" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px;">' +
+                    '<div style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + safeTitle + '</div>' +
+                    '<button onclick="event.stopPropagation(); deleteVideoHistoryItem(\'' + safeUrl + '\', \'' + cardId + '\')" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.7); border:none; color:#ff4757; font-size:0.6rem; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer;">✕</button>' +
+                '</div>';
+            });
+            html += '</div></div>';
+            return html;
+        }
+
+        function loadHistoryYt(cardId, url) {
+            const input = document.getElementById('urlInput_' + cardId);
+            if (input) input.value = url;
+            localStorage.setItem('sync_url_' + cardId, url);
+            loadSingleYT(cardId);
+        }
+        function deleteVideoHistoryItem(key, cardId) {
+            let history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
+            history = history.filter(item => item.url !== key && item.title !== key);
+            localStorage.setItem('sync_video_history', JSON.stringify(history));
+            restorePlaceholderDefault(cardId);
+        }
+        function clearVideoHistory(cardId) {
+            if (confirm('ローカルの再生履歴をすべて削除しますか？')) {
+                localStorage.removeItem('sync_video_history');
+                restorePlaceholderDefault(cardId);
+            }
+        }
+        function captureLocalVideoThumbnail(video, fileName, cardId) {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 120; canvas.height = 68;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                saveVideoToHistory(fileName, 'localVideo_' + cardId, dataUrl, true);
+            } catch (e) { saveVideoToHistory(fileName, 'localVideo_' + cardId, '', true); }
+        }
+
+        /* ============================================================
+           以下の関数群は呼び出されていたが定義が存在せず、
+           createPlayerCard() 内で ReferenceError を発生させていた。
+           その結果 initializeGrid() が中断し updateLayout() に到達せず、
+           グリッドが暗黙の縦1列レイアウトのままになる不具合の原因だった。
+           ============================================================ */
+
+        function updateLocalTimeDisplay(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            const display = document.getElementById('localTimeDisplay_' + cardId);
+            if (!video || !display) return;
+            const dur = isFinite(video.duration) ? video.duration : 0;
+            display.innerText = formatTime(video.currentTime) + ' / ' + formatTime(dur);
         }
 
         function setupSeekTooltip(cardId) {
-            const seekInput = document.getElementById(`localSeek_${cardId}`);
-            const tooltip = document.getElementById(`seekTooltip_${cardId}`);
-            if (!seekInput || !tooltip) return;
-
-            seekInput.addEventListener('mousemove', (e) => {
-                const video = document.getElementById(`localVideo_${cardId}`);
-                if (!video || isNaN(video.duration)) return;
-
-                const rect = seekInput.getBoundingClientRect();
-                const offsetX = e.clientX - rect.left;
-                const percent = Math.min(Math.max(0, offsetX / rect.width), 1);
-                tooltip.innerText = formatShortTime(percent * video.duration);
-                tooltip.style.left = `${percent * 100}%`;
+            const seek = document.getElementById('localSeek_' + cardId);
+            const tooltip = document.getElementById('seekTooltip_' + cardId);
+            if (!seek || !tooltip) return;
+            const showAt = function(clientX) {
+                const video = document.getElementById('localVideo_' + cardId);
+                const rect = seek.getBoundingClientRect();
+                if (!rect.width) return;
+                let ratio = (clientX - rect.left) / rect.width;
+                ratio = Math.max(0, Math.min(1, ratio));
+                const dur = (video && isFinite(video.duration)) ? video.duration : 0;
+                tooltip.innerText = formatTime(dur * ratio);
+                tooltip.style.left = (ratio * rect.width) + 'px';
                 tooltip.style.display = 'block';
-            });
-            seekInput.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+            };
+            seek.addEventListener('mouseenter', function(e) { showAt(e.clientX); });
+            seek.addEventListener('mousemove', function(e) { showAt(e.clientX); });
+            seek.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
         }
 
-        // --- 手動シーク（各枠単独での進行に変更） ---
-        function onLocalSeekStart(cardId) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (video && !localSeekActive[cardId]) {
-                localSeekActive[cardId] = true;
-                localSeekStartTime[cardId] = video.currentTime;
-            }
-        }
+        function handleLocalSelect(event, cardId) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
 
-        function updateLocalTimeOnInput(cardId, value) {
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video || isNaN(video.duration)) return;
-            video.currentTime = (value / 100) * video.duration;
-            updateLocalOverlayProgress(cardId);
-        }
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch (e) {} delete ytPlayers[cardId]; }
+            localStorage.removeItem('sync_url_' + cardId);
+            markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
 
-        function onLocalSeekEnd(cardId) {
-            if (!localSeekActive[cardId]) return; 
-            localSeekActive[cardId] = false; 
-            
-            const video = document.getElementById(`localVideo_${cardId}`);
-            if (!video || isNaN(video.duration)) return;
-            
-            delete localSeekStartTime[cardId];
-            
-            // 一括シーク連動を停止。単独枠のみシークして再生を復元
-            if (isPlayingRequest && video.paused) {
-                video.play().catch(e=>{});
-            }
-        }
+            const container = document.getElementById('playerContainer_' + cardId);
+            container.innerHTML = '<video id="localVideo_' + cardId + '" class="custom-local-video" playsinline></video>';
+            const video = document.getElementById('localVideo_' + cardId);
+            video.src = URL.createObjectURL(file);
 
-        // --- 一括スキップのコア処理（相対シーク） ---
-        function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
-            globalCurrentTime = Math.max(0, globalCurrentTime + diff);
-            updateTimerDisplay();
-            
-            if (broadcastToAddon) {
-                broadcastSyncCommand('seek', diff);
-            }
+            const masterVolEl = document.getElementById('masterVolume');
+            const vol = masterVolEl ? (parseFloat(masterVolEl.value) || 0) / 100 : 0.5;
+            video.volume = Math.max(0, Math.min(1, vol));
+            video.playbackRate = currentPlaybackSpeed;
 
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                const id = v.id.replace('localVideo_', '');
-                if (id !== excludeCardId) {
-                    v.currentTime = Math.max(0, v.currentTime + diff);
+            document.getElementById('title_' + cardId).innerText = '[Local] ' + file.name;
+            document.getElementById('localOverlay_' + cardId).style.display = 'flex';
+            const volInput = document.getElementById('localVolume_' + cardId);
+            if (volInput) volInput.value = Math.round(video.volume * 100);
+
+            video.addEventListener('loadedmetadata', function() {
+                const seek = document.getElementById('localSeek_' + cardId);
+                if (seek && isFinite(video.duration)) {
+                    seek.min = 0; seek.max = video.duration; seek.step = 0.1; seek.value = video.currentTime;
+                }
+                updateLocalTimeDisplay(cardId);
+                checkLocalVideoExists();
+                updateMasterOptions();
+                // ローカル動画がロードされた瞬間、自動的にマスター（時間基準）へ昇格
+                const select = document.getElementById('syncMasterSelect');
+                if (select && select.querySelector('option[value="local_' + cardId + '"]')) {
+                    select.value = 'local_' + cardId;
+                    updateMasterBadge();
+                    saveSettings();
                 }
             });
 
+            video.addEventListener('loadeddata', function() {
+                captureLocalVideoThumbnail(video, file.name, cardId);
+            });
+
+            video.addEventListener('timeupdate', function() {
+                if (localSeekActive[cardId]) return;
+                const seek = document.getElementById('localSeek_' + cardId);
+                if (seek) seek.value = video.currentTime;
+                updateLocalTimeDisplay(cardId);
+            });
+
+            video.addEventListener('click', function() { togglePlayLocal(cardId); });
+        }
+
+        function togglePlayLocal(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            if (!video) return;
+            if (video.paused) video.play().catch(function(e) {});
+            else video.pause();
+        }
+
+        function onLocalSeekStart(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            localSeekActive[cardId] = true;
+            localSeekStartTime[cardId] = video ? video.currentTime : 0;
+        }
+
+        function updateLocalTimeOnInput(cardId, value) {
+            const video = document.getElementById('localVideo_' + cardId);
+            const display = document.getElementById('localTimeDisplay_' + cardId);
+            if (!video || !display) return;
+            const dur = isFinite(video.duration) ? video.duration : 0;
+            display.innerText = formatTime(parseFloat(value) || 0) + ' / ' + formatTime(dur);
+        }
+
+        function onLocalSeekEnd(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            const seek = document.getElementById('localSeek_' + cardId);
+            if (!video || !seek) { localSeekActive[cardId] = false; return; }
+            const newTime = parseFloat(seek.value) || 0;
+            const oldTime = (localSeekStartTime[cardId] !== undefined) ? localSeekStartTime[cardId] : video.currentTime;
+            video.currentTime = newTime;
+            localSeekActive[cardId] = false;
+            // この動画がマスターの場合のみ、差分を全体へ同期（自分自身は除外）
+            if (getCurrentMasterType() === 'local_' + cardId) {
+                const diff = newTime - oldTime;
+                if (isFinite(diff) && Math.abs(diff) > 0.01) applySeekToAll(diff, true, cardId);
+            }
+            updateLocalTimeDisplay(cardId);
+        }
+
+        function changeLocalVideoVolume(cardId, value) {
+            const video = document.getElementById('localVideo_' + cardId);
+            if (!video) return;
+            video.volume = Math.max(0, Math.min(1, (parseFloat(value) || 0) / 100));
+            const icon = document.getElementById('localVolIcon_' + cardId);
+            if (icon) icon.innerText = video.volume === 0 ? '🔇' : (video.volume < 0.5 ? '🔉' : '🔊');
+        }
+
+        function showScrapedResults(cardId, items) {
+            const container = document.getElementById('playerContainer_' + cardId);
+            if (!container || !items || !items.length) return;
+            let html = '<div style="width:100%; height:100%; overflow-y:auto; background:#121218; box-sizing:border-box; padding:12px;">' +
+                '<div style="font-size:0.8rem; color:#00ffcc; margin-bottom:8px;">アドオンから取得した候補</div>';
+            items.forEach(function(item) {
+                const safeTitle = escapeJsString(item.title || '');
+                const safeUrl = escapeJsString(item.url || '');
+                if (!safeUrl) return;
+                html += '<div style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #262630; cursor:pointer;" ' +
+                    'onclick="loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')">' +
+                    '<div style="font-size:0.75rem; color:#ccc; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + safeTitle + '</div>' +
+                    '</div>';
+            });
+            html += '</div>';
+            container.innerHTML = html;
+            activeScrapeCardId = null;
+        }
+
+        function getNewSessionState(name, isAutoSave) {
+            let activeMasterName = "内部タイマー";
+            const masterMode = getCurrentMasterType();
+            if (masterMode === 'external') {
+                activeMasterName = externalSiteName ? '外部サイト (' + externalSiteName + ')' : "外部配信サイト";
+            } else if (masterMode.startsWith('local_')) {
+                const cardId = masterMode.replace('local_', '');
+                const titleText = document.getElementById('title_' + cardId);
+                activeMasterName = titleText ? titleText.innerText.replace("[Local] ", "").replace("[再選択待ち] ", "") : "ローカル動画";
+            }
+            const session = {
+                name: name || (isAutoSave ? '自動保存: ' + new Date().toLocaleString() + ' [' + activeMasterName + ']' : 'マイリスト: ' + new Date().toLocaleString()),
+                timestamp: Date.now(), isAutoSave: isAutoSave, playerCount: playerCount, masterMode: masterMode,
+                globalTime: globalCurrentTime, layoutCols: document.getElementById('layoutCols').value,
+                layout2Dir: document.getElementById('layout2Dir').value, skipSecBack: document.getElementById('skipSecBack').value,
+                skipSecForward: document.getElementById('skipSecForward').value,
+                confirmReset: document.getElementById('confirmReset').checked, confirmDelete: document.getElementById('confirmDelete').checked,
+                players: []
+            };
+            activeCardIds.forEach(cardId => {
+                const yt = ytPlayers[cardId];
+                const lv = document.getElementById('localVideo_' + cardId);
+                const input = document.getElementById('urlInput_' + cardId);
+                let pState = { cardId: cardId, type: 'empty', url: input ? input.value : (localStorage.getItem('sync_url_' + cardId) || ''), title: '未ロード', currentTime: 0 };
+                if (lv && lv.src && lv.src !== window.location.href) {
+                    pState.type = 'local';
+                    pState.title = document.getElementById('title_' + cardId).innerText.replace("[Local] ", "").replace("[再選択待ち] ", "");
+                    pState.currentTime = lv.currentTime;
+                } else if (yt && typeof yt.getCurrentTime === 'function') {
+                    pState.type = 'yt';
+                    pState.title = document.getElementById('title_' + cardId).innerText;
+                    pState.currentTime = yt.getCurrentTime();
+                    pState.url = localStorage.getItem('sync_url_' + cardId) || '';
+                }
+                session.players.push(pState);
+            });
+            return session;
+        }
+        function saveSessionState(name, isAutoSave = false) {
+            const newState = getNewSessionState(name, isAutoSave);
+            let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (isAutoSave) {
+                let autosaves = list.filter(item => item.isAutoSave);
+                let manualSaves = list.filter(item => !item.isAutoSave);
+                autosaves.unshift(newState);
+                if (autosaves.length > 10) autosaves = autosaves.slice(0, 10);
+                list = [...manualSaves, ...autosaves];
+            } else { list.unshift(newState); }
+            if (list.length > 50) list = list.slice(0, 50);
+            localStorage.setItem('sync_session_history', JSON.stringify(list));
+            updateSessionListUI();
+        }
+        function saveSessionManual() {
+            const input = document.getElementById('sessionNameInput');
+            const name = input ? input.value.trim() : '';
+            saveSessionState(name, false);
+            if (input) input.value = '';
+            alert('現在の視聴セットをマイリストに保存しました。');
+        }
+        function loadSession(session) {
+            playerCount = session.playerCount;
+            updatePlayerCountDisplay();
+            setSelectValueSafe('layoutCols', session.layoutCols, 'auto');
+            setSelectValueSafe('layout2Dir', session.layout2Dir, 'horizontal');
+            document.getElementById('skipSecBack').value = session.skipSecBack;
+            document.getElementById('skipSecForward').value = session.skipSecForward;
+            document.getElementById('confirmReset').checked = session.confirmReset;
+            document.getElementById('confirmDelete').checked = session.confirmDelete;
+            globalCurrentTime = session.globalTime;
+            const grid = document.getElementById('playersGrid');
+            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {};
+            session.players.forEach(p => {
+                activeCardIds.push(p.cardId);
+                restorePlayerCardFromState(p);
+            });
+            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists();
+            setTimeout(() => {
+                updateMasterOptions();
+                const select = document.getElementById('syncMasterSelect');
+                if (select) { select.value = session.masterMode; saveSettings(); }
+            }, 300);
+            // 読み込んだ直後の状態は既に履歴として存在するため、
+            // そのまま再生しても重複保存しないようフラグを立てておく
+            hasAutoSavedThisSession = true;
+            saveSettings(); toggleSessionMenu(false);
+        }
+        function restorePlayerCardFromState(p) {
+            const grid = document.getElementById('playersGrid');
+            const card = document.createElement('div');
+            card.className = 'player-card'; card.id = p.cardId;
+            card.innerHTML = generateHeaderHTML(p.cardId) +
+                '<div class="player-container-wrapper" id="wrapper_' + p.cardId + '">' +
+                    '<div class="player-container" id="playerContainer_' + p.cardId + '">' + (p.type === 'empty' ? generatePlaceholderHTML(p.cardId) : '') + '</div>' +
+                    '<div class="chat-splitter" id="splitter_' + p.cardId + '"></div>' +
+                    '<div class="chat-container" id="chatContainer_' + p.cardId + '"><iframe id="chatIframe_' + p.cardId + '" style="width:100%; height:100%; border:none;"></iframe></div>' +
+                '</div>' +
+                '<div class="local-video-overlay" id="localOverlay_' + p.cardId + '" style="display:none;">' +
+                    '<button onclick="togglePlayLocal(\'' + p.cardId + '\')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>' +
+                    '<div class="local-seek-container">' +
+                        '<input type="range" id="localSeek_' + p.cardId + '" min="0" max="100" value="0" step="0.1" ' +
+                            'onmousedown="onLocalSeekStart(\'' + p.cardId + '\')" ontouchstart="onLocalSeekStart(\'' + p.cardId + '\')" ' +
+                            'oninput="updateLocalTimeOnInput(\'' + p.cardId + '\', this.value)" ' +
+                            'onchange="onLocalSeekEnd(\'' + p.cardId + '\')" onmouseup="onLocalSeekEnd(\'' + p.cardId + '\')" ontouchend="onLocalSeekEnd(\'' + p.cardId + '\')">' +
+                        '<div class="seek-tooltip" id="seekTooltip_' + p.cardId + '">00:00</div>' +
+                    '</div>' +
+                    '<span id="localTimeDisplay_' + p.cardId + '">00:00 / 00:00</span>' +
+                    '<div style="display:flex; align-items:center; gap:5px;"><span id="localVolIcon_' + p.cardId + '" style="font-size:0.8rem;">🔊</span>' +
+                        '<input type="range" id="localVolume_' + p.cardId + '" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume(\'' + p.cardId + '\', this.value)">' +
+                    '</div>' +
+                '</div>';
+            grid.appendChild(card);
+            setupSeekTooltip(p.cardId);
+
+            if (p.type === 'yt') {
+                localStorage.setItem('sync_url_' + p.cardId, p.url);
+                const container = document.getElementById('playerContainer_' + p.cardId);
+                container.innerHTML = '<div id="ytPlayer_' + p.cardId + '"></div>';
+                let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0, 'start': Math.floor(p.currentTime) };
+                const playlistId = getPlaylistId(p.url);
+                if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
+                ytPlayers[p.cardId] = new YT.Player('ytPlayer_' + p.cardId, {
+                    videoId: getYouTubeId(p.url) || undefined,
+                    playerVars: playerVarsSetting,
+                    events: {
+                        'onReady': (event) => {
+                            document.getElementById('title_' + p.cardId).innerText = p.title;
+                            event.target.setVolume(document.getElementById('masterVolume').value);
+                            event.target.setPlaybackRate(currentPlaybackSpeed);
+                            event.target.seekTo(p.currentTime, true);
+                            if (playlistId) {
+                                document.getElementById('playlistPrev_' + p.cardId).style.display = 'inline-block';
+                                document.getElementById('playlistNext_' + p.cardId).style.display = 'inline-block';
+                            }
+                        }
+                    }
+                });
+            } else if (p.type === 'local') {
+                const safeTitle = escapeJsString(p.title);
+                document.getElementById('title_' + p.cardId).innerText = '[再選択待ち] ' + p.title;
+                const container = document.getElementById('playerContainer_' + p.cardId);
+                container.innerHTML = '<div class="placeholder-box" style="border-color:#ff4757;">' +
+                    '<span style="color:#ff4757; font-weight:bold; font-size:0.9rem; margin-bottom:10px;">ファイル再選択待ち</span>' +
+                    '<div style="font-size:0.8rem; color:#ccc; margin-bottom:15px; text-align:center;">「' + safeTitle + '」を再アップロードしてください。<br>自動的に <strong>' + formatTime(p.currentTime) + '</strong> から再開します。</div>' +
+                    '<input type="file" accept="video/*" onchange="handleLocalReSelect(event, \'' + p.cardId + '\', ' + p.currentTime + ')" style="width:200px; font-size:0.8rem;">' +
+                    '</div>';
+            }
+        }
+        function handleLocalReSelect(event, cardId, targetTime) {
+            handleLocalSelect(event, cardId);
+            setTimeout(() => {
+                const video = document.getElementById('localVideo_' + cardId);
+                if (video) video.currentTime = targetTime;
+            }, 800);
+        }
+        function updateSessionListUI() {
+            const listEl = document.getElementById('sessionHistoryList');
+            if (!listEl) return;
+            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (list.length === 0) {
+                listEl.innerHTML = '<div style="color:#666; text-align:center; padding:10px; font-size:0.8rem;">保存されたセッション履歴はありません。</div>';
+                return;
+            }
+            let html = '';
+            list.forEach((session, index) => {
+                const color = session.isAutoSave ? '#888' : '#ff9f43';
+                const label = session.isAutoSave ? '🕒 自動保存' : '⭐ マイリスト';
+                let badges = '';
+                session.players.forEach(p => {
+                    if (p.type === 'yt') badges += '<span style="background:#ff0000; color:#fff; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">YT</span>';
+                    else if (p.type === 'local') badges += '<span style="background:#00ffcc; color:#000; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">Local</span>';
+                });
+                const safeName = escapeJsString(session.name);
+                html += '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #222; padding:6px 4px; font-size:0.8rem;">' +
+                    '<div style="cursor:pointer; flex:1; min-width:0; margin-right:8px;" onclick="loadSessionByIndex(' + index + ')">' +
+                    '<div style="font-weight:bold; color:' + color + '; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">[' + label + '] ' + safeName + '</div>' +
+                    '<div style="font-size:0.7rem; color:#888; display:flex; align-items:center; margin-top:2px;"><span style="margin-right:8px;">⏱ ' + formatTime(session.globalTime) + '</span>' + badges + '</div>' +
+                    '</div><button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>';
+            });
+            listEl.innerHTML = html;
+        }
+        function loadSessionByIndex(index) {
+            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (list[index] && confirm('セッションをロードして現在の状態を復元しますか？')) loadSession(list[index]);
+        }
+        function deleteSessionByIndex(index) {
+            let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            list.splice(index, 1);
+            localStorage.setItem('sync_session_history', JSON.stringify(list));
+            updateSessionListUI();
+        }
+        function exportSessionFile() {
+            const state = getNewSessionState("エクスポートセッション", false);
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", 'sync_session_' + Date.now() + '.json');
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+        function importSessionFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const session = JSON.parse(e.target.result);
+                    if (session && session.playerCount) {
+                        if (confirm('外部ファイル「' + file.name + '」からセッションをインポートしますか？')) loadSession(session);
+                    } else { alert('不正なセッションファイル形式です。'); }
+                } catch (err) { alert('ファイルの読み込みに失敗しました。'); }
+            };
+            reader.readAsText(file);
+        }
+
+        /* ------------------------------------------------------------
+           自動バックアップのトリガー
+           旧: 30秒ごとの定期実行（ほぼ同一の履歴が大量に溜まる）
+           新: 以下をすべて満たしたときに1回だけ保存
+               1) 開いている枠すべてに動画が読み込まれている
+               2) 一括再生ボタンが押された
+               3) その視聴セット（ラインナップ）で初回である
+           ------------------------------------------------------------ */
+
+        // 現在のラインナップで既に自動保存済みかどうかのフラグ
+        let hasAutoSavedThisSession = false;
+
+        // 動画の構成が変わったら「新しい視聴セット」とみなしフラグを戻す
+        function markSessionLineupChanged() {
+            hasAutoSavedThisSession = false;
+        }
+
+        // 開いている枠すべてに動画（YouTube または ローカル）が入っているか判定
+        function areAllSlotsLoaded() {
+            if (!activeCardIds.length) return false;
+            return activeCardIds.every(function(id) {
+                const lv = document.getElementById('localVideo_' + id);
+                if (lv && lv.src && lv.src !== window.location.href) return true;
+                if (ytPlayers[id]) return true;
+                return false; // 空枠・[再選択待ち]状態はいずれも未ロード扱い
+            });
+        }
+
+        function tryAutoSaveOnFirstPlay() {
+            if (hasAutoSavedThisSession) return;
+            if (!areAllSlotsLoaded()) return;
+            saveSessionState(null, true);
+            hasAutoSavedThisSession = true;
+        }
+
+        // タブを閉じる／リロードする直前の保険的な保存は従来どおり残す
+        window.addEventListener('beforeunload', () => { saveSessionState(null, true); });
+
+        function destroyPlayerCard(cardId) {
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            const card = document.getElementById(cardId);
+            if (card) card.remove();
+        }
+        function checkLocalVideoExists() {
+            let hasLocal = false;
+            document.querySelectorAll('.custom-local-video').forEach(v => { if (v.src && v.src !== window.location.href) hasLocal = true; });
+            const extBtn = document.getElementById('requestExternalTimeBtn');
+            if (extBtn) extBtn.style.display = hasLocal ? 'none' : 'flex';
+        }
+        function reloadPlayer(cardId) {
+            const lv = document.getElementById('localVideo_' + cardId);
+            if (lv && lv.src) {
+                lv.load();
+                if (isPlayingRequest) lv.play().catch(e=>{});
+                return;
+            }
+            if (ytPlayers[cardId]) loadSingleYT(cardId);
+        }
+        function resetPlayer(cardId) {
+            const needsConfirm = document.getElementById('confirmReset').checked;
+            if (needsConfirm && !confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            const lv = document.getElementById('localVideo_' + cardId);
+            if (lv) { lv.pause(); lv.src = ""; lv.load(); }
+            document.getElementById('title_' + cardId).innerText = '未ロード';
+            document.getElementById('playlistPrev_' + cardId).style.display = 'none';
+            document.getElementById('playlistNext_' + cardId).style.display = 'none';
+            document.getElementById('localOverlay_' + cardId).style.display = 'none';
+            document.getElementById('chatContainer_' + cardId).style.display = 'none';
+            document.getElementById('splitter_' + cardId).style.display = 'none';
+            document.getElementById('chatIframe_' + cardId).src = '';
+            document.getElementById('playerContainer_' + cardId).innerHTML = generatePlaceholderHTML(cardId);
+            markSessionLineupChanged();
+            resaveUrlsBasedOnOrder(); checkLocalVideoExists(); updateMasterOptions();
+        }
+        function deletePlayer(cardId) {
+            const needsConfirm = document.getElementById('confirmDelete').checked;
+            if (needsConfirm && !confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
+            destroyPlayerCard(cardId); playerCount--;
+            markSessionLineupChanged();
+            updatePlayerCountDisplay();
+            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists(); updateMasterOptions(); saveSettings();
+        }
+        function resaveUrlsBasedOnOrder() {
+            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem('sync_url_' + i);
+            const cards = getSortedCards();
+            cards.forEach((card, index) => {
+                const input = document.getElementById('urlInput_' + card.id);
+                if (input && input.value.trim()) localStorage.setItem('sync_url_' + (index + 1), input.value.trim());
+            });
+        }
+        function moveCard(cardId, direction) {
+            const cards = getSortedCards();
+            const currentIndex = cards.findIndex(c => c.id === cardId);
+            if (currentIndex === -1) return;
+            const targetIndex = currentIndex + direction;
+            if (targetIndex < 0 || targetIndex >= cards.length) return; 
+            const currentOrder = cards[currentIndex].style.order;
+            cards[currentIndex].style.order = cards[targetIndex].style.order;
+            cards[targetIndex].style.order = currentOrder;
+            activeCardIds = getSortedCards().map(c => c.id);
+            updateLayout(); resaveUrlsBasedOnOrder(); updateMasterOptions();
+        }
+        function togglePin(cardId) {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const target = document.getElementById(cardId);
+            const btn = target.querySelector('.pin-btn');
+            if (target.classList.contains('is-main')) {
+                target.classList.remove('is-main'); btn.classList.remove('active');
+            } else {
+                cards.forEach(c => { c.classList.remove('is-main'); const b = c.querySelector('.pin-btn'); if (b) b.classList.remove('active'); });
+                target.classList.add('is-main'); btn.classList.add('active');
+            }
+            updateLayout();
+        }
+        function updateLayout() {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const N = cards.length;
+            if (N === 0) return;
+            if (N === 1) {
+                grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)';
+                cards[0].style.gridColumn = 'span 1'; cards[0].style.gridRow = 'span 1'; return;
+            }
+            const hasPin = cards.some(c => c.classList.contains('is-main'));
+            let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
+            if (N === 2) {
+                const dir = document.getElementById('layout2Dir').value;
+                if (dir === 'vertical') {
+                    grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = hasPin ? 'minmax(0, 2fr) minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)';
+                } else { 
+                    if (hasPin) { grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 2fr) minmax(0, 1fr)'; } 
+                    else { grid.style.gridTemplateColumns = 'minmax(0, 1fr) minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)'; }
+                }
+                cards.forEach(c => { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }); return;
+            }
+            const logicalCount = hasPin ? N + 3 : N;
+            const parsedCols = parseInt(colSetting, 10);
+            let cols;
+            if (colSetting !== 'auto' && Number.isInteger(parsedCols) && parsedCols >= 1 && parsedCols <= 4) {
+                // 手動指定（1〜4列）が有効な場合のみそれを使用
+                cols = parsedCols;
+            } else {
+                // 'auto'、または不正な値（空文字列・NaN等）の場合は自動計算にフォールバック
+                // ※以前はここでNaNになりgrid-template-columnsが無効化され、縦1列に積まれるバグがあった
+                if (logicalCount <= 4) cols = 2;
+                else if (logicalCount <= 6) cols = 3;
+                else if (logicalCount <= 9) cols = 3;
+                else cols = 4;
+            }
+            const rows = Math.ceil(logicalCount / cols);
+            grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+            grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
+            cards.forEach(c => {
+                if (c.classList.contains('is-main')) {
+                    const spanCol = Math.min(2, cols);
+                    c.style.gridColumn = 'span ' + spanCol; c.style.gridRow = 'span 2';
+                } else { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }
+            });
+        }
+        function updateChatLayout() {
+            const pos = document.getElementById('chatPosition').value;
+            const direction = pos === 'right' ? 'row' : 'column';
+            const cursor = pos === 'right' ? 'col-resize' : 'row-resize';
+            activeCardIds.forEach(cardId => {
+                const wrapper = document.getElementById('wrapper_' + cardId);
+                const splitter = document.getElementById('splitter_' + cardId);
+                const chatContainer = document.getElementById('chatContainer_' + cardId);
+                if (wrapper && splitter && chatContainer) {
+                    wrapper.style.flexDirection = direction; splitter.style.cursor = cursor;
+                    if (pos === 'right') {
+                        splitter.style.width = '4px'; splitter.style.height = '100%';
+                        chatContainer.style.width = '300px'; chatContainer.style.height = 'auto';
+                    } else {
+                        splitter.style.width = '100%'; splitter.style.height = '4px';
+                        chatContainer.style.width = '100%'; chatContainer.style.height = '300px';
+                    }
+                }
+            });
+        }
+        function setupChatSplitters() {
+            let isDragging = false, currentSplitter = null, currentChat = null, currentIframe = null, isHorizontal = true;
+            document.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('chat-splitter')) {
+                    isDragging = true; currentSplitter = e.target; currentChat = e.target.nextElementSibling;
+                    currentIframe = currentChat.querySelector('iframe');
+                    isHorizontal = document.getElementById('chatPosition').value === 'right';
+                    currentSplitter.classList.add('dragging'); 
+                    if (currentIframe) currentIframe.style.pointerEvents = 'none'; e.preventDefault();
+                }
+            });
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const rect = currentSplitter.parentElement.getBoundingClientRect();
+                if (isHorizontal) {
+                    let newWidth = Math.max(200, Math.min(rect.right - e.clientX, rect.width * 0.7)); 
+                    currentChat.style.width = newWidth + 'px';
+                } else {
+                    let newHeight = Math.max(150, Math.min(rect.bottom - e.clientY, rect.height * 0.7));
+                    currentChat.style.height = newHeight + 'px';
+                }
+            });
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false; 
+                    if (currentSplitter) currentSplitter.classList.remove('dragging');
+                    if (currentIframe) currentIframe.style.pointerEvents = 'auto';
+                }
+            });
+        }
+
+        function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
+            globalCurrentTime = Math.max(0, globalCurrentTime + diff);
+            updateTimerDisplay();
+            if (broadcastToAddon) broadcastSyncCommand('seek', diff);
+            document.querySelectorAll('.custom-local-video').forEach(v => {
+                const id = v.id.replace('localVideo_', '');
+                if (id !== excludeCardId) v.currentTime = Math.max(0, v.currentTime + diff);
+            });
             Object.entries(ytPlayers).forEach(([id, player]) => {
                 if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
                     player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
                 }
             });
         }
-
-        // --- 個別スキップ ---
         function skipPlayer(cardId, seconds) {
             const yt = ytPlayers[cardId];
-            const lv = document.getElementById(`localVideo_${cardId}`);
-            if (yt && typeof yt.getCurrentTime === 'function') {
-                yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
-            } else if (lv) {
-                lv.currentTime = Math.max(0, lv.currentTime + seconds);
-            }
+            const lv = document.getElementById('localVideo_' + cardId);
+            if (yt && typeof yt.getCurrentTime === 'function') yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
+            else if (lv) lv.currentTime = Math.max(0, lv.currentTime + seconds);
         }
-
-        /* --- 再生速度コントロール --- */
         function changePlaybackSpeed(val) {
             currentPlaybackSpeed = Math.min(2.0, Math.max(0.25, currentPlaybackSpeed + val));
             currentPlaybackSpeed = parseFloat(currentPlaybackSpeed.toFixed(1)); 
             document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
-            applyPlaybackSpeed();
-            saveSettings();
+            applyPlaybackSpeed(); saveSettings();
         }
-
         function applyPlaybackSpeed() {
             document.querySelectorAll('.custom-local-video').forEach(v => v.playbackRate = currentPlaybackSpeed);
             Object.values(ytPlayers).forEach(player => {
@@ -1151,93 +1519,66 @@
             broadcastSyncCommand('speed', currentPlaybackSpeed);
         }
 
-        /* --- 一括操作パネル ＆ ディレイスタート --- */
         function togglePlayPauseAll() {
-            if (isPlayingRequest) {
-                pauseAll();
-            } else {
+            if (isPlayingRequest) pauseAll();
+            else {
+                // 「全枠ロード済み」かつ「このラインナップで初回」の再生時のみ自動バックアップ
+                tryAutoSaveOnFirstPlay();
                 const isDelayEnabled = document.getElementById('enableDelaySync').checked;
-                if (isDelayEnabled) startDelayCountdown();
-                else playAll();
+                if (isDelayEnabled) startDelayCountdown(); else playAll();
             }
         }
-
         function startDelayCountdown() {
             cancelCountdown();
             isPlayingRequest = true; 
             const playPauseBtn = document.getElementById('playPauseBtn');
-            playPauseBtn.innerText = '⏸ カウント中止';
-            playPauseBtn.classList.remove('primary');
-            playPauseBtn.classList.add('playing-state');
-
+            playPauseBtn.innerText = '⏸ カウント中止'; playPauseBtn.classList.remove('primary'); playPauseBtn.classList.add('playing-state');
             const overlay = document.getElementById('countdownOverlay');
             overlay.style.display = 'block';
-
             let count = parseInt(document.getElementById('delaySec').value, 10) || 3;
             overlay.innerText = count;
-
             countdownInterval = setInterval(() => {
                 count--;
                 if (count > 0) {
-                    overlay.innerText = count;
-                    overlay.style.animation = 'none'; overlay.offsetHeight; overlay.style.animation = '';
+                    overlay.innerText = count; overlay.style.animation = 'none'; overlay.offsetHeight; overlay.style.animation = '';
                 } else if (count === 0) {
-                    overlay.innerText = 'START!';
-                    overlay.style.color = '#00ffcc';
-                    overlay.style.textShadow = '0 0 35px rgba(0,0,0,0.95), 0 0 15px #00ffcc';
-                    
+                    overlay.innerText = 'START!'; overlay.style.color = '#00ffcc'; overlay.style.textShadow = '0 0 35px rgba(0,0,0,0.95), 0 0 15px #00ffcc';
                     const pBtn = document.getElementById('playPauseBtn');
                     pBtn.innerText = '⏸ 一括停止';
-                    
                     playAllPlayersOnly(); 
-
                     countdownTimer = setTimeout(() => {
-                        overlay.style.display = 'none';
-                        overlay.style.color = '#ff4757';
-                        overlay.style.textShadow = '0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757';
+                        overlay.style.display = 'none'; overlay.style.color = '#ff4757'; overlay.style.textShadow = '0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757';
                     }, 800);
-                    clearInterval(countdownInterval);
-                    countdownInterval = null;
+                    clearInterval(countdownInterval); countdownInterval = null;
                 }
             }, 1000);
         }
-
         function cancelCountdown() {
             if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
             clearTimeout(countdownTimer);
             const overlay = document.getElementById('countdownOverlay');
-            overlay.style.display = 'none';
-            overlay.style.color = '#ff4757';
+            overlay.style.display = 'none'; overlay.style.color = '#ff4757';
         }
-
         function playAll() {
             isPlayingRequest = true;
             const btn = document.getElementById('playPauseBtn');
-            btn.innerText = '⏸ 一括停止';
-            btn.classList.remove('primary');
-            btn.classList.add('playing-state');
+            btn.innerText = '⏸ 一括停止'; btn.classList.remove('primary'); btn.classList.add('playing-state');
             playAllPlayersOnly();
         }
-
         function pauseAll() {
             isPlayingRequest = false;
             cancelCountdown();
             const btn = document.getElementById('playPauseBtn');
-            btn.innerText = '▶ 一括再生';
-            btn.classList.add('primary');
-            btn.classList.remove('playing-state');
+            btn.innerText = '▶ 一括再生'; btn.classList.add('primary'); btn.classList.remove('playing-state');
             pauseAllPlayersOnly();
         }
-
         function playAllPlayersOnly() {
             broadcastSyncCommand('play');
-
             document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
             Object.entries(ytPlayers).forEach(([id, player]) => {
                 if (player && typeof player.playVideo === 'function') player.playVideo();
             });
         }
-
         function pauseAllPlayersOnly() {
             broadcastSyncCommand('pause');
             document.querySelectorAll('.custom-local-video').forEach(v => v.pause());
@@ -1245,181 +1586,170 @@
                 if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
             });
         }
-
-        function skipAll(seconds) {
-            applySeekToAll(seconds, true, null);
-        }
-
+        function skipAll(seconds) { applySeekToAll(seconds, true, null); }
         function changeMasterVolume(value) {
             document.querySelectorAll('.custom-local-video').forEach(v => {
-                v.volume = value / 100;
-                const cardId = v.id.split('_')[1];
-                const localVolInput = document.getElementById(`localVolume_${cardId}`);
+                v.volume = Math.max(0, Math.min(1, value / 100));
+                // cardIdは 'card_3' のようにアンダースコアを含むため split('_')[1] では 'card' になってしまう。
+                // prefixを除去する方式に修正。
+                const cardId = v.id.replace('localVideo_', '');
+                const localVolInput = document.getElementById('localVolume_' + cardId);
                 if (localVolInput) localVolInput.value = value;
+                const icon = document.getElementById('localVolIcon_' + cardId);
+                if (icon) icon.innerText = v.volume === 0 ? '🔇' : (v.volume < 0.5 ? '🔉' : '🔊');
             });
             Object.values(ytPlayers).forEach(player => {
                 if (player && typeof player.setVolume === 'function') player.setVolume(value);
             });
         }
 
-        /* --- タイマー更新（指定基準に則った追従） --- */
+        /* ------------------------------------------------------------
+           タイマーのティック処理
+           「時間同調の基準（マスター）」の種別に応じて globalCurrentTime を更新する。
+
+           ・local_<cardId> : そのローカル動画の再生位置をそのまま反映（壁時計は使わない）
+           ・internal       : 実経過時間 × 再生速度 を加算（再生中のみ）
+           ・external       : アドオンへ定期的に requestTime を送り、timeReport の返答で更新
+
+           【設計上の注意】
+           この処理が書き換えるのは #mainTimer のテキストのみで、
+           <select> の option や DOM構造には一切触れない。
+           過去に発生していた「ポーリングによるちらつき・プルダウンが閉じる」不具合は
+           DOMプロパティの再書き込みが原因だったため、ここでは再発しない。
+
+           setInterval + performance.now() の差分方式を採用している。
+           バックグラウンドタブでタイマーが間引かれても、実経過時間から算出するため
+           ズレが蓄積しない（requestAnimationFrame は非表示タブで停止するため不採用）。
+           ------------------------------------------------------------ */
+        let timerTickHandle = null;
+        const TIMER_TICK_MS = 250;
+        // 外部配信サイトへの時間問い合わせ間隔（250ms × 2 = 500ms ごと）
+        const EXTERNAL_POLL_TICKS = 2;
+        let externalPollCounter = 0;
+
+        function syncGlobalTimeFromMaster() {
+            const now = performance.now();
+            const elapsedSec = (now - lastTimeUpdate) / 1000;
+            lastTimeUpdate = now;
+
+            const mode = getCurrentMasterType();
+
+            if (mode.startsWith('local_')) {
+                const video = document.getElementById('localVideo_' + mode.replace('local_', ''));
+                if (video) {
+                    globalCurrentTime = video.currentTime;
+                    globalDuration = isFinite(video.duration) ? video.duration : 0;
+                }
+            } else if (mode === 'internal') {
+                globalDuration = 0;
+                // カウントダウン中は isPlayingRequest が true でも実際には未再生のため進めない
+                if (isPlayingRequest && !countdownInterval) {
+                    globalCurrentTime += elapsedSec * currentPlaybackSpeed;
+                }
+            } else if (mode === 'external') {
+                // 外部配信サイトが基準の場合、アドオン側（content_video.js）は
+                // requestTime を受け取ったときしか timeReport を送らない。
+                // そのため、ここから定期的に現在時間を要求し続ける。
+                //
+                // ポーリング方式にしている利点:
+                //   ・A側の「一括再生」だけでなく、配信サイト側で直接再生した場合も追従する
+                //   ・配信サイト側で一時停止すれば報告値が止まるため、タイマーも自然に停止する
+                //   ・B側（アドオン）の改修が不要（requestTime / timeReport は実装済み）
+                globalDuration = 0; // 外部動画の総再生時間は取得できないため常に0
+                externalPollCounter++;
+                if (externalPollCounter >= EXTERNAL_POLL_TICKS) {
+                    externalPollCounter = 0;
+                    broadcastSyncCommand('requestTime');
+                }
+            }
+            // globalCurrentTime の実際の更新は timeReport 受信ハンドラ側で行われる
+
+            updateTimerDisplay();
+        }
+
+        function startTimerTick() {
+            if (timerTickHandle) return;
+            lastTimeUpdate = performance.now();
+            timerTickHandle = setInterval(syncGlobalTimeFromMaster, TIMER_TICK_MS);
+        }
+
         function updateTimerDisplay() {
             if (!isEditingTimer) {
                 const cur = formatTime(globalCurrentTime);
                 const dur = formatTime(globalDuration);
-                document.getElementById('mainTimer').innerText = globalDuration > 0 ? `${cur} / ${dur}` : cur;
+                document.getElementById('mainTimer').innerText = globalDuration > 0 ? cur + ' / ' + dur : cur;
             }
         }
-
-        setInterval(() => {
-            const now = performance.now();
-            const delta = (now - lastTimeUpdate) / 1000;
-            lastTimeUpdate = now;
-
-            updateMasterBadge();
-
-            const masterType = getCurrentMasterType();
-            let newDuration = 0;
-            const cards = Array.from(document.getElementById('playersGrid').children);
-            cards.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
-            
-            if (masterType.startsWith('local_')) {
-                const cardId = masterType.replace('local_', '');
-                const lv = document.getElementById(`localVideo_${cardId}`);
-                if (lv && !isNaN(lv.duration)) newDuration = lv.duration;
-            } else if (masterType === 'internal') {
-                for (let card of cards) {
-                    const yt = ytPlayers[card.id];
-                    if (yt && typeof yt.getDuration === 'function') { newDuration = yt.getDuration() || 0; break; }
-                }
-            } else {
-                newDuration = 0; // 外部配信基準時は母数不確定につき非表示
-            }
-            globalDuration = newDuration;
-
-            if (masterType.startsWith('local_')) {
-                const cardId = masterType.replace('local_', '');
-                const lv = document.getElementById(`localVideo_${cardId}`);
-                if (lv && !localSeekActive[cardId]) {
-                    globalCurrentTime = lv.currentTime;
-                }
-            } else {
-                if (isPlayingRequest && countdownInterval === null) {
-                    globalCurrentTime += delta * currentPlaybackSpeed;
-                }
-            }
-            updateTimerDisplay();
-            
-        }, 100);
 
         function editTimer() {
             isEditingTimer = true;
             const display = document.getElementById('mainTimer');
             const input = document.getElementById('timerInput');
             input.value = display.innerText.split(' / ')[0];
-            display.style.display = 'none';
-            input.style.display = 'inline-block';
-            input.focus();
+            display.style.display = 'none'; input.style.display = 'inline-block'; input.focus();
         }
-
         function finishEditTimer() {
             if (!isEditingTimer) return;
             isEditingTimer = false;
             const display = document.getElementById('mainTimer');
             const input = document.getElementById('timerInput');
-            
             const parts = input.value.split(':').reverse();
             let sec = 0;
             if (parts[0]) sec += parseFloat(parts[0]) || 0;
             if (parts[1]) sec += (parseFloat(parts[1]) || 0) * 60;
             if (parts[2]) sec += (parseFloat(parts[2]) || 0) * 3600;
-            
             globalCurrentTime = Math.max(0, sec);
-            
-            // 手動タイマー指定時のみ全動画へ強制同期
             broadcastSyncCommand('seekTo', globalCurrentTime);
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                v.currentTime = globalCurrentTime;
-            });
+            document.querySelectorAll('.custom-local-video').forEach(v => { v.currentTime = globalCurrentTime; });
             Object.entries(ytPlayers).forEach(([id, player]) => {
-                if (player && typeof player.seekTo === 'function') {
-                    player.seekTo(globalCurrentTime, true);
-                }
+                if (player && typeof player.seekTo === 'function') player.seekTo(globalCurrentTime, true);
             });
-
-            display.style.display = 'inline-block';
-            input.style.display = 'none';
-            updateTimerDisplay();
+            display.style.display = 'inline-block'; input.style.display = 'none'; updateTimerDisplay();
         }
-
         function resetGlobalTimer() {
             globalCurrentTime = 0;
             broadcastSyncCommand('seekTo', 0);
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                v.currentTime = 0;
-            });
+            document.querySelectorAll('.custom-local-video').forEach(v => { v.currentTime = 0; });
             Object.entries(ytPlayers).forEach(([id, player]) => {
-                if (player && typeof player.seekTo === 'function') {
-                    player.seekTo(0, true);
-                }
+                if (player && typeof player.seekTo === 'function') player.seekTo(0, true);
             });
             updateTimerDisplay();
         }
+        function requestExternalTime() { broadcastSyncCommand('requestTime'); }
 
-        function requestExternalTime() {
-            broadcastSyncCommand('requestTime'); 
-        }
-
-        /* --- 押し上げ式コントローラー ＆ ロック機能 --- */
         function toggleControllerLock() {
             isControllerLocked = !isControllerLocked;
             const btn = document.getElementById('lockControllerBtn');
             btn.innerText = isControllerLocked ? '🔒' : '🔓';
             saveSettings();
-            if (isControllerLocked) showController();
-            else hideController();
+            if (isControllerLocked) showController(); else hideController();
         }
-
         function showController() {
             const controller = document.getElementById('overlayController');
             const mainView = document.getElementById('mainView');
-            controller.classList.add('active');
-            mainView.classList.add('controller-active'); 
+            controller.classList.add('active'); mainView.classList.add('controller-active'); 
         }
-
         function hideController() {
             if (isControllerLocked) return;
             const controller = document.getElementById('overlayController');
             const mainView = document.getElementById('mainView');
-            controller.classList.remove('active');
-            mainView.classList.remove('controller-active'); 
+            controller.classList.remove('active'); mainView.classList.remove('controller-active'); 
         }
-
         function setupHoverController() {
             const controller = document.getElementById('overlayController');
             let hideTimer;
-            
             document.addEventListener('mousemove', (e) => {
-                if (e.clientY > window.innerHeight - 80) {
-                    showController(); clearTimeout(hideTimer);
-                } else {
-                    clearTimeout(hideTimer);
-                    hideTimer = setTimeout(() => { if (!controller.matches(':hover')) hideController(); }, 1500);
-                }
+                if (e.clientY > window.innerHeight - 80) { showController(); clearTimeout(hideTimer); } 
+                else { clearTimeout(hideTimer); hideTimer = setTimeout(() => { if (!controller.matches(':hover')) hideController(); }, 1500); }
             });
             controller.addEventListener('mouseenter', () => { showController(); clearTimeout(hideTimer); });
-            controller.addEventListener('mouseleave', () => {
-                clearTimeout(hideTimer);
-                hideTimer = setTimeout(() => { hideController(); }, 1000);
-            });
+            controller.addEventListener('mouseleave', () => { clearTimeout(hideTimer); hideTimer = setTimeout(() => { hideController(); }, 1000); });
         }
 
-        /* --- 保存・復元 --- */
         function saveSettings() {
             localStorage.setItem('sync_layout2_dir', document.getElementById('layout2Dir').value);
             const colsEl = document.getElementById('layoutCols');
             if (colsEl) localStorage.setItem('sync_layout_cols', colsEl.value);
-
             localStorage.setItem('sync_player_count', playerCount); 
             localStorage.setItem('sync_ui_size', document.getElementById('uiSizeSelect').value);
             localStorage.setItem('sync_chat_position', document.getElementById('chatPosition').value);
@@ -1434,23 +1764,16 @@
             localStorage.setItem('sync_confirm_delete', document.getElementById('confirmDelete').checked);
             localStorage.setItem('sync_master_mode', getCurrentMasterType());
         }
-
         function loadSavedSettings() {
-            if (localStorage.getItem('sync_layout2_dir')) document.getElementById('layout2Dir').value = localStorage.getItem('sync_layout2_dir');
-            
-            if (localStorage.getItem('sync_layout_cols')) {
-                const colsEl = document.getElementById('layoutCols');
-                if (colsEl) colsEl.value = localStorage.getItem('sync_layout_cols');
-            }
-
+            if (localStorage.getItem('sync_layout2_dir')) setSelectValueSafe('layout2Dir', localStorage.getItem('sync_layout2_dir'), 'horizontal');
+            if (localStorage.getItem('sync_layout_cols')) setSelectValueSafe('layoutCols', localStorage.getItem('sync_layout_cols'), 'auto');
             if (localStorage.getItem('sync_player_count')) {
                 playerCount = parseInt(localStorage.getItem('sync_player_count'), 10) || 2;
-                document.getElementById('activeCountDisplay').innerText = playerCount;
+                updatePlayerCountDisplay();
             }
             if (localStorage.getItem('sync_ui_size')) {
                 const size = localStorage.getItem('sync_ui_size');
-                document.getElementById('uiSizeSelect').value = size;
-                document.documentElement.setAttribute('data-ui-size', size);
+                document.getElementById('uiSizeSelect').value = size; document.documentElement.setAttribute('data-ui-size', size);
             }
             if (localStorage.getItem('sync_chat_position')) document.getElementById('chatPosition').value = localStorage.getItem('sync_chat_position');
             if (localStorage.getItem('sync_skip_sec_back')) document.getElementById('skipSecBack').value = localStorage.getItem('sync_skip_sec_back');
@@ -1462,35 +1785,27 @@
                 document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
             }
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
-            
             if (localStorage.getItem('sync_controller_lock') === 'true') {
                 isControllerLocked = true;
                 const btn = document.getElementById('lockControllerBtn');
                 if (btn) btn.innerText = '🔒';
                 showController();
             }
-
             if (localStorage.getItem('sync_confirm_reset') !== null) document.getElementById('confirmReset').checked = localStorage.getItem('sync_confirm_reset') === 'true';
             if (localStorage.getItem('sync_confirm_delete') !== null) document.getElementById('confirmDelete').checked = localStorage.getItem('sync_confirm_delete') === 'true';
-
             toggleDelaySettingView();
-            
-            // ロード後に一度マスターセレクトボックスの整合性を合わせる
             setTimeout(() => {
                 const savedMaster = localStorage.getItem('sync_master_mode');
                 if (savedMaster) {
                     const select = document.getElementById('syncMasterSelect');
-                    if (select && select.querySelector(`option[value="${savedMaster}"]`)) {
-                        select.value = savedMaster;
-                    }
+                    if (select && select.querySelector('option[value="' + savedMaster + '"]')) select.value = savedMaster;
                 }
                 updateMasterOptions();
             }, 300);
         }
-
         function clearAllSettings() {
             if (confirm('すべての設定と保存URLをリセットしますか？')) { localStorage.clear(); location.reload(); }
         }
-    </script>
+</script>
 </body>
 </html>
