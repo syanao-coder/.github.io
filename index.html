@@ -412,11 +412,14 @@
             const match = url.match(/[?&]list=([^#\&\?]+)/);
             return match ? match[1] : null;
         }
-        function getYouTubeId(url) {
+        // silent=true のときは alert を出さない。
+        // ➕送信ボタン経由の処理はユーザーがYouTube窓を見ているためalertに気づけず、
+        // 代わりに YOUTUBE_ADD_RESULT でボタン上に結果を返す設計になっている。
+        function getYouTubeId(url, silent) {
             if (!url) return null;
             const trimmed = url.trim();
             if (trimmed.includes('/shorts/')) {
-                alert('ショート動画は同時視聴に対応していません。通常の動画を選択してください。');
+                if (!silent) alert('ショート動画は同時視聴に対応していません。通常の動画を選択してください。');
                 return null;
             }
             if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
@@ -444,6 +447,70 @@
         let scrapedPopupRef = null;    
         let playerCount = 2; 
         const MAX_TOTAL_COUNT = 9;
+
+        /* ------------------------------------------------------------
+           枠ごとの「今入っている動画の識別キー」
+             cardId → videoId（11文字） または 'list:<playlistId>'
+           重複判定に使用する。
+           URL文字列そのものは ?t= や ?pp= 等が付いて同一動画でも表記が揺れるため、
+           必ずIDへ正規化してから比較する。
+           ------------------------------------------------------------ */
+        let cardVideoKeys = {};
+
+        function buildVideoKey(url) {
+            const videoId = getYouTubeId(url, true);
+            if (videoId) return videoId;
+            const playlistId = getPlaylistId(url);
+            if (playlistId) return 'list:' + playlistId;
+            return null;
+        }
+
+        // 1枠が持ちうるキーの一覧を返す。
+        // プレイリスト枠は「リスト自体」と「今再生中の動画」の両方を持つ。
+        function getSlotVideoKeys(cardId) {
+            const keys = [];
+            const stored = cardVideoKeys[cardId];
+            if (stored) keys.push(stored);
+            const yt = ytPlayers[cardId];
+            if (yt && typeof yt.getVideoData === 'function') {
+                try {
+                    const data = yt.getVideoData();
+                    if (data && data.video_id && keys.indexOf(data.video_id) === -1) keys.push(data.video_id);
+                } catch (e) {}
+            }
+            return keys;
+        }
+
+        // 同じ動画が既に入っている枠の番号（1始まり）を返す。無ければ 0。
+        function findDuplicateSlotIndex(key) {
+            if (!key) return 0;
+            const cards = getSortedCards();
+            for (let i = 0; i < cards.length; i++) {
+                if (getSlotVideoKeys(cards[i].id).indexOf(key) !== -1) return i + 1;
+            }
+            return 0;
+        }
+
+        // 表示順に基づく枠番号（1始まり）
+        function getSlotIndex(cardId) {
+            const cards = getSortedCards();
+            for (let i = 0; i < cards.length; i++) {
+                if (cards[i].id === cardId) return i + 1;
+            }
+            return 0;
+        }
+
+        // ➕送信ボタンへの結果通知（A → B）
+        function sendYoutubeAddResult(requestId, status, slotIndex) {
+            if (!requestId) return; // 手動入力など、ボタン由来でない呼び出しは通知不要
+            window.postMessage({
+                type: 'CONTROLLER_TO_YOUTUBE',
+                event: 'addVideoResult',
+                requestId: requestId,
+                status: status,
+                slotIndex: slotIndex || 0
+            }, '*');
+        }
 
         // DOMロード完了時の安定起動
         document.addEventListener('DOMContentLoaded', () => { initApp(); });
@@ -555,15 +622,24 @@
         }
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'EXTERNAL_SYNC_EVENT') {
-                const wasActive = isExternalActive;
-                isExternalActive = true; 
-                if (event.data.siteName) externalSiteName = event.data.siteName;
-                if (!wasActive) {
-                    const select = document.getElementById('syncMasterSelect');
-                    if (select) { select.value = 'external'; saveSettings(); }
+                const newState = event.data.state;
+
+                /* 【修正】旧実装は EXTERNAL_SYNC_EVENT を受信しただけで
+                   isExternalActive = true としていたため、YouTubeの➕送信ボタンを押すたびに
+                   時間基準（マスター）が「外部配信サイト」へ勝手に切り替わっていた。
+                   実際に外部動画が再生中であることを示すのは timeReport 系のみなので、
+                   マスター昇格はそこに限定する。 */
+                if (newState === 'timeReport' || newState === 'relativeSeekReport') {
+                    const wasActive = isExternalActive;
+                    isExternalActive = true;
+                    if (event.data.siteName) externalSiteName = event.data.siteName;
+                    if (!wasActive) {
+                        const select = document.getElementById('syncMasterSelect');
+                        if (select) { select.value = 'external'; saveSettings(); }
+                    }
+                    updateMasterBadge();
                 }
-                updateMasterBadge();
-                const newState = event.data.state; 
+
                 if (newState === 'timeReport') {
                     globalCurrentTime = parseFloat(event.data.time) || 0;
                     updateTimerDisplay();
@@ -573,21 +649,54 @@
                 } else if (newState === 'youtubeScrapeReport') {
                     if (activeScrapeCardId && event.data.items) showScrapedResults(activeScrapeCardId, event.data.items);
                 } else if (newState === 'addYoutubeVideo') {
-                    if (event.data.url) addOrFillVideoSlot(event.data.url, event.data.title);
+                    addOrFillVideoSlot(event.data.url, event.data.title, event.data.requestId);
                 }
             }
         });
 
-        function addOrFillVideoSlot(url, title) {
+        /* ------------------------------------------------------------
+           YouTubeの「➕送信」ボタンから動画を受け取り、空き枠へ流し込む。
+
+           requestId が付いている場合（＝送信ボタン由来）は、
+           処理結果を YOUTUBE_ADD_RESULT として必ず1回返す。
+
+           重複判定の方針:
+             ・判定はここ（A側）で行う。B側は枠の状態を知らないため。
+             ・判定キーは videoId（プレイリストは 'list:<id>'）。URL文字列では比較しない。
+             ・比較対象は「全枠の現在の内容」。手動入力で入れた動画とも突き合わせる。
+               （手動入力そのものは制限しない。弾くのは送信ボタン経由の投入のみ）
+             ・🧹で枠をクリアすればキーも消えるので、同じ動画を再送信できる。
+           ------------------------------------------------------------ */
+        function addOrFillVideoSlot(url, title, requestId) {
+            if (!url) { sendYoutubeAddResult(requestId, 'invalid'); return; }
+
+            const key = buildVideoKey(url);
+            if (!key) { sendYoutubeAddResult(requestId, 'invalid'); return; }
+
+            // 1. 重複チェック（送信ボタン由来のときのみ弾く）
+            if (requestId) {
+                const dupIndex = findDuplicateSlotIndex(key);
+                if (dupIndex > 0) {
+                    sendYoutubeAddResult(requestId, 'duplicate', dupIndex);
+                    return;
+                }
+            }
+
+            // 2. 空き枠の探索（[再選択待ち]や🧹直後の枠も空きとして扱う）
             let emptyCardId = null;
             for (let id of activeCardIds) {
                 const lv = document.getElementById('localVideo_' + id);
-                const yt = ytPlayers[id];
-                if (!lv && !yt) { emptyCardId = id; break; }
+                const hasLocal = lv && lv.src && lv.src !== window.location.href;
+                if (!hasLocal && !ytPlayers[id]) { emptyCardId = id; break; }
             }
+
+            // 3. 空きが無ければ自動で増枠
             if (!emptyCardId) {
                 if (playerCount >= MAX_TOTAL_COUNT) {
-                    alert('最大枠数 (9枠) に達しているため、新しい枠を追加できません。');
+                    // 旧実装はここで alert() を出していたが、ユーザーはYouTube窓を見ており
+                    // 気づけないため廃止し、ボタン上への結果通知に置き換えた。
+                    sendYoutubeAddResult(requestId, 'slotFull');
+                    if (!requestId) alert('最大枠数 (9枠) に達しているため、新しい枠を追加できません。');
                     return;
                 }
                 playerCount++;
@@ -595,11 +704,15 @@
                 initializeGrid();
                 emptyCardId = activeCardIds[activeCardIds.length - 1];
             }
+
+            // 4. 流し込み
             saveVideoToHistory(title || url, url, '', false);
             const input = document.getElementById('urlInput_' + emptyCardId);
             if (input) input.value = url;
             localStorage.setItem('sync_url_' + emptyCardId, url);
-            loadSingleYT(emptyCardId);
+            loadSingleYT(emptyCardId, true);
+
+            sendYoutubeAddResult(requestId, 'loaded', getSlotIndex(emptyCardId));
         }
 
         function toggleSettings() {
@@ -774,19 +887,28 @@
             const savedUrl = localStorage.getItem('sync_url_' + idxForSave);
             if (savedUrl) {
                 setTimeout(() => {
+                    // この50msの間に➕送信ボタン経由で別の動画がロードされている場合、
+                    // 入力欄ごと差し替わって存在しなくなる。その場合は上書きしない。
                     const inputEl = document.getElementById('urlInput_' + cardId);
-                    if(inputEl) inputEl.value = savedUrl;
-                    loadSingleYT(cardId);
+                    if (!inputEl) return;
+                    inputEl.value = savedUrl;
+                    loadSingleYT(cardId, true);
                 }, 50);
             }
         }
 
-        function loadSingleYT(cardId) {
+        function loadSingleYT(cardId, silent) {
             const urlInput = document.getElementById('urlInput_' + cardId);
             const url = urlInput ? urlInput.value.trim() : (localStorage.getItem('sync_url_' + cardId) || '');
-            const videoId = getYouTubeId(url);
+            const videoId = getYouTubeId(url, silent);
             const playlistId = getPlaylistId(url);
-            if (!videoId && !playlistId) { alert('有効なYouTube URLを入力してください。'); return; }
+            if (!videoId && !playlistId) {
+                if (!silent) alert('有効なYouTube URLを入力してください。');
+                return;
+            }
+
+            // 重複判定用のキーを記録
+            cardVideoKeys[cardId] = playlistId ? ('list:' + playlistId) : videoId;
 
             localStorage.setItem('sync_url_' + cardId, url);
             markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
@@ -838,7 +960,7 @@
             history = history.filter(item => item.url !== url && item.title !== title);
             let calculatedThumb = thumbnail;
             if (!isLocal) {
-                const vid = getYouTubeId(url);
+                const vid = getYouTubeId(url, true); // 履歴サムネ生成時にalertを出さない
                 calculatedThumb = vid ? 'https://img.youtube.com/vi/' + vid + '/mqdefault.jpg' : '';
             }
             history.unshift({ title: title, url: url, thumbnail: calculatedThumb, isLocal: isLocal, timestamp: Date.now() });
@@ -945,6 +1067,7 @@
             if (!file) return;
 
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch (e) {} delete ytPlayers[cardId]; }
+            delete cardVideoKeys[cardId]; // ローカル動画に差し替わったのでYouTube側のキーは破棄
             localStorage.removeItem('sync_url_' + cardId);
             markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
 
@@ -1128,7 +1251,7 @@
             document.getElementById('confirmDelete').checked = session.confirmDelete;
             globalCurrentTime = session.globalTime;
             const grid = document.getElementById('playersGrid');
-            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {};
+            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {};
             session.players.forEach(p => {
                 activeCardIds.push(p.cardId);
                 restorePlayerCardFromState(p);
@@ -1177,9 +1300,10 @@
                 container.innerHTML = '<div id="ytPlayer_' + p.cardId + '"></div>';
                 let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0, 'start': Math.floor(p.currentTime) };
                 const playlistId = getPlaylistId(p.url);
+                cardVideoKeys[p.cardId] = playlistId ? ('list:' + playlistId) : getYouTubeId(p.url, true);
                 if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
                 ytPlayers[p.cardId] = new YT.Player('ytPlayer_' + p.cardId, {
-                    videoId: getYouTubeId(p.url) || undefined,
+                    videoId: getYouTubeId(p.url, true) || undefined,
                     playerVars: playerVarsSetting,
                     events: {
                         'onReady': (event) => {
@@ -1313,6 +1437,7 @@
 
         function destroyPlayerCard(cardId) {
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            delete cardVideoKeys[cardId];
             const card = document.getElementById(cardId);
             if (card) card.remove();
         }
@@ -1335,6 +1460,7 @@
             const needsConfirm = document.getElementById('confirmReset').checked;
             if (needsConfirm && !confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            delete cardVideoKeys[cardId]; // 枠を空にしたので重複判定の対象外に戻す
             const lv = document.getElementById('localVideo_' + cardId);
             if (lv) { lv.pause(); lv.src = ""; lv.load(); }
             document.getElementById('title_' + cardId).innerText = '未ロード';
