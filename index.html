@@ -692,7 +692,7 @@
                 } else if (newState === 'addYoutubeVideo') {
                     addOrFillVideoSlot(event.data.url, event.data.title, event.data.requestId);
                 } else if (newState === 'chatContinuation') {
-                    handleChatContinuationResult(event.data.requestId, event.data.continuation, event.data.error);
+                    handleChatContinuationResult(event.data.requestId, event.data.continuation, event.data.error, event.data.isLive);
                 }
             }
         });
@@ -1038,6 +1038,7 @@
            ブラウザのJSから直接 fetch するとCORSで弾かれる。
            → アドオン(B側)の background.js に取りに行かせる。
              manifest には既に https://*.youtube.com/* があるため権限追加は不要。 */
+        let chatInfoCache = {};            // videoId → { isLive, continuation }（アドオンの回答＝正解）
         let chatContinuationCache = {};    // videoId → continuationトークン
         let chatContinuationPending = {};  // requestId → { cardId, videoId }
         let chatContinuationInflight = {}; // videoId → requestId（多重要求の抑止）
@@ -1151,6 +1152,20 @@
 
         /* チャットiframeの内容を（必要なら）更新する。
            呼び出し元: 動画ロード完了時 / プレイリスト送り / トグルON / 🔄 */
+        /* ------------------------------------------------------------
+           チャット内容の確定
+
+           ★モード判定はA側の推測に頼らない。
+             IFrame Player API の getProgressState().isLive は
+             「ライブ配信のアーカイブ」でも true を返すことがあり、
+             その結果アーカイブに live_chat を使ってしまい
+             「このライブストリームではチャットは無効です」に戻ってしまう。
+
+           そこでアドオンにwatchページを取りに行かせ、
+             ytInitialPlayerResponse.videoDetails.isLive
+               … 今まさに配信中のときだけ true（アーカイブは false）
+           を正解として使う。continuation も同時に受け取る。
+           ------------------------------------------------------------ */
         function updateChatContent(cardId, force) {
             if (!chatVisible[cardId]) return;
             const iframe = document.getElementById('chatIframe_' + cardId);
@@ -1174,43 +1189,55 @@
                 return;
             }
 
-            // 動画が変わったら自動判定をやり直す（手動で切り替えた枠はその選択を尊重する）
+            // 動画が変わったら手動指定を解除する
             const prevVideoId = chatLoadedVideoId[cardId] ? String(chatLoadedVideoId[cardId]).split('|')[0] : null;
             if (prevVideoId !== videoId) chatModeManual[cardId] = false;
-            if (!chatModeManual[cardId]) chatMode[cardId] = detectChatMode(cardId);
 
-            const mode = getChatMode(cardId);
+            const info = chatInfoCache[videoId];
+
+            // まだ問い合わせていない → アドオンへ取りに行かせる（手動指定時は待たない）
+            if (!info && !chatModeManual[cardId] && !chatContinuationFailed[videoId]) {
+                showChatNote(cardId,
+                    '<b>チャット情報を取得しています…</b>' +
+                    '<span>アドオン経由でYouTubeから<br>配信状態とチャットの位置情報を取得しています。</span>');
+                requestChatContinuation(cardId, videoId);
+                return;
+            }
+
+            // モードの確定: 手動指定 > アドオンの回答 > ローカル推測
+            let mode;
+            if (chatModeManual[cardId]) {
+                mode = getChatMode(cardId);
+            } else if (info) {
+                mode = info.isLive ? 'live' : 'replay';
+                chatMode[cardId] = mode;
+            } else {
+                mode = detectChatMode(cardId);
+                chatMode[cardId] = mode;
+            }
+
             const loadKey = videoId + '|' + mode;
-
-            // 同じ動画・同じモードを開き直すと未読位置が飛ぶので、強制指定が無い限り再読込しない
             if (!force && chatLoadedVideoId[cardId] === loadKey) return;
 
             updateChatModeButton(cardId);
             const titleEl0 = document.getElementById('chatHeadTitle_' + cardId);
             if (titleEl0) titleEl0.innerText = (mode === 'live') ? '💬 ライブ' : '💬 リプレイ';
 
-            /* リプレイは continuation が要る。無ければアドオンへ取りに行かせる。 */
             if (mode === 'replay') {
-                const cont = chatContinuationCache[videoId];
-                if (cont) {
-                    if (!force && chatLoadedVideoId[cardId] === loadKey) return;
-                    note.innerHTML = ''; note.style.display = 'none';
-                    iframe.style.display = 'block';
-                    // リプレイは親からの再生位置通知が届くまで本文が動かないため、
-                    // 読み込み完了直後に1回押し込んでおく（以後は1秒ごとのpumpが継続）。
-                    iframe.onload = function () { setTimeout(pumpChatProgress, 300); };
-                    iframe.src = buildReplayChatUrl(cont);
-                    chatLoadedVideoId[cardId] = loadKey;
+                const cont = (info && info.continuation) || chatContinuationCache[videoId];
+                if (!cont) {
+                    showChatFallbackNote(cardId,
+                        chatContinuationFailed[videoId] ||
+                        'この動画にはチャットリプレイがありません（通常動画／チャット無効／メンバー限定の可能性）');
                     return;
                 }
-                if (chatContinuationFailed[videoId]) {
-                    showChatFallbackNote(cardId, chatContinuationFailed[videoId]);
-                    return;
-                }
-                showChatNote(cardId,
-                    '<b>チャットリプレイを取得しています…</b>' +
-                    '<span>アドオン経由でYouTubeから<br>チャットの再生位置情報を取得しています。</span>');
-                requestChatContinuation(cardId, videoId);
+                note.innerHTML = ''; note.style.display = 'none';
+                iframe.style.display = 'block';
+                // リプレイは親からの再生位置通知が届くまで本文が動かないため、
+                // 読み込み完了直後に1回押し込んでおく（以後はtickごとのpumpが継続）。
+                iframe.onload = function () { setTimeout(pumpChatProgress, 300); };
+                iframe.src = buildReplayChatUrl(cont);
+                chatLoadedVideoId[cardId] = loadKey;
                 return;
             }
 
@@ -1260,18 +1287,24 @@
             }, CHAT_CONTINUATION_TIMEOUT_MS);
         }
 
-        function handleChatContinuationResult(requestId, continuation, error) {
+        function handleChatContinuationResult(requestId, continuation, error, isLive) {
             const pending = chatContinuationPending[requestId];
             if (!pending) return; // タイムアウト済み or 無関係
             delete chatContinuationPending[requestId];
             delete chatContinuationInflight[pending.videoId];
 
-            if (continuation) {
-                // 不具合切り分け用。トークンが二重エンコードされていないか等を確認できる。
-                console.log('[チャット] continuation取得:', pending.videoId,
-                            '末尾=' + String(continuation).slice(-8),
-                            '長さ=' + String(continuation).length);
-                chatContinuationCache[pending.videoId] = continuation;
+            console.log('[チャット] 情報取得:', pending.videoId,
+                        'isLive=' + isLive,
+                        continuation ? ('continuation長=' + String(continuation).length +
+                                        ' 末尾=' + String(continuation).slice(-8))
+                                     : ('continuationなし: ' + (error || '')));
+
+            if (isLive === true || continuation) {
+                chatInfoCache[pending.videoId] = {
+                    isLive: isLive === true,
+                    continuation: continuation || null
+                };
+                if (continuation) chatContinuationCache[pending.videoId] = continuation;
                 delete chatContinuationFailed[pending.videoId];
                 chatLoadedVideoId[pending.cardId] = null;
                 updateChatContent(pending.cardId, true);
@@ -1298,6 +1331,7 @@
         function reloadChat(cardId) {
             const vid = getChatVideoId(cardId);
             if (vid) {
+                delete chatInfoCache[vid];
                 delete chatContinuationCache[vid];
                 delete chatContinuationFailed[vid];
                 delete chatContinuationInflight[vid];
