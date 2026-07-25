@@ -240,7 +240,28 @@
         }
         .chat-head button:hover { background: #2a2a38; color: #fff; }
         .chat-body { flex: 1 1 auto; position: relative; min-height: 0; min-width: 0; background: #0c0c10; }
-        .chat-body iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; display: none; }
+        /* ★v2.5.0: iframe を廃止し自前描画のリストに置き換え */
+        .chat-list {
+            position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; display: none;
+            padding: 6px 8px; box-sizing: border-box;
+            font-size: calc(0.68rem * var(--ui-scale)); line-height: 1.5;
+            scrollbar-width: thin; scrollbar-color: #33333f #0c0c10;
+        }
+        .chat-list::-webkit-scrollbar { width: 8px; }
+        .chat-list::-webkit-scrollbar-thumb { background: #33333f; border-radius: 4px; }
+        .chat-msg { margin-bottom: 3px; word-break: break-word; overflow-wrap: anywhere; }
+        .chat-msg .chat-time { color: #4a4a58; margin-right: 5px; font-variant-numeric: tabular-nums; }
+        .chat-msg .chat-name { color: #7d8590; margin-right: 5px; }
+        .chat-msg .chat-text { color: #d5d5de; }
+        .chat-msg .chat-emoji { height: 1.4em; vertical-align: -0.3em; }
+        .chat-msg.paid { background: #3a2a10; border-left: 3px solid #ffa502; border-radius: 4px; padding: 3px 6px; margin: 5px 0; }
+        .chat-msg.paid .chat-amt { color: #ffa502; font-weight: bold; margin-right: 5px; }
+        .chat-msg.paid .chat-text { color: #ffe9c4; }
+        .chat-jump {
+            position: absolute; left: 50%; transform: translateX(-50%); bottom: 8px; display: none;
+            background: #00ffcc; color: #000; border: none; border-radius: 12px;
+            padding: 3px 12px; font-size: 0.65rem; font-weight: bold; cursor: pointer; z-index: 3;
+        }
         .chat-note {
             position: absolute; inset: 0; display: none; flex-direction: column;
             justify-content: center; align-items: center; text-align: center;
@@ -455,7 +476,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.4.3';
+        const APP_VERSION = '2.5.0';
         let addonVersion = null;
         const ADDON_DETECT_TIMEOUT_MS = 4000;
 
@@ -748,8 +769,8 @@
                 } else if (newState === 'addonInfo') {
                     addonVersion = event.data.version || null;
                     updateVersionBadge();
-                } else if (newState === 'chatContinuation') {
-                    handleChatContinuationResult(event.data.requestId, event.data.continuation, event.data.error, event.data.isLive);
+                } else if (newState === 'chatArchive') {
+                    handleChatArchiveResult(event.data);
                 }
             }
         });
@@ -1358,7 +1379,7 @@
             globalCurrentTime = session.globalTime;
             const grid = document.getElementById('playersGrid');
             grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {};
-            chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatMode = {}; chatModeManual = {}; chatInfoCache = {};
+            chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatCursor = {}; chatLastMs = {};
             session.players.forEach(p => {
                 activeCardIds.push(p.cardId);
                 restorePlayerCardFromState(p);
@@ -1671,81 +1692,68 @@
             });
         }
         /* ============================================================
-           チャット欄（YouTubeアーカイブ/ライブチャット埋め込み）
+           チャット欄（★v2.5.0：iframe方式を撤去し自前描画へ全面移行）
            ============================================================
 
-           ■ 仕組み
-           YouTubeの live_chat ページを iframe で直接埋め込む。
-           アドオン（B側）は一切関与しない ＝ この機能はA側だけで完結する。
+           ■ 経緯（再挑戦しないための記録）
+           v2.4.2 までは YouTube の live_chat / live_chat_replay を iframe で
+           埋め込んでいたが、アーカイブでは原理的に成立しないと実測で確定した。
+             ・live_chat?v=<終了済みID>       → 「チャットは無効です」（live_chat は配信中専用）
+             ・live_chat_replay?v=<ID>        → 「Something went wrong」（v= を受け付けない）
+             ・live_chat_replay?continuation= → 外枠だけ描画され本文が出ない
+               リプレイは親フレームからの再生位置postMessageで時刻ゲートが開くが、
+               embed_domain は scheme/port を持てず origin が一致しないため通知が捨てられる。
+           さらに iframe は中身をJSから読めないため、最終目的である
+           「ニコニコ風のコメント流し」には原理的に到達できない。
 
-           ■ embed_domain が必須
-           live_chat は「親ページのドメイン」を embed_domain パラメータで
-           明示しないと X-Frame-Options で拒否される。
-           旧実装が空欄のまま（is_popout=1 のみ）で動かなかった主因はこれ。
-             ・https://syanao-coder.github.io → embed_domain=syanao-coder.github.io  ✅
-             ・http://localhost:PORT         → embed_domain=localhost              ✅
-             ・file:///...                    → ホスト名が存在せず埋め込み不可      ❌
-           file:// の場合は iframe を出さず案内文を表示する。
+           ■ 現在の方式
+           C側ヘルパー（Native Messaging）が yt-dlp でコメントを一括取得し、
+           整形済みJSONを返す。A側はそれを保持し、再生位置に合わせて描画する。
+             取得   : CHAT_ARCHIVE_REQUEST → (B) → (C) → state:'chatArchive'
+             コメント: { t:経過ms, n:投稿者, m:本文, p:スパチャ金額(任意) }
+             絵文字  : { ':_ショートカット:' → 画像URL }（チャンネル固有の絵文字用）
 
-           ■ 再生位置との同期
-           YouTubeの視聴ページは、チャットiframeへ
-             postMessage('{"yt-player-video-progress": 秒数}')
-           を定期的に投げることでリプレイチャットを追従させている。
-           同じ手法をここでも使う（非公式仕様のため将来変わる可能性あり。
-           ずれた場合は チャット欄の 🔄 で再読込すれば現在位置から再開する）。
+           ■ 同期
+           各枠の getCurrentTime()（ms換算）と t を比較するだけ。
+           iframe方式と違い postMessage は一切不要。
            ============================================================ */
 
         let chatVisible = {};        // cardId → bool（表示中か）
         let chatRatio = {};          // cardId → 0.15〜0.70（枠に占めるチャットの割合）
-        let chatLoadedVideoId = {};  // cardId → 現在読み込み中のキー（videoId|mode）
-        let chatMode = {};           // cardId → 'replay'（アーカイブ） | 'live'（配信中）
-        let chatModeManual = {};     // cardId → true（ユーザーが📼/🔴で手動切替した）
-        const CHAT_MODE_DEFAULT = 'replay';
-        /* ★アーカイブ(リプレイ)チャットの扱い ─ 実測で確定した仕様
-           公式ドキュメントの記載は「During a live stream, you can embed Live Chat」で、
-           対応URLは live_chat?v=<ID>&embed_domain=<host> の1形式のみ。
-             ・live_chat?v=<配信中ID>   → ✅ 表示される（実機確認済み）
-             ・live_chat?v=<終了済みID> → 「このライブストリームではチャットは無効です」
-             ・live_chat_replay?v=<ID>  → 「Something went wrong」
-           replay側は v= ではなく continuation トークンで駆動されるため。
-           重要: この「Something went wrong」はiframe内に描画されている＝
-           embed_domain によるフレーム許可自体は通っている。
-           つまり正しい continuation さえ渡せば表示できる見込みが高い。
+        let chatLoadedVideoId = {};  // cardId → 現在描画中の videoId
 
-           continuation は watchページのHTML内 ytInitialData に埋まっているが、
-           ブラウザのJSから直接 fetch するとCORSで弾かれる。
-           → アドオン(B側)の background.js に取りに行かせる。
-             manifest には既に https://*.youtube.com/* があるため権限追加は不要。 */
-        let chatInfoCache = {};            // videoId → { isLive, continuation }（アドオンの回答＝正解）
-        let chatContinuationCache = {};    // videoId → continuationトークン
-        let chatContinuationPending = {};  // requestId → { cardId, videoId }
-        let chatContinuationInflight = {}; // videoId → requestId（多重要求の抑止）
-        let chatContinuationFailed = {};   // videoId → 失敗理由（再試行までは案内を出す）
-        const CHAT_CONTINUATION_TIMEOUT_MS = 10000;
+        let chatStore = {};      // videoId → { comments:[{t,n,m,p}], emoji:{}, source }
+        let chatState = {};      // videoId → 'loading' | 'ready' | 'error'
+        let chatError = {};      // videoId → 失敗理由
+        let chatPending = {};    // requestId → videoId
+        let chatInflight = {};   // videoId → requestId（多重要求の抑止）
+        let chatCursor = {};     // cardId → 次に描画するコメントの添字
+        let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
+
         const CHAT_RATIO_DEFAULT = 0.30;
         const CHAT_RATIO_MIN = 0.15;
         const CHAT_RATIO_MAX = 0.70;
+        /* yt-dlp の実行は実測8〜10秒。9枠を一括で開くと順番待ちが積み上がるため長めに取る。 */
+        const CHAT_FETCH_TIMEOUT_MS = 180000;
+        const CHAT_MAX_NODES = 400;          // DOMに残す最大件数（超えたら古い方から捨てる）
+        const CHAT_SEEK_TOLERANCE_MS = 2500; // 位置がこれ以上飛んだらシークとみなす
+        const CHAT_CONTEXT_COUNT = 30;       // シーク直後に遡って表示する件数
 
         function generateChatPaneHTML(cardId) {
             return '<div class="chat-splitter" id="splitter_' + cardId + '" title="ドラッグでチャット欄の幅を変更"></div>' +
                 '<div class="chat-container" id="chatContainer_' + cardId + '">' +
                     '<div class="chat-head">' +
                         '<span class="chat-head-title" id="chatHeadTitle_' + cardId + '">💬 チャット</span>' +
-                        '<button id="chatModeBtn_' + cardId + '" onclick="toggleChatMode(\'' + cardId + '\')" title="アーカイブ(リプレイ) / 配信中(ライブ) を切り替え">📼</button>' +
-                        '<button onclick="reloadChat(\'' + cardId + '\')" title="現在の再生位置でチャットを読み込み直す">🔄</button>' +
-                        '<button onclick="openChatPopout(\'' + cardId + '\')" title="チャットを別ウィンドウで開く">⧉</button>' +
+                        '<button onclick="reloadChat(\'' + cardId + '\')" title="コメントを取得し直す">🔄</button>' +
+                        '<button onclick="openWatchPageAt(\'' + cardId + '\')" title="YouTubeの視聴ページを現在位置で開く">⧉</button>' +
                         '<button onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を閉じる">✕</button>' +
                     '</div>' +
                     '<div class="chat-body" id="chatBody_' + cardId + '">' +
-                        '<iframe id="chatIframe_' + cardId + '" allow="autoplay"></iframe>' +
+                        '<div class="chat-list" id="chatList_' + cardId + '"></div>' +
+                        '<button class="chat-jump" id="chatJump_' + cardId + '" onclick="chatScrollToBottom(\'' + cardId + '\')">▼ 最新へ</button>' +
                         '<div class="chat-note" id="chatNote_' + cardId + '"></div>' +
                     '</div>' +
                 '</div>';
-        }
-
-        // 埋め込みに使えるホスト名。file:// では空文字が返る（＝埋め込み不可）。
-        function getChatEmbedDomain() {
-            return window.location.hostname || '';
         }
 
         // この枠で現在チャットを出せる videoId。プレイリストは再生中の動画IDを使う。
@@ -1762,264 +1770,342 @@
             return null;
         }
 
-        function getChatMode(cardId) {
-            return chatMode[cardId] || CHAT_MODE_DEFAULT;
-        }
-
-        /* 配信『中』かアーカイブかを判定して、使うエンドポイントを自動で決める。
-           getProgressState() は非公式APIだが isLive を持っており、
-           IFrame Player API で最も確実にライブ判定できる手段。
-           取得できない環境では replay（アーカイブ）へ倒す。 */
-        function detectChatMode(cardId) {
-            const yt = ytPlayers[cardId];
-            if (yt) {
-                try {
-                    const p = (typeof yt.getProgressState === 'function') ? yt.getProgressState() : null;
-                    if (p && typeof p.isLive === 'boolean') return p.isLive ? 'live' : 'replay';
-                } catch (e) {}
-                try {
-                    const d = (typeof yt.getVideoData === 'function') ? yt.getVideoData() : null;
-                    if (d && typeof d.isLive === 'boolean') return d.isLive ? 'live' : 'replay';
-                } catch (e) {}
-            }
-            return CHAT_MODE_DEFAULT;
-        }
-
-        /* ★エンドポイントは2種類ある。ここを取り違えると
-           「このライブストリームではチャットは無効です」と表示される。
-             ・live_chat        … 配信『中』のライブチャット（公式ドキュメント記載の形式）
-             ・live_chat_replay … 配信終了後のアーカイブに残るチャットリプレイ
-           このアプリは主にアーカイブの同時視聴に使うため replay を既定にする。 */
-        function buildLiveChatUrl(videoId, mode) {
-            const endpoint = (mode === 'live') ? 'live_chat' : 'live_chat_replay';
-            return 'https://www.youtube.com/' + endpoint
-                + '?v=' + encodeURIComponent(videoId)
-                + '&embed_domain=' + encodeURIComponent(getChatEmbedDomain())
-                + '&dark_theme=1';
-        }
-
-        /* 📼/🔴 の切り替え。
-           iframeの中身はクロスオリジンで読めないため、
-           「チャットが無効と出た＝エンドポイント違い」を自動判定できない。
-           そのため手動で切り替えられるようにしておく。 */
-        function toggleChatMode(cardId) {
-            chatMode[cardId] = (getChatMode(cardId) === 'replay') ? 'live' : 'replay';
-            chatModeManual[cardId] = true;   // 以降この動画では自動判定を上書きしない
-            chatLoadedVideoId[cardId] = null;
-            updateChatContent(cardId, true);
-            saveChatState();
-        }
-
-        function updateChatModeButton(cardId) {
-            const btn = document.getElementById('chatModeBtn_' + cardId);
-            if (!btn) return;
-            const live = getChatMode(cardId) === 'live';
-            btn.innerText = live ? '🔴' : '📼';
-            btn.title = live
-                ? '現在: 配信中(ライブ)チャット ／ クリックでアーカイブ用に切替'
-                : '現在: アーカイブ(リプレイ)チャット ／ クリックで配信中用に切替';
-        }
-
-        function showChatNote(cardId, html) {
-            const iframe = document.getElementById('chatIframe_' + cardId);
-            const note = document.getElementById('chatNote_' + cardId);
-            if (iframe) { iframe.src = 'about:blank'; iframe.style.display = 'none'; }
-            if (note) { note.innerHTML = html; note.style.display = 'flex'; }
-            chatLoadedVideoId[cardId] = null;
-        }
-
-        /* チャットiframeの内容を（必要なら）更新する。
-           呼び出し元: 動画ロード完了時 / プレイリスト送り / トグルON / 🔄 */
         /* ------------------------------------------------------------
-           チャット内容の確定
+           表示の切り替え（リスト / 案内文）
+           ------------------------------------------------------------ */
+        function showChatNote(cardId, html) {
+            const list = document.getElementById('chatList_' + cardId);
+            const note = document.getElementById('chatNote_' + cardId);
+            const jump = document.getElementById('chatJump_' + cardId);
+            if (list) { list.style.display = 'none'; list.innerHTML = ''; }
+            if (jump) jump.style.display = 'none';
+            if (note) { note.innerHTML = html; note.style.display = 'flex'; }
+        }
 
-           ★モード判定はA側の推測に頼らない。
-             IFrame Player API の getProgressState().isLive は
-             「ライブ配信のアーカイブ」でも true を返すことがあり、
-             その結果アーカイブに live_chat を使ってしまい
-             「このライブストリームではチャットは無効です」に戻ってしまう。
+        function showChatList(cardId) {
+            const list = document.getElementById('chatList_' + cardId);
+            const note = document.getElementById('chatNote_' + cardId);
+            if (note) { note.style.display = 'none'; note.innerHTML = ''; }
+            if (list) list.style.display = 'block';
+        }
 
-           そこでアドオンにwatchページを取りに行かせ、
-             ytInitialPlayerResponse.videoDetails.isLive
-               … 今まさに配信中のときだけ true（アーカイブは false）
-           を正解として使う。continuation も同時に受け取る。
+        function updateChatHeadTitle(cardId) {
+            const el = document.getElementById('chatHeadTitle_' + cardId);
+            if (!el) return;
+            const videoId = chatLoadedVideoId[cardId];
+            const store = videoId ? chatStore[videoId] : null;
+            el.innerText = store ? ('💬 チャット (' + store.comments.length + ')') : '💬 チャット';
+        }
+
+        function escapeChatText(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function showChatFailNote(cardId, videoId) {
+            showChatNote(cardId,
+                'コメントを取得できませんでした。' +
+                '<span class="sub">' + escapeChatText(chatError[videoId] || '') + '</span>' +
+                '<button onclick="reloadChat(\'' + cardId + '\')">再試行</button>');
+        }
+
+        /* ------------------------------------------------------------
+           取得（A → B → C）
            ------------------------------------------------------------ */
         function updateChatContent(cardId, force) {
             if (!chatVisible[cardId]) return;
-            const iframe = document.getElementById('chatIframe_' + cardId);
-            const note = document.getElementById('chatNote_' + cardId);
-            if (!iframe || !note) return;
-
-            if (!getChatEmbedDomain()) {
-                showChatNote(cardId,
-                    '<b>file:// では表示できません</b>' +
-                    '<span>YouTubeのチャット埋め込みは親ページのドメイン指定（embed_domain）が必須です。<br>' +
-                    'ローカルサーバー（http://localhost/…）または GitHub Pages 経由で開いてください。</span>');
-                return;
-            }
 
             const videoId = getChatVideoId(cardId);
             if (!videoId) {
+                chatLoadedVideoId[cardId] = null;
                 showChatNote(cardId,
-                    '<b>チャットを表示できません</b>' +
-                    '<span>この枠にYouTube動画が読み込まれていません。<br>' +
-                    'ローカル動画にはチャットがありません。</span>');
+                    'この枠にYouTube動画が読み込まれていません。' +
+                    '<span class="sub">動画をロードすると自動でコメントを取得します。<br>' +
+                    'ローカル動画・配信サイトの枠にコメントはありません。</span>');
                 return;
             }
+            if (!force && chatLoadedVideoId[cardId] === videoId) return;
 
-            // 動画が変わったら手動指定を解除する
-            const prevVideoId = chatLoadedVideoId[cardId] ? String(chatLoadedVideoId[cardId]).split('|')[0] : null;
-            if (prevVideoId !== videoId) chatModeManual[cardId] = false;
+            chatLoadedVideoId[cardId] = videoId;
+            chatCursor[cardId] = 0;
+            chatLastMs[cardId] = -1;
+            updateChatHeadTitle(cardId);
 
-            const info = chatInfoCache[videoId];
-
-            // まだ問い合わせていない → アドオンへ取りに行かせる（手動指定時は待たない）
-            if (!info && !chatModeManual[cardId] && !chatContinuationFailed[videoId]) {
-                showChatNote(cardId,
-                    '<b>チャット情報を取得しています…</b>' +
-                    '<span>アドオン経由でYouTubeから<br>配信状態とチャットの位置情報を取得しています。</span>');
-                requestChatContinuation(cardId, videoId);
-                return;
-            }
-
-            // モードの確定: 手動指定 > アドオンの回答 > ローカル推測
-            let mode;
-            if (chatModeManual[cardId]) {
-                mode = getChatMode(cardId);
-            } else if (info) {
-                mode = info.isLive ? 'live' : 'replay';
-                chatMode[cardId] = mode;
-            } else {
-                mode = detectChatMode(cardId);
-                chatMode[cardId] = mode;
-            }
-
-            const loadKey = videoId + '|' + mode;
-            if (!force && chatLoadedVideoId[cardId] === loadKey) return;
-
-            updateChatModeButton(cardId);
-            const titleEl0 = document.getElementById('chatHeadTitle_' + cardId);
-            if (titleEl0) titleEl0.innerText = (mode === 'live') ? '💬 ライブ' : '💬 リプレイ';
-
-            if (mode === 'replay') {
-                const cont = (info && info.continuation) || chatContinuationCache[videoId];
-                if (!cont) {
-                    showChatFallbackNote(cardId,
-                        chatContinuationFailed[videoId] ||
-                        'この動画にはチャットリプレイがありません（通常動画／チャット無効／メンバー限定の可能性）');
-                    return;
-                }
-                note.innerHTML = ''; note.style.display = 'none';
-                iframe.style.display = 'block';
-                // リプレイは親からの再生位置通知が届くまで本文が動かないため、
-                // 読み込み完了直後に1回押し込んでおく（以後はtickごとのpumpが継続）。
-                iframe.onload = function () { setTimeout(pumpChatProgress, 300); };
-                iframe.src = buildReplayChatUrl(cont);
-                chatLoadedVideoId[cardId] = loadKey;
-                return;
-            }
-
-            note.innerHTML = '';
-            note.style.display = 'none';
-            iframe.style.display = 'block';
-            iframe.src = buildLiveChatUrl(videoId, mode);
-            chatLoadedVideoId[cardId] = loadKey;
+            const st = chatState[videoId];
+            if (st === 'ready') { showChatList(cardId); rebuildChatList(cardId); return; }
+            if (st === 'loading') { showChatLoadingNote(cardId); return; }
+            if (st === 'error')   { showChatFailNote(cardId, videoId); return; }
+            requestChatArchive(cardId, videoId);
         }
 
-        /* ★continuation を encodeURIComponent してはいけない。
-           ytInitialData 内のトークンは既にURLエンコード済みで格納されており
-           （末尾の '=' が '%3D' の形で入っている）、再エンコードすると
-           '%253D' となってYouTube側が受け取る値が壊れる。
-           その結果、チャットUIの外枠だけ描画され本文が永久に出ない、
-           という分かりにくい症状になる。
-           念のため「まだエンコードされていないトークン」の場合だけ
-           エンコードするよう判定を入れておく。 */
-        function encodeContinuation(token) {
-            return /%[0-9A-Fa-f]{2}/.test(token) ? token : encodeURIComponent(token);
+        function showChatLoadingNote(cardId) {
+            showChatNote(cardId,
+                'コメントを取得しています…' +
+                '<span class="sub">初回は yt-dlp の実行に10秒ほどかかります。<br>' +
+                '2回目以降はキャッシュから即座に開きます。</span>');
         }
 
-        function buildReplayChatUrl(continuation) {
-            return 'https://www.youtube.com/live_chat_replay'
-                + '?continuation=' + encodeContinuation(continuation)
-                + '&embed_domain=' + encodeURIComponent(getChatEmbedDomain())
-                + '&dark_theme=1';
-        }
+        /* 同じ videoId への多重要求は抑止する。
+           applyChatLayoutForCard から updateChatContent が繰り返し呼ばれるため。 */
+        function requestChatArchive(cardId, videoId) {
+            showChatLoadingNote(cardId);
+            if (chatInflight[videoId]) return;
 
-        /* アドオンへ continuation の取得を依頼する。
-           同じ動画への多重要求は inflight で抑止する（レイアウト更新のたびに
-           updateChatContent が呼ばれるため、抑止しないと要求が連打される）。 */
-        function requestChatContinuation(cardId, videoId) {
-            if (chatContinuationInflight[videoId]) return;
-            const requestId = 'cont_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-            chatContinuationInflight[videoId] = requestId;
-            chatContinuationPending[requestId] = { cardId: cardId, videoId: videoId };
+            const requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            chatInflight[videoId] = requestId;
+            chatPending[requestId] = videoId;
+            chatState[videoId] = 'loading';
+            delete chatError[videoId];
 
-            window.postMessage({ type: 'CHAT_CONTINUATION_REQUEST', videoId: videoId, requestId: requestId }, '*');
+            window.postMessage({ type: 'CHAT_ARCHIVE_REQUEST', videoId: videoId, requestId: requestId }, '*');
 
             setTimeout(function () {
-                if (!chatContinuationPending[requestId]) return; // 応答済み
-                delete chatContinuationPending[requestId];
-                delete chatContinuationInflight[videoId];
-                chatContinuationFailed[videoId] = 'アドオンから応答がありませんでした（アドオン未導入／未更新の可能性）';
-                if (chatVisible[cardId]) showChatFallbackNote(cardId, chatContinuationFailed[videoId]);
-            }, CHAT_CONTINUATION_TIMEOUT_MS);
+                if (chatPending[requestId] === undefined) return;   // 応答済み
+                delete chatPending[requestId];
+                delete chatInflight[videoId];
+                chatState[videoId] = 'error';
+                chatError[videoId] = 'アドオンまたはヘルパーから応答がありませんでした。'
+                    + 'アドオンの版数が古い、または Native Messaging が未登録の可能性があります。';
+                refreshChatCardsFor(videoId);
+            }, CHAT_FETCH_TIMEOUT_MS);
         }
 
-        function handleChatContinuationResult(requestId, continuation, error, isLive) {
-            const pending = chatContinuationPending[requestId];
-            if (!pending) return; // タイムアウト済み or 無関係
-            delete chatContinuationPending[requestId];
-            delete chatContinuationInflight[pending.videoId];
+        function handleChatArchiveResult(data) {
+            if (!data || !data.requestId) return;
+            const videoId = chatPending[data.requestId];
+            if (videoId === undefined) return;   // 自分の要求ではない／タイムアウト済み
+            delete chatPending[data.requestId];
+            delete chatInflight[videoId];
 
-            console.log('[チャット] 情報取得:', pending.videoId,
-                        'isLive=' + isLive,
-                        continuation ? ('continuation長=' + String(continuation).length +
-                                        ' 末尾=' + String(continuation).slice(-8))
-                                     : ('continuationなし: ' + (error || '')));
-
-            if (isLive === true || continuation) {
-                chatInfoCache[pending.videoId] = {
-                    isLive: isLive === true,
-                    continuation: continuation || null
+            if (data.ok && Array.isArray(data.comments)) {
+                chatStore[videoId] = {
+                    comments: data.comments,
+                    emoji: data.emoji || {},
+                    source: data.source || null
                 };
-                if (continuation) chatContinuationCache[pending.videoId] = continuation;
-                delete chatContinuationFailed[pending.videoId];
-                chatLoadedVideoId[pending.cardId] = null;
-                updateChatContent(pending.cardId, true);
+                chatState[videoId] = 'ready';
+                delete chatError[videoId];
             } else {
-                chatContinuationFailed[pending.videoId] = error || 'この動画にチャットリプレイが見つかりませんでした';
-                if (chatVisible[pending.cardId]) {
-                    showChatFallbackNote(pending.cardId, chatContinuationFailed[pending.videoId]);
+                chatState[videoId] = 'error';
+                chatError[videoId] = data.error || 'コメントを取得できませんでした';
+            }
+            refreshChatCardsFor(videoId);
+        }
+
+        /* 同じ動画を開いている枠すべてに結果を反映する
+           （複数枠で同じ動画を見ている場合、取得は1回で済む）。 */
+        function refreshChatCardsFor(videoId) {
+            activeCardIds.forEach(function (cardId) {
+                if (!chatVisible[cardId]) return;
+                if (chatLoadedVideoId[cardId] !== videoId) return;
+                if (chatState[videoId] === 'ready') {
+                    showChatList(cardId);
+                    updateChatHeadTitle(cardId);
+                    rebuildChatList(cardId);
+                } else {
+                    showChatFailNote(cardId, videoId);
+                }
+            });
+        }
+
+        /* ------------------------------------------------------------
+           描画
+           ------------------------------------------------------------ */
+        // 現在の再生位置(ms)。YouTube枠以外は対象外なので null を返す。
+        function getChatPlayheadMs(cardId) {
+            const yt = ytPlayers[cardId];
+            if (!yt || typeof yt.getCurrentTime !== 'function') return null;
+            try {
+                const t = yt.getCurrentTime();
+                if (typeof t !== 'number' || !isFinite(t)) return null;
+                return Math.floor(t * 1000);
+            } catch (e) { return null; }
+        }
+
+        // t <= ms を満たす最後の要素の「次」の添字（二分探索）
+        function chatIndexFor(comments, ms) {
+            let lo = 0, hi = comments.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (comments[mid].t <= ms) lo = mid + 1; else hi = mid;
+            }
+            return lo;
+        }
+
+        function formatChatTime(ms) {
+            const s = Math.max(0, Math.floor(ms / 1000));
+            const h = Math.floor(s / 3600);
+            const mm = ('0' + (Math.floor(s / 60) % 60)).slice(-2);
+            const ss = ('0' + (s % 60)).slice(-2);
+            return h > 0 ? (h + ':' + mm + ':' + ss) : (mm + ':' + ss);
+        }
+
+        /* 本文を組み立てる。
+           ★ innerHTML を使わず必ずテキストノードで積むこと。
+              コメントは他人が書いた文字列なので、HTMLとして解釈させてはいけない。
+           ':_xxx:' はチャンネル固有の絵文字。辞書にあれば画像へ置き換える。 */
+        function appendChatBody(parent, text, emojiMap) {
+            const parts = String(text == null ? '' : text).split(/(:[^:\s]+:)/g);
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (!part) continue;
+                const url = emojiMap ? emojiMap[part] : null;
+                if (url) {
+                    const img = document.createElement('img');
+                    img.className = 'chat-emoji';
+                    img.src = url;
+                    img.alt = part;
+                    img.loading = 'lazy';
+                    parent.appendChild(img);
+                } else {
+                    parent.appendChild(document.createTextNode(part));
                 }
             }
         }
 
-        // 取得できなかったときの案内。watchページへの逃げ道を必ず添える。
-        function showChatFallbackNote(cardId, reason) {
-            showChatNote(cardId,
-                '<b>チャットを枠内に表示できません</b>' +
-                '<span>' + String(reason || '').replace(/</g, '&lt;') + '</span>' +
-                '<button onclick="openWatchPageAt(\'' + cardId + '\')">YouTubeを別窓で開く（現在位置）</button>' +
-                '<span class="sub">配信中の動画なのにこの表示が出る場合は<br>' +
-                'ヘッダーの 📼 を押して 🔴（ライブ）へ切り替えてください。<br>' +
-                '🔄 で再取得できます。</span>');
+        function buildChatMessageNode(c, emojiMap) {
+            const div = document.createElement('div');
+            div.className = c.p ? 'chat-msg paid' : 'chat-msg';
+
+            const time = document.createElement('span');
+            time.className = 'chat-time';
+            time.textContent = formatChatTime(c.t);
+            div.appendChild(time);
+
+            if (c.p) {
+                const amt = document.createElement('span');
+                amt.className = 'chat-amt';
+                amt.textContent = c.p;
+                div.appendChild(amt);
+            }
+
+            const name = document.createElement('span');
+            name.className = 'chat-name';
+            name.textContent = c.n || '';
+            div.appendChild(name);
+
+            const body = document.createElement('span');
+            body.className = 'chat-text';
+            appendChatBody(body, c.m, emojiMap);
+            div.appendChild(body);
+            return div;
         }
 
-        // 🔄: 現在の再生位置から読み直す（ズレたとき用）
+        function chatIsAtBottom(list) {
+            return (list.scrollHeight - list.scrollTop - list.clientHeight) < 24;
+        }
+
+        function chatScrollToBottom(cardId) {
+            const list = document.getElementById('chatList_' + cardId);
+            const jump = document.getElementById('chatJump_' + cardId);
+            if (list) list.scrollTop = list.scrollHeight;
+            if (jump) jump.style.display = 'none';
+        }
+
+        /* 現在の再生位置で組み直す。初回表示とシーク検知の両方から呼ばれる。 */
+        function rebuildChatList(cardId) {
+            const videoId = chatLoadedVideoId[cardId];
+            const store = videoId ? chatStore[videoId] : null;
+            const list = document.getElementById('chatList_' + cardId);
+            if (!store || !list) return;
+
+            const ms = getChatPlayheadMs(cardId);
+            const now = (ms === null) ? 0 : ms;
+            const idx = chatIndexFor(store.comments, now);
+            const from = Math.max(0, idx - CHAT_CONTEXT_COUNT);
+
+            list.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            for (let i = from; i < idx; i++) {
+                frag.appendChild(buildChatMessageNode(store.comments[i], store.emoji));
+            }
+            list.appendChild(frag);
+            list.scrollTop = list.scrollHeight;
+
+            const jump = document.getElementById('chatJump_' + cardId);
+            if (jump) jump.style.display = 'none';
+
+            chatCursor[cardId] = idx;
+            chatLastMs[cardId] = now;
+        }
+
+        /* 毎tick（TIMER_TICK_MS = 250ms）呼ばれる。
+           再生位置に追いついた分だけDOMへ追加する。 */
+        function pumpChatProgress() {
+            activeCardIds.forEach(function (cardId) {
+                if (!chatVisible[cardId]) return;
+
+                const videoId = chatLoadedVideoId[cardId];
+                if (!videoId) {
+                    /* 「動画未ロード」の案内を出したあとに動画が入った場合の自己修復。
+                       updateChatContent の呼び出しが漏れても、ここで拾って開始できる。 */
+                    if (getChatVideoId(cardId)) updateChatContent(cardId, true);
+                    return;
+                }
+
+                // プレイリストの曲送りなどで枠の動画が変わっていたら読み直す
+                const nowId = getChatVideoId(cardId);
+                if (nowId && nowId !== videoId) { updateChatContent(cardId, true); return; }
+
+                if (chatState[videoId] !== 'ready') return;
+                const store = chatStore[videoId];
+                const list = document.getElementById('chatList_' + cardId);
+                if (!store || !list || list.style.display === 'none') return;
+
+                const ms = getChatPlayheadMs(cardId);
+                if (ms === null) return;
+
+                const prev = chatLastMs[cardId];
+                if (prev === undefined || prev < 0 ||
+                    ms < prev - CHAT_SEEK_TOLERANCE_MS || ms > prev + CHAT_SEEK_TOLERANCE_MS) {
+                    rebuildChatList(cardId);   // シーク検知 → 現在位置で組み直す
+                    return;
+                }
+                chatLastMs[cardId] = ms;
+
+                let cursor = chatCursor[cardId] || 0;
+                if (cursor >= store.comments.length) return;
+                if (store.comments[cursor].t > ms) return;
+
+                const stick = chatIsAtBottom(list);
+                const frag = document.createDocumentFragment();
+                let added = 0;
+                while (cursor < store.comments.length && store.comments[cursor].t <= ms) {
+                    frag.appendChild(buildChatMessageNode(store.comments[cursor], store.emoji));
+                    cursor++; added++;
+                }
+                chatCursor[cardId] = cursor;
+                if (!added) return;
+
+                list.appendChild(frag);
+                while (list.childElementCount > CHAT_MAX_NODES) list.removeChild(list.firstElementChild);
+
+                const jump = document.getElementById('chatJump_' + cardId);
+                if (stick) {
+                    list.scrollTop = list.scrollHeight;
+                    if (jump) jump.style.display = 'none';
+                } else if (jump) {
+                    jump.style.display = 'block';   // 上を読んでいる間は自動追尾しない
+                }
+            });
+        }
+
+        /* 🔄: 取得し直す。
+           C側にもキャッシュがあるため通常は即座に返る。
+           本当に取り直したい場合は cache フォルダの <videoId>.json を削除する。 */
         function reloadChat(cardId) {
-            const vid = getChatVideoId(cardId);
-            if (vid) {
-                delete chatInfoCache[vid];
-                delete chatContinuationCache[vid];
-                delete chatContinuationFailed[vid];
-                delete chatContinuationInflight[vid];
+            const videoId = getChatVideoId(cardId);
+            if (videoId) {
+                delete chatStore[videoId];
+                delete chatState[videoId];
+                delete chatError[videoId];
+                delete chatInflight[videoId];
             }
             chatLoadedVideoId[cardId] = null;
             updateChatContent(cardId, true);
         }
 
-        /* アーカイブ用の逃げ道: watchページを『現在の再生位置』で別窓に開く。
-           watchページ内であればチャットリプレイが正規の手順で動作する。 */
+        /* ⧉: watchページを『現在の再生位置』で別窓に開く。 */
         function openWatchPageAt(cardId) {
             const videoId = getChatVideoId(cardId);
             if (!videoId) { alert('この枠にはYouTube動画が読み込まれていません。'); return; }
@@ -2032,25 +2118,13 @@
                 'yt_watch_' + cardId, 'width=1000,height=760');
         }
 
-        // ⧉: 枠が狭いときの逃げ道として、公式のポップアウトチャットを別窓で開く
-        function openChatPopout(cardId) {
-            const videoId = getChatVideoId(cardId);
-            if (!videoId) { alert('この枠にはYouTube動画が読み込まれていません。'); return; }
-            // ★リプレイのポップアウトも同じ理由で成立しないため、watchページを開く。
-            if (getChatMode(cardId) !== 'live') { openWatchPageAt(cardId); return; }
-            window.open('https://www.youtube.com/live_chat?v=' + encodeURIComponent(videoId) + '&is_popout=1',
-                'yt_chat_' + cardId, 'width=420,height=720');
-        }
-
-        // チャット欄の表示/非表示をトグル
+        /* ------------------------------------------------------------
+           開閉と状態の保存（UI土台は v2.4.2 から流用・検証済み）
+           ------------------------------------------------------------ */
         function toggleChatVisibility(cardId) {
             const willShow = !chatVisible[cardId];
             chatVisible[cardId] = willShow;
-            if (!willShow) {
-                const iframe = document.getElementById('chatIframe_' + cardId);
-                if (iframe) iframe.src = 'about:blank';   // 裏で読み込み続けないよう停止
-                chatLoadedVideoId[cardId] = null;
-            }
+            if (!willShow) chatLoadedVideoId[cardId] = null;
             applyChatLayoutForCard(cardId);
             if (willShow) updateChatContent(cardId);
             updateToggleAllChatsBtn();
@@ -2064,11 +2138,7 @@
             activeCardIds.forEach(id => {
                 if (!!chatVisible[id] === willShow) return; // 既に目的の状態
                 chatVisible[id] = willShow;
-                if (!willShow) {
-                    const f = document.getElementById('chatIframe_' + id);
-                    if (f) f.src = 'about:blank';
-                    chatLoadedVideoId[id] = null;
-                }
+                if (!willShow) chatLoadedVideoId[id] = null;
                 applyChatLayoutForCard(id);
             });
             updateToggleAllChatsBtn();
@@ -2086,8 +2156,6 @@
         function closeChat(cardId) {
             chatVisible[cardId] = false;
             chatLoadedVideoId[cardId] = null;
-            const iframe = document.getElementById('chatIframe_' + cardId);
-            if (iframe) iframe.src = 'about:blank';
             applyChatLayoutForCard(cardId);
             saveChatState();
         }
@@ -2096,8 +2164,8 @@
             delete chatVisible[cardId];
             delete chatRatio[cardId];
             delete chatLoadedVideoId[cardId];
-            delete chatMode[cardId];
-            delete chatModeManual[cardId];
+            delete chatCursor[cardId];
+            delete chatLastMs[cardId];
             saveChatState();
         }
 
@@ -2105,101 +2173,35 @@
             try {
                 localStorage.setItem('sync_chat_visible_map', JSON.stringify(chatVisible));
                 localStorage.setItem('sync_chat_ratio_map', JSON.stringify(chatRatio));
-                localStorage.setItem('sync_chat_mode_map', JSON.stringify(chatMode));
             } catch (e) {}
         }
+
         function loadChatState() {
             try { chatVisible = JSON.parse(localStorage.getItem('sync_chat_visible_map')) || {}; }
             catch (e) { chatVisible = {}; }
             try { chatRatio = JSON.parse(localStorage.getItem('sync_chat_ratio_map')) || {}; }
             catch (e) { chatRatio = {}; }
-            try { chatMode = JSON.parse(localStorage.getItem('sync_chat_mode_map')) || {}; }
-            catch (e) { chatMode = {}; }
         }
 
-        /* リプレイチャットを動画の再生位置へ追従させる。
-           チャットを開いている枠だけに、1秒間隔で現在位置を通知する。 */
-        function pumpChatProgress() {
-            activeCardIds.forEach(function (cardId) {
-                if (!chatVisible[cardId]) return;
-                const yt = ytPlayers[cardId];
-                if (!yt || typeof yt.getCurrentTime !== 'function') return;
-
-                // プレイリストで次の動画へ進んだ場合はチャットも差し替える
-                const nowId = getChatVideoId(cardId);
-                const loaded = chatLoadedVideoId[cardId];
-                if (nowId && loaded && loaded.split('|')[0] !== nowId) {
-                    updateChatContent(cardId, true);
-                    return;
-                }
-
-                // 再生位置の追従はリプレイ専用。配信中のライブチャットは常に最新なので不要。
-                if (getChatMode(cardId) !== 'replay') return;
-
-                const iframe = document.getElementById('chatIframe_' + cardId);
-                if (!iframe || !iframe.contentWindow || iframe.style.display === 'none') return;
-                let t = 0;
-                try { t = yt.getCurrentTime() || 0; } catch (e) { return; }
-
-                /* ターゲットオリジンは '*' にする。
-                   'https://www.youtube.com' 決め打ちだと、YouTube側が
-                   www無し等へ内部リダイレクトした場合に送信自体が失敗する。
-                   受信側のオリジン検証は別途YouTubeが行うため、'*' でも
-                   こちらから情報が漏れる相手は当該iframeのみ。 */
-                try {
-                    iframe.contentWindow.postMessage(
-                        JSON.stringify({ 'yt-player-video-progress': t }), '*');
-                    // 再生/停止の状態も併せて通知する（リプレイの進行判定に使われる）
-                    let st = -1;
-                    try { st = yt.getPlayerState(); } catch (e) {}
-                    if (st >= 0) {
-                        iframe.contentWindow.postMessage(
-                            JSON.stringify({ 'yt-player-state-change': st }), '*');
-                    }
-                    if (CHAT_DEBUG && (chatDebugCount[cardId] || 0) < 5) {
-                        chatDebugCount[cardId] = (chatDebugCount[cardId] || 0) + 1;
-                        console.log('[チャット] 進行通知 →', cardId, 't=' + t.toFixed(1), 'state=' + st);
-                    }
-                } catch (e) {
-                    if (CHAT_DEBUG) console.warn('[チャット] 進行通知の送信に失敗:', e);
-                }
+        /* 診断モード。コンソールで chatDebug() と打つと現在の状態を一覧する。 */
+        function chatDebug() {
+            const rows = activeCardIds.map(function (cardId) {
+                const vid = chatLoadedVideoId[cardId];
+                const store = vid ? chatStore[vid] : null;
+                return {
+                    枠: cardId,
+                    表示: !!chatVisible[cardId],
+                    videoId: vid || '-',
+                    状態: vid ? (chatState[vid] || '未取得') : '-',
+                    件数: store ? store.comments.length : 0,
+                    絵文字: store ? Object.keys(store.emoji).length : 0,
+                    位置ms: getChatPlayheadMs(cardId),
+                    カーソル: chatCursor[cardId] || 0
+                };
             });
+            console.table(rows);
+            return rows.length + ' 枠';
         }
-
-        /* ------------------------------------------------------------
-           診断モード。コンソールで chatDebug(true) と打つと、
-             ・こちらから送っている進行通知
-             ・チャットiframeから返ってくるメッセージ（あれば）
-           の両方が見えるようになる。
-
-           リプレイ本文が流れない場合、原因は次のどちらかに絞られる:
-             (a) こちらの送信が出ていない        → 「進行通知 →」が出ない
-             (b) 送信は出ているが無視されている  → 出ているのに本文が動かない
-           (b) の場合、最も疑わしいのは postMessage のオリジン検証。
-           embed_domain には scheme と port を含められないため、
-           http://127.0.0.1:8080 から開くと YouTube 側が期待する
-           https://127.0.0.1 と一致せず、通知が捨てられている可能性がある。
-           その場合は GitHub Pages 経由（オリジンが完全一致する）で動く。
-           ------------------------------------------------------------ */
-        let CHAT_DEBUG = false;
-        let chatDebugCount = {};
-        function chatDebug(on) {
-            CHAT_DEBUG = (on !== false);
-            chatDebugCount = {};
-            console.log('[チャット] 診断モード:', CHAT_DEBUG ? 'ON' : 'OFF',
-                        '/ このページのorigin =', window.location.origin,
-                        '/ embed_domain =', getChatEmbedDomain());
-            return CHAT_DEBUG;
-        }
-
-        // チャットiframeからの返信を観測する（双方向に通信できているかの確認用）
-        window.addEventListener('message', function (e) {
-            if (!CHAT_DEBUG) return;
-            if (typeof e.origin === 'string' && e.origin.indexOf('youtube.com') >= 0) {
-                console.log('[チャット] iframeから受信:', e.origin,
-                            String(typeof e.data === 'string' ? e.data : JSON.stringify(e.data)).slice(0, 200));
-            }
-        });
 
         function isChatOnRight() {
             const el = document.getElementById('chatPosition');
@@ -2225,7 +2227,6 @@
             wrapper.style.flexDirection = onRight ? 'row' : 'column';
 
             if (btn) btn.classList.toggle('active', visible);
-            updateChatModeButton(cardId);
 
             if (!visible) {
                 chat.style.display = 'none';
