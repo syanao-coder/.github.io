@@ -455,7 +455,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.4.2';
+        const APP_VERSION = '2.4.3';
         let addonVersion = null;
         const ADDON_DETECT_TIMEOUT_MS = 4000;
 
@@ -2316,9 +2316,119 @@
             document.addEventListener('touchend', endDrag);
         }
 
+        /* ============================================================
+           一括シーク時のズレ解消（v2.4.3）
+
+           ■ 直した問題
+           従来の applySeekToAll() は3経路へシークを投げっぱなしにしていた。
+           再生中に一括シークすると、各動画が別々のタイミングで再開する。
+
+           ■ 実測（2026-07-25 / Firefox / GitHub Pages）
+           | 経路         | 停止→再開 | シーク後の再生開始     |
+           | ローカル動画 |   0〜2ms  | シーク自体に最大2000ms |
+           | YouTube      |  10〜12ms | 295ms（幅4ms・固定）   |
+           | 外部動画     |   0〜1ms  | 片道約5ms              |
+
+           ローカル動画の遅さはキーフレーム間隔30秒によるデコード時間。
+           ファイル側の性質なのでコードでは短縮できない。よって「待つ」。
+           YouTube は内部を読めないが値が安定しているので定数で先行させる。
+
+           ■ 併せて判明したこと
+           YouTube はシーク後に何秒待っても再生開始が295msから縮まらない
+           （停止中はバッファリングしないため）。待機で吸収する方式は無効で、
+           定数先行が唯一の手段。
+           ============================================================ */
+
+        /* 実測由来の定数。回線やPCが変わったら再測定すること。 */
+        const YT_PLAY_LEAD_MS        = 295;   // YouTube: playVideo() から実再生まで
+        const EXT_PLAY_LEAD_MS       = 5;     // 外部動画: A→B の片道遅延
+        const SEEK_SETTLE_TIMEOUT_MS = 3000;  // これを超えたら待たずに強行再開
+
+        let seekSettleToken = 0;   // 連打時に古い待機を無効化するための世代番号
+
+        /* ローカル動画のシーク完了を待つ。
+
+           ⚠️ 'playing' イベントで判定してはいけない。
+           currentTime への代入によるシークは非同期に進むため、代入直後の
+           play() は「落ちる前の readyState」を見て即座に playing を発火させ、
+           シーク未完了のまま「完了」と誤判定する。
+           'seeked' + readyState>=3 の両方で判定すること。
+
+           差分が微小でシークが発生しない場合は seeked が飛ばないため、
+           ポーリングを併用して取りこぼしを防ぐ。 */
+        function waitLocalSeeked(video, timeoutMs) {
+            return new Promise(resolve => {
+                let done = false;
+                const finish = (ok) => {
+                    if (done) return;
+                    done = true;
+                    clearTimeout(tm); clearInterval(iv);
+                    video.removeEventListener('seeked', onSeeked);
+                    resolve(ok);
+                };
+                const onSeeked = () => { if (video.readyState >= 3) finish(true); };
+                video.addEventListener('seeked', onSeeked);
+                // 呼び出し側がシークを発行する前にこの関数を呼ぶ前提のため、
+                // 初回チェックは即時に行わず必ず1tick待つ（誤検知防止）。
+                const iv = setInterval(() => {
+                    if (!video.seeking && video.readyState >= 3) finish(true);
+                }, 25);
+                const tm = setTimeout(() => finish(false), timeoutMs);
+            });
+        }
+
+        /* 待機中であることをユーザーへ示す。カウントダウン用オーバーレイを流用。 */
+        function showSeekWaitOverlay(show) {
+            const overlay = document.getElementById('countdownOverlay');
+            if (!overlay) return;
+            if (show) {
+                overlay.innerText = '準備中…';
+                overlay.style.color = '#00ffcc';
+                overlay.style.display = 'block';
+            } else {
+                overlay.style.display = 'none';
+                overlay.style.color = '#ff4757';
+            }
+        }
+
+        /* 経路ごとの遅延を打ち消して、実再生の瞬間を揃える。
+           YouTube を基準（0ms）に置き、速い経路ほど後ろへずらす。 */
+        function staggeredResume() {
+            Object.values(ytPlayers).forEach(p => {
+                if (p && typeof p.playVideo === 'function') p.playVideo();
+            });
+            setTimeout(() => {
+                broadcastSyncCommand('play');
+            }, Math.max(0, YT_PLAY_LEAD_MS - EXT_PLAY_LEAD_MS));
+            setTimeout(() => {
+                document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(() => {}));
+            }, YT_PLAY_LEAD_MS);
+        }
+
         function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
             globalCurrentTime = Math.max(0, globalCurrentTime + diff);
             updateTimerDisplay();
+
+            const wasPlaying = isPlayingRequest;
+            const myToken = ++seekSettleToken;
+
+            // ① 再生中なら全経路をいったん止める。ズレの発生源を断つ。
+            //    isPlayingRequest は落とさない（ボタン表示は「一括停止」のまま）。
+            if (wasPlaying) pauseAllPlayersOnly();
+
+            // ② 待機はシーク発行より先に仕掛ける。
+            //    後から addEventListener すると seeked を取り逃す可能性がある。
+            const waiters = [];
+            if (wasPlaying) {
+                document.querySelectorAll('.custom-local-video').forEach(v => {
+                    const id = v.id.replace('localVideo_', '');
+                    if (id === excludeCardId) return;
+                    if (!v.src || v.src === window.location.href) return;
+                    waiters.push(waitLocalSeeked(v, SEEK_SETTLE_TIMEOUT_MS));
+                });
+            }
+
+            // ③ 3経路へシークを発行（ここは従来どおり）
             if (broadcastToAddon) broadcastSyncCommand('seek', diff);
             document.querySelectorAll('.custom-local-video').forEach(v => {
                 const id = v.id.replace('localVideo_', '');
@@ -2328,6 +2438,24 @@
                 if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
                     player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
                 }
+            });
+
+            // 停止中のシークは揃える必要がない（次の一括再生で揃う）
+            if (!wasPlaying) return;
+
+            // ④ 全ローカル動画が整うまで待ってから、経路別オフセットで再開
+            if (!waiters.length) { staggeredResume(); return; }
+
+            showSeekWaitOverlay(true);
+            Promise.all(waiters).then(results => {
+                showSeekWaitOverlay(false);
+                if (myToken !== seekSettleToken) return;   // 連打で追い越された
+                if (!isPlayingRequest) return;             // 待機中に停止操作が入った
+                if (results.some(ok => !ok)) {
+                    console.warn('【コントローラー】シーク完了待ちがタイムアウトしました（' +
+                                 SEEK_SETTLE_TIMEOUT_MS + 'ms）。そのまま再開します。');
+                }
+                staggeredResume();
             });
         }
         function skipPlayer(cardId, seconds) {
