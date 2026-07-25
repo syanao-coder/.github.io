@@ -239,12 +239,15 @@
             font-size: calc(0.62rem * var(--ui-scale)); cursor: pointer; line-height: 1.2; border-radius: 3px;
         }
         .chat-head button:hover { background: #2a2a38; color: #fff; }
+        .chat-head button:disabled { opacity: 0.3; cursor: default; }
+        .chat-head button:disabled:hover { background: transparent; color: #8a8a9a; }
+        .chat-size-btn { font-weight: bold; font-family: monospace; }
         .chat-body { flex: 1 1 auto; position: relative; min-height: 0; min-width: 0; background: #0c0c10; }
         /* ★v2.5.0: iframe を廃止し自前描画のリストに置き換え */
         .chat-list {
             position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; display: none;
             padding: 6px 8px; box-sizing: border-box;
-            font-size: calc(0.68rem * var(--ui-scale)); line-height: 1.5;
+            font-size: calc(0.68rem * var(--ui-scale) * var(--chat-font-scale, 1)); line-height: 1.5;
             scrollbar-width: thin; scrollbar-color: #33333f #0c0c10;
         }
         .chat-list::-webkit-scrollbar { width: 8px; }
@@ -476,7 +479,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.5.0';
+        const APP_VERSION = '2.5.1';
         let addonVersion = null;
         const ADDON_DETECT_TIMEOUT_MS = 4000;
 
@@ -1331,7 +1334,8 @@
                 const lv = document.getElementById('localVideo_' + cardId);
                 const input = document.getElementById('urlInput_' + cardId);
                 let pState = { cardId: cardId, type: 'empty', url: input ? input.value : (localStorage.getItem('sync_url_' + cardId) || ''), title: '未ロード', currentTime: 0,
-                               chatVisible: !!chatVisible[cardId], chatRatio: chatRatio[cardId] || CHAT_RATIO_DEFAULT };
+                               chatVisible: !!chatVisible[cardId], chatRatio: chatRatio[cardId] || CHAT_RATIO_DEFAULT,
+                               chatFont: chatFontScale[cardId] || CHAT_FONT_DEFAULT };
                 if (lv && lv.src && lv.src !== window.location.href) {
                     pState.type = 'local';
                     pState.title = document.getElementById('title_' + cardId).innerText.replace("[Local] ", "").replace("[再選択待ち] ", "");
@@ -1379,7 +1383,7 @@
             globalCurrentTime = session.globalTime;
             const grid = document.getElementById('playersGrid');
             grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {};
-            chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatCursor = {}; chatLastMs = {};
+            chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatCursor = {}; chatLastMs = {}; chatFontScale = {};
             session.players.forEach(p => {
                 activeCardIds.push(p.cardId);
                 restorePlayerCardFromState(p);
@@ -1422,6 +1426,7 @@
             setupSeekTooltip(p.cardId);
             if (p.chatVisible !== undefined) chatVisible[p.cardId] = !!p.chatVisible;
             if (p.chatRatio) chatRatio[p.cardId] = p.chatRatio;
+            if (p.chatFont) chatFontScale[p.cardId] = p.chatFont;
             applyChatLayoutForCard(p.cardId);
 
             if (p.type === 'yt') {
@@ -1729,6 +1734,7 @@
         let chatInflight = {};   // videoId → requestId（多重要求の抑止）
         let chatCursor = {};     // cardId → 次に描画するコメントの添字
         let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
+        let chatFontScale = {};  // cardId → 文字サイズ倍率（枠ごとに独立）
 
         const CHAT_RATIO_DEFAULT = 0.30;
         const CHAT_RATIO_MIN = 0.15;
@@ -1738,12 +1744,19 @@
         const CHAT_MAX_NODES = 400;          // DOMに残す最大件数（超えたら古い方から捨てる）
         const CHAT_SEEK_TOLERANCE_MS = 2500; // 位置がこれ以上飛んだらシークとみなす
         const CHAT_CONTEXT_COUNT = 30;       // シーク直後に遡って表示する件数
+        /* 文字サイズ。枠の大きさが枠ごとに違うため、UI全体のスケールとは別に枠単位で持つ。 */
+        const CHAT_FONT_DEFAULT = 1.0;
+        const CHAT_FONT_MIN = 0.6;
+        const CHAT_FONT_MAX = 2.4;
+        const CHAT_FONT_STEP = 0.1;
 
         function generateChatPaneHTML(cardId) {
             return '<div class="chat-splitter" id="splitter_' + cardId + '" title="ドラッグでチャット欄の幅を変更"></div>' +
                 '<div class="chat-container" id="chatContainer_' + cardId + '">' +
                     '<div class="chat-head">' +
                         '<span class="chat-head-title" id="chatHeadTitle_' + cardId + '">💬 チャット</span>' +
+                        '<button class="chat-size-btn" id="chatFontDown_' + cardId + '" onclick="changeChatFontScale(\'' + cardId + '\', -1)" title="文字を小さく">A-</button>' +
+                        '<button class="chat-size-btn" id="chatFontUp_' + cardId + '" onclick="changeChatFontScale(\'' + cardId + '\', 1)" title="文字を大きく">A+</button>' +
                         '<button onclick="reloadChat(\'' + cardId + '\')" title="コメントを取得し直す">🔄</button>' +
                         '<button onclick="openWatchPageAt(\'' + cardId + '\')" title="YouTubeの視聴ページを現在位置で開く">⧉</button>' +
                         '<button onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を閉じる">✕</button>' +
@@ -1787,6 +1800,46 @@
             const note = document.getElementById('chatNote_' + cardId);
             if (note) { note.style.display = 'none'; note.innerHTML = ''; }
             if (list) list.style.display = 'block';
+        }
+
+        /* ------------------------------------------------------------
+           文字サイズ（★v2.5.1）
+           CSS変数を .chat-container に載せ、.chat-list が継承して使う。
+           絵文字は height:1.4em なので追従して拡縮する。
+           ------------------------------------------------------------ */
+        function applyChatFontScale(cardId) {
+            const scale = chatFontScale[cardId] || CHAT_FONT_DEFAULT;
+            const box = document.getElementById('chatContainer_' + cardId);
+            if (box) box.style.setProperty('--chat-font-scale', scale);
+
+            const pct = Math.round(scale * 100) + '%';
+            const down = document.getElementById('chatFontDown_' + cardId);
+            const up = document.getElementById('chatFontUp_' + cardId);
+            if (down) {
+                down.title = '文字を小さく（現在 ' + pct + '）';
+                down.disabled = scale <= CHAT_FONT_MIN + 0.001;
+            }
+            if (up) {
+                up.title = '文字を大きく（現在 ' + pct + '）';
+                up.disabled = scale >= CHAT_FONT_MAX - 0.001;
+            }
+        }
+
+        function changeChatFontScale(cardId, dir) {
+            const cur = chatFontScale[cardId] || CHAT_FONT_DEFAULT;
+            let next = cur + (dir * CHAT_FONT_STEP);
+            next = Math.max(CHAT_FONT_MIN, Math.min(CHAT_FONT_MAX, Math.round(next * 100) / 100));
+            chatFontScale[cardId] = next;
+            applyChatFontScale(cardId);
+
+            /* 文字を大きくすると1件あたりの高さが変わり、下端の判定がずれる。
+               直前まで追尾していた場合は最新へ寄せ直す。 */
+            const list = document.getElementById('chatList_' + cardId);
+            const jump = document.getElementById('chatJump_' + cardId);
+            if (list && (!jump || jump.style.display === 'none')) {
+                list.scrollTop = list.scrollHeight;
+            }
+            saveChatState();
         }
 
         function updateChatHeadTitle(cardId) {
@@ -2166,6 +2219,7 @@
             delete chatLoadedVideoId[cardId];
             delete chatCursor[cardId];
             delete chatLastMs[cardId];
+            delete chatFontScale[cardId];
             saveChatState();
         }
 
@@ -2173,6 +2227,7 @@
             try {
                 localStorage.setItem('sync_chat_visible_map', JSON.stringify(chatVisible));
                 localStorage.setItem('sync_chat_ratio_map', JSON.stringify(chatRatio));
+                localStorage.setItem('sync_chat_font_map', JSON.stringify(chatFontScale));
             } catch (e) {}
         }
 
@@ -2181,6 +2236,8 @@
             catch (e) { chatVisible = {}; }
             try { chatRatio = JSON.parse(localStorage.getItem('sync_chat_ratio_map')) || {}; }
             catch (e) { chatRatio = {}; }
+            try { chatFontScale = JSON.parse(localStorage.getItem('sync_chat_font_map')) || {}; }
+            catch (e) { chatFontScale = {}; }
         }
 
         /* 診断モード。コンソールで chatDebug() と打つと現在の状態を一覧する。 */
@@ -2227,6 +2284,7 @@
             wrapper.style.flexDirection = onRight ? 'row' : 'column';
 
             if (btn) btn.classList.toggle('active', visible);
+            applyChatFontScale(cardId);
 
             if (!visible) {
                 chat.style.display = 'none';
