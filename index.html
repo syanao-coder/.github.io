@@ -43,6 +43,18 @@
             box-sizing: border-box; z-index: 101; flex-shrink: 0;
         }
 
+        /* バージョンバッジ: A側(HTML)とB側(アドオン)の版数整合を常時表示する。
+           不一致・アドオン未検出を一目で分かるようにして、
+           「片方だけ古いまま動かしている」事故を防ぐ。 */
+        .version-badge {
+            margin-left: 10px; font-family: monospace; font-size: 0.7rem; font-weight: bold;
+            padding: 2px 7px; border-radius: 10px; cursor: help; user-select: none;
+            border: 1px solid #444; color: #888; background: rgba(0,0,0,0.4); white-space: nowrap;
+        }
+        .version-badge.ok   { border-color: #2ed57355; color: #2ed573; }
+        .version-badge.warn { border-color: #ffa502;   color: #ffa502; background: rgba(255,165,2,0.12); }
+        .version-badge.ng   { border-color: #ff4757;   color: #ff4757; background: rgba(255,71,87,0.12); }
+
         .settings-toggle-btn {
             background: transparent; border: 1px solid #00ffcc; color: #00ffcc;
             padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
@@ -211,8 +223,7 @@
 
         /* ★チャット欄の幅は px ではなく「枠に対する割合(%)」で保持する。
            px 固定だと枠が小さいときに flex が縮められず、グリッドのトラック幅を
-           押し広げて（＝枠のサイズが変わって）しまうため。
-           flex: 0 0 auto + min-width:0 で、常に枠の内側に収める。 */
+           押し広げて（＝枠のサイズが変わって）しまうため。 */
         .chat-container {
             display: none; flex: 0 0 auto; width: 30%; min-width: 0; min-height: 0;
             background: #0c0c10; position: relative; flex-direction: column; overflow: hidden;
@@ -243,7 +254,6 @@
         }
         .chat-note button:hover { background: #ff6b7a; }
         .chat-note .sub { font-size: 0.65rem; color: #5a5a68; margin-top: 8px; }
-        /* トグルボタン: 表示中はアクセントカラーで反転させ、状態が一目で分かるようにする */
         .chat-toggle-btn { opacity: 0.45; }
         .chat-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
         .chat-toggle-btn.active:hover { background-color: #55ffdd; }
@@ -280,6 +290,7 @@
 
     <div class="top-bar">
         <span style="color:#00ffcc; font-size:0.85rem; font-weight:bold; letter-spacing:1px;">アニメ同時視聴コントローラー</span>
+        <span id="versionBadge" class="version-badge" title="読み込み中">v?.?.?</span>
         <div class="topbar-count-group" style="margin-right:auto;" title="視聴枠数の増減（最大9枠）">
             <button class="topbar-count-btn" id="topCountMinus" onclick="changePlayerCount(-1)" title="枠を1つ減らす">➖</button>
             <span class="topbar-count-value" id="topActiveCountDisplay">2</span>
@@ -432,6 +443,45 @@
     </div>
 
     <script>
+        /* ============================================================
+           バージョン管理（v2.4.2で新設）
+
+           A側(controller.html)とB側(アドオン)は同一リリースで
+           同じ版数を付ける。片方だけ更新した状態で動かすと
+           原因の切り分けが極めて困難になるため、
+           起動時に双方の版数を照合してトップバーに常時表示する。
+
+           B側は content_controller.js が
+             { state:'addonInfo', version:'x.y.z' }
+           を自己申告してくる。一定時間届かなければ「アドオン未検出」。
+           ============================================================ */
+        const APP_VERSION = '2.4.2';
+        let addonVersion = null;
+        const ADDON_DETECT_TIMEOUT_MS = 4000;
+
+        function updateVersionBadge() {
+            const el = document.getElementById('versionBadge');
+            if (!el) return;
+            el.classList.remove('ok', 'warn', 'ng');
+            if (!addonVersion) {
+                el.innerText = 'v' + APP_VERSION + ' / アドオン未検出';
+                el.classList.add('ng');
+                el.title = 'アドオンが応答していません。\n'
+                         + '・about:debugging でアドオンが読み込まれているか\n'
+                         + '・拡張機能アイコンからこのサイトでの実行を許可しているか\n'
+                         + 'を確認してください。';
+            } else if (addonVersion === APP_VERSION) {
+                el.innerText = 'v' + APP_VERSION;
+                el.classList.add('ok');
+                el.title = 'HTML と アドオン のバージョンが一致しています。';
+            } else {
+                el.innerText = 'HTML v' + APP_VERSION + ' ⇔ アドオン v' + addonVersion;
+                el.classList.add('warn');
+                el.title = 'バージョンが一致していません。\n'
+                         + '古い方を差し替えてから動作確認してください。';
+            }
+        }
+
         function formatTime(sec) {
             const hrs = Math.floor(sec / 3600);
             const mins = Math.floor((sec - hrs * 3600) / 60);
@@ -556,6 +606,10 @@
         // DOMロード完了時の安定起動
         document.addEventListener('DOMContentLoaded', () => { initApp(); });
         function initApp() {
+            console.log('【コントローラー】controller.html v' + APP_VERSION + ' を起動しました。');
+            updateVersionBadge();
+            // 一定時間アドオンから名乗りが無ければ「未検出」として確定表示する
+            setTimeout(updateVersionBadge, ADDON_DETECT_TIMEOUT_MS);
             loadSavedSettings();
             updatePlayerCountDisplay();
             initializeGrid();
@@ -691,6 +745,9 @@
                     if (activeScrapeCardId && event.data.items) showScrapedResults(activeScrapeCardId, event.data.items);
                 } else if (newState === 'addYoutubeVideo') {
                     addOrFillVideoSlot(event.data.url, event.data.title, event.data.requestId);
+                } else if (newState === 'addonInfo') {
+                    addonVersion = event.data.version || null;
+                    updateVersionBadge();
                 } else if (newState === 'chatContinuation') {
                     handleChatContinuationResult(event.data.requestId, event.data.continuation, event.data.error, event.data.isLive);
                 }
@@ -923,10 +980,8 @@
                 '</div>';
             grid.appendChild(card);
             setupSeekTooltip(cardId);
-            
-            // チャット表示状態（表示/非表示・幅の比率）を復元
-            applyChatLayoutForCard(cardId);
-            
+            applyChatLayoutForCard(cardId); // チャットの表示状態・幅の比率を復元
+
             const idxForSave = activeCardIds.length; 
             const savedUrl = localStorage.getItem('sync_url_' + idxForSave);
             if (savedUrl) {
@@ -969,29 +1024,652 @@
                     'onReady': (event) => {
                         const videoData = event.target.getVideoData();
                         document.getElementById('title_' + cardId).innerText = videoData ? videoData.title : 'YouTube動画';
+                        setTimeout(function () { updateChatContent(cardId); }, 200);
                         event.target.setVolume(document.getElementById('masterVolume').value);
                         event.target.setPlaybackRate(currentPlaybackSpeed);
                         if (playlistId) {
                             document.getElementById('playlistPrev_' + cardId).style.display = 'inline-block';
                             document.getElementById('playlistNext_' + cardId).style.display = 'inline-block';
                         }
-                        // チャット欄を更新
-                        setTimeout(() => { updateChatContent(cardId); }, 200);
                     }
                 }
             });
             resaveUrlsBasedOnOrder();
         }
 
-        function prevPlaylistItem(cardId) { 
-            if (ytPlayers[cardId]) ytPlayers[cardId].previousVideo(); 
-            setTimeout(() => { updateChatContent(cardId); }, 500);
+        function prevPlaylistItem(cardId) {
+            if (ytPlayers[cardId]) { ytPlayers[cardId].previousVideo(); setTimeout(function(){ updateChatContent(cardId); }, 800); }
         }
-        function nextPlaylistItem(cardId) { 
-            if (ytPlayers[cardId]) ytPlayers[cardId].nextVideo(); 
-            setTimeout(() => { updateChatContent(cardId); }, 500);
+        function nextPlaylistItem(cardId) {
+            if (ytPlayers[cardId]) { ytPlayers[cardId].nextVideo(); setTimeout(function(){ updateChatContent(cardId); }, 800); }
         }
 
+        function triggerYtTop(cardId) {
+            const input = document.getElementById('urlInput_' + cardId);
+            const query = input ? input.value.trim() : '';
+            if (query) {
+                window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(query), 'yt_popup', 'width=900,height=700');
+            } else {
+                window.open('https://www.youtube.com/', 'yt_popup', 'width=900,height=700');
+            }
+        }
+
+        function restorePlaceholderDefault(cardId) {
+            const container = document.getElementById('playerContainer_' + cardId);
+            if (container) container.innerHTML = generatePlaceholderHTML(cardId);
+        }
+
+        function saveVideoToHistory(title, url, thumbnail, isLocal = false) {
+            let history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
+            history = history.filter(item => item.url !== url && item.title !== title);
+            let calculatedThumb = thumbnail;
+            if (!isLocal) {
+                const vid = getYouTubeId(url, true); // 履歴サムネ生成時にalertを出さない
+                calculatedThumb = vid ? 'https://img.youtube.com/vi/' + vid + '/mqdefault.jpg' : '';
+            }
+            history.unshift({ title: title, url: url, thumbnail: calculatedThumb, isLocal: isLocal, timestamp: Date.now() });
+            if (history.length > 30) history = history.slice(0, 30);
+            localStorage.setItem('sync_video_history', JSON.stringify(history));
+            activeCardIds.forEach(id => {
+                const lv = document.getElementById('localVideo_' + id);
+                const yt = ytPlayers[id];
+                if (!lv && !yt) restorePlaceholderDefault(id);
+            });
+        }
+
+        function generateHistoryGalleryHTML(cardId) {
+            const history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
+            if (history.length === 0) return '';
+            let html = '<div style="width:100%; margin-top:12px; border-top:1px dashed #333; padding-top:8px;">' +
+                '<div style="font-size:0.75rem; color:#888; margin-bottom:6px; text-align:left; display:flex; justify-content:space-between;">' +
+                    '<span>🕒 最近使った動画（最大30件）</span>' +
+                    '<button onclick="clearVideoHistory(\'' + cardId + '\')" style="background:transparent; border:none; color:#ff4757; font-size:0.7rem; cursor:pointer;">履歴消去</button>' +
+                '</div><div style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
+            history.forEach(item => {
+                const safeTitle = escapeJsString(item.title);
+                const safeUrl = escapeJsString(item.url || item.title);
+                const thumbSrc = item.thumbnail || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='68' viewBox='0 0 120 68'><rect width='100%' height='100%' fill='%23222'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%23666' font-size='10'>Local</text></svg>";
+                const loadArgs = item.isLocal 
+                    ? 'alert(\'ローカル動画「' + safeTitle + '」を復元するため、枠内の「ファイルを選択」から該当ファイルを再アップロードしてください。\')'
+                    : 'loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')';
+                html += '<div style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="' + loadArgs + '">' +
+                    '<img src="' + thumbSrc + '" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px;">' +
+                    '<div style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + safeTitle + '</div>' +
+                    '<button onclick="event.stopPropagation(); deleteVideoHistoryItem(\'' + safeUrl + '\', \'' + cardId + '\')" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.7); border:none; color:#ff4757; font-size:0.6rem; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer;">✕</button>' +
+                '</div>';
+            });
+            html += '</div></div>';
+            return html;
+        }
+
+        function loadHistoryYt(cardId, url) {
+            const input = document.getElementById('urlInput_' + cardId);
+            if (input) input.value = url;
+            localStorage.setItem('sync_url_' + cardId, url);
+            loadSingleYT(cardId);
+        }
+        function deleteVideoHistoryItem(key, cardId) {
+            let history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
+            history = history.filter(item => item.url !== key && item.title !== key);
+            localStorage.setItem('sync_video_history', JSON.stringify(history));
+            restorePlaceholderDefault(cardId);
+        }
+        function clearVideoHistory(cardId) {
+            if (confirm('ローカルの再生履歴をすべて削除しますか？')) {
+                localStorage.removeItem('sync_video_history');
+                restorePlaceholderDefault(cardId);
+            }
+        }
+        function captureLocalVideoThumbnail(video, fileName, cardId) {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 120; canvas.height = 68;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                saveVideoToHistory(fileName, 'localVideo_' + cardId, dataUrl, true);
+            } catch (e) { saveVideoToHistory(fileName, 'localVideo_' + cardId, '', true); }
+        }
+
+        /* ============================================================
+           以下の関数群は呼び出されていたが定義が存在せず、
+           createPlayerCard() 内で ReferenceError を発生させていた。
+           その結果 initializeGrid() が中断し updateLayout() に到達せず、
+           グリッドが暗黙の縦1列レイアウトのままになる不具合の原因だった。
+           ============================================================ */
+
+        function updateLocalTimeDisplay(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            const display = document.getElementById('localTimeDisplay_' + cardId);
+            if (!video || !display) return;
+            const dur = isFinite(video.duration) ? video.duration : 0;
+            display.innerText = formatTime(video.currentTime) + ' / ' + formatTime(dur);
+        }
+
+        function setupSeekTooltip(cardId) {
+            const seek = document.getElementById('localSeek_' + cardId);
+            const tooltip = document.getElementById('seekTooltip_' + cardId);
+            if (!seek || !tooltip) return;
+            const showAt = function(clientX) {
+                const video = document.getElementById('localVideo_' + cardId);
+                const rect = seek.getBoundingClientRect();
+                if (!rect.width) return;
+                let ratio = (clientX - rect.left) / rect.width;
+                ratio = Math.max(0, Math.min(1, ratio));
+                const dur = (video && isFinite(video.duration)) ? video.duration : 0;
+                tooltip.innerText = formatTime(dur * ratio);
+                tooltip.style.left = (ratio * rect.width) + 'px';
+                tooltip.style.display = 'block';
+            };
+            seek.addEventListener('mouseenter', function(e) { showAt(e.clientX); });
+            seek.addEventListener('mousemove', function(e) { showAt(e.clientX); });
+            seek.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
+        }
+
+        function handleLocalSelect(event, cardId) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch (e) {} delete ytPlayers[cardId]; }
+            delete cardVideoKeys[cardId]; // ローカル動画に差し替わったのでYouTube側のキーは破棄
+            closeChat(cardId);            // ローカル動画にチャットは存在しないので畳む
+            localStorage.removeItem('sync_url_' + cardId);
+            markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
+
+            const container = document.getElementById('playerContainer_' + cardId);
+            container.innerHTML = '<video id="localVideo_' + cardId + '" class="custom-local-video" playsinline></video>';
+            const video = document.getElementById('localVideo_' + cardId);
+            video.src = URL.createObjectURL(file);
+
+            const masterVolEl = document.getElementById('masterVolume');
+            const vol = masterVolEl ? (parseFloat(masterVolEl.value) || 0) / 100 : 0.5;
+            video.volume = Math.max(0, Math.min(1, vol));
+            video.playbackRate = currentPlaybackSpeed;
+
+            document.getElementById('title_' + cardId).innerText = '[Local] ' + file.name;
+            document.getElementById('localOverlay_' + cardId).style.display = 'flex';
+            const volInput = document.getElementById('localVolume_' + cardId);
+            if (volInput) volInput.value = Math.round(video.volume * 100);
+
+            video.addEventListener('loadedmetadata', function() {
+                const seek = document.getElementById('localSeek_' + cardId);
+                if (seek && isFinite(video.duration)) {
+                    seek.min = 0; seek.max = video.duration; seek.step = 0.1; seek.value = video.currentTime;
+                }
+                updateLocalTimeDisplay(cardId);
+                checkLocalVideoExists();
+                updateMasterOptions();
+                // ローカル動画がロードされた瞬間、自動的にマスター（時間基準）へ昇格
+                const select = document.getElementById('syncMasterSelect');
+                if (select && select.querySelector('option[value="local_' + cardId + '"]')) {
+                    select.value = 'local_' + cardId;
+                    updateMasterBadge();
+                    saveSettings();
+                }
+            });
+
+            video.addEventListener('loadeddata', function() {
+                captureLocalVideoThumbnail(video, file.name, cardId);
+            });
+
+            video.addEventListener('timeupdate', function() {
+                if (localSeekActive[cardId]) return;
+                const seek = document.getElementById('localSeek_' + cardId);
+                if (seek) seek.value = video.currentTime;
+                updateLocalTimeDisplay(cardId);
+            });
+
+            video.addEventListener('click', function() { togglePlayLocal(cardId); });
+        }
+
+        function togglePlayLocal(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            if (!video) return;
+            if (video.paused) video.play().catch(function(e) {});
+            else video.pause();
+        }
+
+        function onLocalSeekStart(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            localSeekActive[cardId] = true;
+            localSeekStartTime[cardId] = video ? video.currentTime : 0;
+        }
+
+        function updateLocalTimeOnInput(cardId, value) {
+            const video = document.getElementById('localVideo_' + cardId);
+            const display = document.getElementById('localTimeDisplay_' + cardId);
+            if (!video || !display) return;
+            const dur = isFinite(video.duration) ? video.duration : 0;
+            display.innerText = formatTime(parseFloat(value) || 0) + ' / ' + formatTime(dur);
+        }
+
+        function onLocalSeekEnd(cardId) {
+            const video = document.getElementById('localVideo_' + cardId);
+            const seek = document.getElementById('localSeek_' + cardId);
+            if (!video || !seek) { localSeekActive[cardId] = false; return; }
+            const newTime = parseFloat(seek.value) || 0;
+            const oldTime = (localSeekStartTime[cardId] !== undefined) ? localSeekStartTime[cardId] : video.currentTime;
+            video.currentTime = newTime;
+            localSeekActive[cardId] = false;
+            // この動画がマスターの場合のみ、差分を全体へ同期（自分自身は除外）
+            if (getCurrentMasterType() === 'local_' + cardId) {
+                const diff = newTime - oldTime;
+                if (isFinite(diff) && Math.abs(diff) > 0.01) applySeekToAll(diff, true, cardId);
+            }
+            updateLocalTimeDisplay(cardId);
+        }
+
+        function changeLocalVideoVolume(cardId, value) {
+            const video = document.getElementById('localVideo_' + cardId);
+            if (!video) return;
+            video.volume = Math.max(0, Math.min(1, (parseFloat(value) || 0) / 100));
+            const icon = document.getElementById('localVolIcon_' + cardId);
+            if (icon) icon.innerText = video.volume === 0 ? '🔇' : (video.volume < 0.5 ? '🔉' : '🔊');
+        }
+
+        function showScrapedResults(cardId, items) {
+            const container = document.getElementById('playerContainer_' + cardId);
+            if (!container || !items || !items.length) return;
+            let html = '<div style="width:100%; height:100%; overflow-y:auto; background:#121218; box-sizing:border-box; padding:12px;">' +
+                '<div style="font-size:0.8rem; color:#00ffcc; margin-bottom:8px;">アドオンから取得した候補</div>';
+            items.forEach(function(item) {
+                const safeTitle = escapeJsString(item.title || '');
+                const safeUrl = escapeJsString(item.url || '');
+                if (!safeUrl) return;
+                html += '<div style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #262630; cursor:pointer;" ' +
+                    'onclick="loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')">' +
+                    '<div style="font-size:0.75rem; color:#ccc; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + safeTitle + '</div>' +
+                    '</div>';
+            });
+            html += '</div>';
+            container.innerHTML = html;
+            activeScrapeCardId = null;
+        }
+
+        function getNewSessionState(name, isAutoSave) {
+            let activeMasterName = "内部タイマー";
+            const masterMode = getCurrentMasterType();
+            if (masterMode === 'external') {
+                activeMasterName = externalSiteName ? '外部サイト (' + externalSiteName + ')' : "外部配信サイト";
+            } else if (masterMode.startsWith('local_')) {
+                const cardId = masterMode.replace('local_', '');
+                const titleText = document.getElementById('title_' + cardId);
+                activeMasterName = titleText ? titleText.innerText.replace("[Local] ", "").replace("[再選択待ち] ", "") : "ローカル動画";
+            }
+            const session = {
+                name: name || (isAutoSave ? '自動保存: ' + new Date().toLocaleString() + ' [' + activeMasterName + ']' : 'マイリスト: ' + new Date().toLocaleString()),
+                timestamp: Date.now(), isAutoSave: isAutoSave, playerCount: playerCount, masterMode: masterMode,
+                globalTime: globalCurrentTime, layoutCols: document.getElementById('layoutCols').value,
+                layout2Dir: document.getElementById('layout2Dir').value, skipSecBack: document.getElementById('skipSecBack').value,
+                skipSecForward: document.getElementById('skipSecForward').value,
+                confirmReset: document.getElementById('confirmReset').checked, confirmDelete: document.getElementById('confirmDelete').checked,
+                players: []
+            };
+            activeCardIds.forEach(cardId => {
+                const yt = ytPlayers[cardId];
+                const lv = document.getElementById('localVideo_' + cardId);
+                const input = document.getElementById('urlInput_' + cardId);
+                let pState = { cardId: cardId, type: 'empty', url: input ? input.value : (localStorage.getItem('sync_url_' + cardId) || ''), title: '未ロード', currentTime: 0,
+                               chatVisible: !!chatVisible[cardId], chatRatio: chatRatio[cardId] || CHAT_RATIO_DEFAULT };
+                if (lv && lv.src && lv.src !== window.location.href) {
+                    pState.type = 'local';
+                    pState.title = document.getElementById('title_' + cardId).innerText.replace("[Local] ", "").replace("[再選択待ち] ", "");
+                    pState.currentTime = lv.currentTime;
+                } else if (yt && typeof yt.getCurrentTime === 'function') {
+                    pState.type = 'yt';
+                    pState.title = document.getElementById('title_' + cardId).innerText;
+                    pState.currentTime = yt.getCurrentTime();
+                    pState.url = localStorage.getItem('sync_url_' + cardId) || '';
+                }
+                session.players.push(pState);
+            });
+            return session;
+        }
+        function saveSessionState(name, isAutoSave = false) {
+            const newState = getNewSessionState(name, isAutoSave);
+            let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (isAutoSave) {
+                let autosaves = list.filter(item => item.isAutoSave);
+                let manualSaves = list.filter(item => !item.isAutoSave);
+                autosaves.unshift(newState);
+                if (autosaves.length > 10) autosaves = autosaves.slice(0, 10);
+                list = [...manualSaves, ...autosaves];
+            } else { list.unshift(newState); }
+            if (list.length > 50) list = list.slice(0, 50);
+            localStorage.setItem('sync_session_history', JSON.stringify(list));
+            updateSessionListUI();
+        }
+        function saveSessionManual() {
+            const input = document.getElementById('sessionNameInput');
+            const name = input ? input.value.trim() : '';
+            saveSessionState(name, false);
+            if (input) input.value = '';
+            alert('現在の視聴セットをマイリストに保存しました。');
+        }
+        function loadSession(session) {
+            playerCount = session.playerCount;
+            updatePlayerCountDisplay();
+            setSelectValueSafe('layoutCols', session.layoutCols, 'auto');
+            setSelectValueSafe('layout2Dir', session.layout2Dir, 'horizontal');
+            document.getElementById('skipSecBack').value = session.skipSecBack;
+            document.getElementById('skipSecForward').value = session.skipSecForward;
+            document.getElementById('confirmReset').checked = session.confirmReset;
+            document.getElementById('confirmDelete').checked = session.confirmDelete;
+            globalCurrentTime = session.globalTime;
+            const grid = document.getElementById('playersGrid');
+            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {};
+            chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatMode = {}; chatModeManual = {}; chatInfoCache = {};
+            session.players.forEach(p => {
+                activeCardIds.push(p.cardId);
+                restorePlayerCardFromState(p);
+            });
+            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists();
+            setTimeout(() => {
+                updateMasterOptions();
+                const select = document.getElementById('syncMasterSelect');
+                if (select) { select.value = session.masterMode; saveSettings(); }
+            }, 300);
+            // 読み込んだ直後の状態は既に履歴として存在するため、
+            // そのまま再生しても重複保存しないようフラグを立てておく
+            hasAutoSavedThisSession = true;
+            saveSettings(); toggleSessionMenu(false);
+        }
+        function restorePlayerCardFromState(p) {
+            const grid = document.getElementById('playersGrid');
+            const card = document.createElement('div');
+            card.className = 'player-card'; card.id = p.cardId;
+            card.innerHTML = generateHeaderHTML(p.cardId) +
+                '<div class="player-container-wrapper" id="wrapper_' + p.cardId + '">' +
+                    '<div class="player-container" id="playerContainer_' + p.cardId + '">' + (p.type === 'empty' ? generatePlaceholderHTML(p.cardId) : '') + '</div>' +
+                    generateChatPaneHTML(p.cardId) +
+                '</div>' +
+                '<div class="local-video-overlay" id="localOverlay_' + p.cardId + '" style="display:none;">' +
+                    '<button onclick="togglePlayLocal(\'' + p.cardId + '\')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>' +
+                    '<div class="local-seek-container">' +
+                        '<input type="range" id="localSeek_' + p.cardId + '" min="0" max="100" value="0" step="0.1" ' +
+                            'onmousedown="onLocalSeekStart(\'' + p.cardId + '\')" ontouchstart="onLocalSeekStart(\'' + p.cardId + '\')" ' +
+                            'oninput="updateLocalTimeOnInput(\'' + p.cardId + '\', this.value)" ' +
+                            'onchange="onLocalSeekEnd(\'' + p.cardId + '\')" onmouseup="onLocalSeekEnd(\'' + p.cardId + '\')" ontouchend="onLocalSeekEnd(\'' + p.cardId + '\')">' +
+                        '<div class="seek-tooltip" id="seekTooltip_' + p.cardId + '">00:00</div>' +
+                    '</div>' +
+                    '<span id="localTimeDisplay_' + p.cardId + '">00:00 / 00:00</span>' +
+                    '<div style="display:flex; align-items:center; gap:5px;"><span id="localVolIcon_' + p.cardId + '" style="font-size:0.8rem;">🔊</span>' +
+                        '<input type="range" id="localVolume_' + p.cardId + '" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume(\'' + p.cardId + '\', this.value)">' +
+                    '</div>' +
+                '</div>';
+            grid.appendChild(card);
+            setupSeekTooltip(p.cardId);
+            if (p.chatVisible !== undefined) chatVisible[p.cardId] = !!p.chatVisible;
+            if (p.chatRatio) chatRatio[p.cardId] = p.chatRatio;
+            applyChatLayoutForCard(p.cardId);
+
+            if (p.type === 'yt') {
+                localStorage.setItem('sync_url_' + p.cardId, p.url);
+                const container = document.getElementById('playerContainer_' + p.cardId);
+                container.innerHTML = '<div id="ytPlayer_' + p.cardId + '"></div>';
+                let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0, 'start': Math.floor(p.currentTime) };
+                const playlistId = getPlaylistId(p.url);
+                cardVideoKeys[p.cardId] = playlistId ? ('list:' + playlistId) : getYouTubeId(p.url, true);
+                if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
+                ytPlayers[p.cardId] = new YT.Player('ytPlayer_' + p.cardId, {
+                    videoId: getYouTubeId(p.url, true) || undefined,
+                    playerVars: playerVarsSetting,
+                    events: {
+                        'onReady': (event) => {
+                            document.getElementById('title_' + p.cardId).innerText = p.title;
+                            setTimeout(function () { updateChatContent(p.cardId); }, 200);
+                            event.target.setVolume(document.getElementById('masterVolume').value);
+                            event.target.setPlaybackRate(currentPlaybackSpeed);
+                            event.target.seekTo(p.currentTime, true);
+                            if (playlistId) {
+                                document.getElementById('playlistPrev_' + p.cardId).style.display = 'inline-block';
+                                document.getElementById('playlistNext_' + p.cardId).style.display = 'inline-block';
+                            }
+                        }
+                    }
+                });
+            } else if (p.type === 'local') {
+                const safeTitle = escapeJsString(p.title);
+                document.getElementById('title_' + p.cardId).innerText = '[再選択待ち] ' + p.title;
+                const container = document.getElementById('playerContainer_' + p.cardId);
+                container.innerHTML = '<div class="placeholder-box" style="border-color:#ff4757;">' +
+                    '<span style="color:#ff4757; font-weight:bold; font-size:0.9rem; margin-bottom:10px;">ファイル再選択待ち</span>' +
+                    '<div style="font-size:0.8rem; color:#ccc; margin-bottom:15px; text-align:center;">「' + safeTitle + '」を再アップロードしてください。<br>自動的に <strong>' + formatTime(p.currentTime) + '</strong> から再開します。</div>' +
+                    '<input type="file" accept="video/*" onchange="handleLocalReSelect(event, \'' + p.cardId + '\', ' + p.currentTime + ')" style="width:200px; font-size:0.8rem;">' +
+                    '</div>';
+            }
+        }
+        function handleLocalReSelect(event, cardId, targetTime) {
+            handleLocalSelect(event, cardId);
+            setTimeout(() => {
+                const video = document.getElementById('localVideo_' + cardId);
+                if (video) video.currentTime = targetTime;
+            }, 800);
+        }
+        function updateSessionListUI() {
+            const listEl = document.getElementById('sessionHistoryList');
+            if (!listEl) return;
+            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (list.length === 0) {
+                listEl.innerHTML = '<div style="color:#666; text-align:center; padding:10px; font-size:0.8rem;">保存されたセッション履歴はありません。</div>';
+                return;
+            }
+            let html = '';
+            list.forEach((session, index) => {
+                const color = session.isAutoSave ? '#888' : '#ff9f43';
+                const label = session.isAutoSave ? '🕒 自動保存' : '⭐ マイリスト';
+                let badges = '';
+                session.players.forEach(p => {
+                    if (p.type === 'yt') badges += '<span style="background:#ff0000; color:#fff; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">YT</span>';
+                    else if (p.type === 'local') badges += '<span style="background:#00ffcc; color:#000; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">Local</span>';
+                });
+                const safeName = escapeJsString(session.name);
+                html += '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #222; padding:6px 4px; font-size:0.8rem;">' +
+                    '<div style="cursor:pointer; flex:1; min-width:0; margin-right:8px;" onclick="loadSessionByIndex(' + index + ')">' +
+                    '<div style="font-weight:bold; color:' + color + '; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">[' + label + '] ' + safeName + '</div>' +
+                    '<div style="font-size:0.7rem; color:#888; display:flex; align-items:center; margin-top:2px;"><span style="margin-right:8px;">⏱ ' + formatTime(session.globalTime) + '</span>' + badges + '</div>' +
+                    '</div><button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>';
+            });
+            listEl.innerHTML = html;
+        }
+        function loadSessionByIndex(index) {
+            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (list[index] && confirm('セッションをロードして現在の状態を復元しますか？')) loadSession(list[index]);
+        }
+        function deleteSessionByIndex(index) {
+            let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            list.splice(index, 1);
+            localStorage.setItem('sync_session_history', JSON.stringify(list));
+            updateSessionListUI();
+        }
+        function exportSessionFile() {
+            const state = getNewSessionState("エクスポートセッション", false);
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", 'sync_session_' + Date.now() + '.json');
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+        function importSessionFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const session = JSON.parse(e.target.result);
+                    if (session && session.playerCount) {
+                        if (confirm('外部ファイル「' + file.name + '」からセッションをインポートしますか？')) loadSession(session);
+                    } else { alert('不正なセッションファイル形式です。'); }
+                } catch (err) { alert('ファイルの読み込みに失敗しました。'); }
+            };
+            reader.readAsText(file);
+        }
+
+        /* ------------------------------------------------------------
+           自動バックアップのトリガー
+           旧: 30秒ごとの定期実行（ほぼ同一の履歴が大量に溜まる）
+           新: 以下をすべて満たしたときに1回だけ保存
+               1) 開いている枠すべてに動画が読み込まれている
+               2) 一括再生ボタンが押された
+               3) その視聴セット（ラインナップ）で初回である
+           ------------------------------------------------------------ */
+
+        // 現在のラインナップで既に自動保存済みかどうかのフラグ
+        let hasAutoSavedThisSession = false;
+
+        // 動画の構成が変わったら「新しい視聴セット」とみなしフラグを戻す
+        function markSessionLineupChanged() {
+            hasAutoSavedThisSession = false;
+        }
+
+        // 開いている枠すべてに動画（YouTube または ローカル）が入っているか判定
+        function areAllSlotsLoaded() {
+            if (!activeCardIds.length) return false;
+            return activeCardIds.every(function(id) {
+                const lv = document.getElementById('localVideo_' + id);
+                if (lv && lv.src && lv.src !== window.location.href) return true;
+                if (ytPlayers[id]) return true;
+                return false; // 空枠・[再選択待ち]状態はいずれも未ロード扱い
+            });
+        }
+
+        function tryAutoSaveOnFirstPlay() {
+            if (hasAutoSavedThisSession) return;
+            if (!areAllSlotsLoaded()) return;
+            saveSessionState(null, true);
+            hasAutoSavedThisSession = true;
+        }
+
+        // タブを閉じる／リロードする直前の保険的な保存は従来どおり残す
+        window.addEventListener('beforeunload', () => { saveSessionState(null, true); });
+
+        function destroyPlayerCard(cardId) {
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            delete cardVideoKeys[cardId];
+            delete chatLoadedVideoId[cardId];
+            const card = document.getElementById(cardId);
+            if (card) card.remove();
+        }
+        function checkLocalVideoExists() {
+            let hasLocal = false;
+            document.querySelectorAll('.custom-local-video').forEach(v => { if (v.src && v.src !== window.location.href) hasLocal = true; });
+            const extBtn = document.getElementById('requestExternalTimeBtn');
+            if (extBtn) extBtn.style.display = hasLocal ? 'none' : 'flex';
+        }
+        function reloadPlayer(cardId) {
+            const lv = document.getElementById('localVideo_' + cardId);
+            if (lv && lv.src) {
+                lv.load();
+                if (isPlayingRequest) lv.play().catch(e=>{});
+                return;
+            }
+            if (ytPlayers[cardId]) loadSingleYT(cardId);
+        }
+        function resetPlayer(cardId) {
+            const needsConfirm = document.getElementById('confirmReset').checked;
+            if (needsConfirm && !confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
+            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
+            delete cardVideoKeys[cardId]; // 枠を空にしたので重複判定の対象外に戻す
+            const lv = document.getElementById('localVideo_' + cardId);
+            if (lv) { lv.pause(); lv.src = ""; lv.load(); }
+            document.getElementById('title_' + cardId).innerText = '未ロード';
+            document.getElementById('playlistPrev_' + cardId).style.display = 'none';
+            document.getElementById('playlistNext_' + cardId).style.display = 'none';
+            document.getElementById('localOverlay_' + cardId).style.display = 'none';
+            closeChat(cardId); // チャット欄を畳んでiframeも停止
+            document.getElementById('playerContainer_' + cardId).innerHTML = generatePlaceholderHTML(cardId);
+            markSessionLineupChanged();
+            resaveUrlsBasedOnOrder(); checkLocalVideoExists(); updateMasterOptions();
+        }
+        function deletePlayer(cardId) {
+            const needsConfirm = document.getElementById('confirmDelete').checked;
+            if (needsConfirm && !confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
+            clearChatState(cardId);
+            destroyPlayerCard(cardId); playerCount--;
+            markSessionLineupChanged();
+            updatePlayerCountDisplay();
+            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists(); updateMasterOptions(); saveSettings();
+        }
+        function resaveUrlsBasedOnOrder() {
+            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem('sync_url_' + i);
+            const cards = getSortedCards();
+            cards.forEach((card, index) => {
+                const input = document.getElementById('urlInput_' + card.id);
+                if (input && input.value.trim()) localStorage.setItem('sync_url_' + (index + 1), input.value.trim());
+            });
+        }
+        function moveCard(cardId, direction) {
+            const cards = getSortedCards();
+            const currentIndex = cards.findIndex(c => c.id === cardId);
+            if (currentIndex === -1) return;
+            const targetIndex = currentIndex + direction;
+            if (targetIndex < 0 || targetIndex >= cards.length) return; 
+            const currentOrder = cards[currentIndex].style.order;
+            cards[currentIndex].style.order = cards[targetIndex].style.order;
+            cards[targetIndex].style.order = currentOrder;
+            activeCardIds = getSortedCards().map(c => c.id);
+            updateLayout(); resaveUrlsBasedOnOrder(); updateMasterOptions();
+        }
+        function togglePin(cardId) {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const target = document.getElementById(cardId);
+            const btn = target.querySelector('.pin-btn');
+            if (target.classList.contains('is-main')) {
+                target.classList.remove('is-main'); btn.classList.remove('active');
+            } else {
+                cards.forEach(c => { c.classList.remove('is-main'); const b = c.querySelector('.pin-btn'); if (b) b.classList.remove('active'); });
+                target.classList.add('is-main'); btn.classList.add('active');
+            }
+            updateLayout();
+        }
+        function updateLayout() {
+            const grid = document.getElementById('playersGrid');
+            const cards = Array.from(grid.children);
+            const N = cards.length;
+            if (N === 0) return;
+            if (N === 1) {
+                grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)';
+                cards[0].style.gridColumn = 'span 1'; cards[0].style.gridRow = 'span 1'; return;
+            }
+            const hasPin = cards.some(c => c.classList.contains('is-main'));
+            let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
+            if (N === 2) {
+                const dir = document.getElementById('layout2Dir').value;
+                if (dir === 'vertical') {
+                    grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = hasPin ? 'minmax(0, 2fr) minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)';
+                } else { 
+                    if (hasPin) { grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 2fr) minmax(0, 1fr)'; } 
+                    else { grid.style.gridTemplateColumns = 'minmax(0, 1fr) minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)'; }
+                }
+                cards.forEach(c => { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }); return;
+            }
+            const logicalCount = hasPin ? N + 3 : N;
+            const parsedCols = parseInt(colSetting, 10);
+            let cols;
+            if (colSetting !== 'auto' && Number.isInteger(parsedCols) && parsedCols >= 1 && parsedCols <= 4) {
+                // 手動指定（1〜4列）が有効な場合のみそれを使用
+                cols = parsedCols;
+            } else {
+                // 'auto'、または不正な値（空文字列・NaN等）の場合は自動計算にフォールバック
+                // ※以前はここでNaNになりgrid-template-columnsが無効化され、縦1列に積まれるバグがあった
+                if (logicalCount <= 4) cols = 2;
+                else if (logicalCount <= 6) cols = 3;
+                else if (logicalCount <= 9) cols = 3;
+                else cols = 4;
+            }
+            const rows = Math.ceil(logicalCount / cols);
+            grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+            grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
+            cards.forEach(c => {
+                if (c.classList.contains('is-main')) {
+                    const spanCol = Math.min(2, cols);
+                    c.style.gridColumn = 'span ' + spanCol; c.style.gridRow = 'span 2';
+                } else { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }
+            });
+        }
         /* ============================================================
            チャット欄（YouTubeアーカイブ/ライブチャット埋め込み）
            ============================================================
@@ -1523,638 +2201,6 @@
             }
         });
 
-        function triggerYtTop(cardId) {
-            const input = document.getElementById('urlInput_' + cardId);
-            const query = input ? input.value.trim() : '';
-            if (query) {
-                window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(query), 'yt_popup', 'width=900,height=700');
-            } else {
-                window.open('https://www.youtube.com/', 'yt_popup', 'width=900,height=700');
-            }
-        }
-
-        function restorePlaceholderDefault(cardId) {
-            const container = document.getElementById('playerContainer_' + cardId);
-            if (container) container.innerHTML = generatePlaceholderHTML(cardId);
-        }
-
-        function saveVideoToHistory(title, url, thumbnail, isLocal = false) {
-            let history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
-            history = history.filter(item => item.url !== url && item.title !== title);
-            let calculatedThumb = thumbnail;
-            if (!isLocal) {
-                const vid = getYouTubeId(url, true); // 履歴サムネ生成時にalertを出さない
-                calculatedThumb = vid ? 'https://img.youtube.com/vi/' + vid + '/mqdefault.jpg' : '';
-            }
-            history.unshift({ title: title, url: url, thumbnail: calculatedThumb, isLocal: isLocal, timestamp: Date.now() });
-            if (history.length > 30) history = history.slice(0, 30);
-            localStorage.setItem('sync_video_history', JSON.stringify(history));
-            activeCardIds.forEach(id => {
-                const lv = document.getElementById('localVideo_' + id);
-                const yt = ytPlayers[id];
-                if (!lv && !yt) restorePlaceholderDefault(id);
-            });
-        }
-
-        function generateHistoryGalleryHTML(cardId) {
-            const history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
-            if (history.length === 0) return '';
-            let html = '<div style="width:100%; margin-top:12px; border-top:1px dashed #333; padding-top:8px;">' +
-                '<div style="font-size:0.75rem; color:#888; margin-bottom:6px; text-align:left; display:flex; justify-content:space-between;">' +
-                    '<span>🕒 最近使った動画（最大30件）</span>' +
-                    '<button onclick="clearVideoHistory(\'' + cardId + '\')" style="background:transparent; border:none; color:#ff4757; font-size:0.7rem; cursor:pointer;">履歴消去</button>' +
-                '</div><div style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
-            history.forEach(item => {
-                const safeTitle = escapeJsString(item.title);
-                const safeUrl = escapeJsString(item.url || item.title);
-                const thumbSrc = item.thumbnail || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='68' viewBox='0 0 120 68'><rect width='100%' height='100%' fill='%23222'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%23666' font-size='10'>Local</text></svg>";
-                const loadArgs = item.isLocal 
-                    ? 'alert(\'ローカル動画「' + safeTitle + '」を復元するため、枠内の「ファイルを選択」から該当ファイルを再アップロードしてください。\')'
-                    : 'loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')';
-                html += '<div style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="' + loadArgs + '">' +
-                    '<img src="' + thumbSrc + '" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px;">' +
-                    '<div style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + safeTitle + '</div>' +
-                    '<button onclick="event.stopPropagation(); deleteVideoHistoryItem(\'' + safeUrl + '\', \'' + cardId + '\')" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.7); border:none; color:#ff4757; font-size:0.6rem; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer;">✕</button>' +
-                '</div>';
-            });
-            html += '</div></div>';
-            return html;
-        }
-
-        function loadHistoryYt(cardId, url) {
-            const input = document.getElementById('urlInput_' + cardId);
-            if (input) input.value = url;
-            localStorage.setItem('sync_url_' + cardId, url);
-            loadSingleYT(cardId);
-        }
-        function deleteVideoHistoryItem(key, cardId) {
-            let history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
-            history = history.filter(item => item.url !== key && item.title !== key);
-            localStorage.setItem('sync_video_history', JSON.stringify(history));
-            restorePlaceholderDefault(cardId);
-        }
-        function clearVideoHistory(cardId) {
-            if (confirm('ローカルの再生履歴をすべて削除しますか？')) {
-                localStorage.removeItem('sync_video_history');
-                restorePlaceholderDefault(cardId);
-            }
-        }
-        function captureLocalVideoThumbnail(video, fileName, cardId) {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = 120; canvas.height = 68;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-                saveVideoToHistory(fileName, 'localVideo_' + cardId, dataUrl, true);
-            } catch (e) { saveVideoToHistory(fileName, 'localVideo_' + cardId, '', true); }
-        }
-
-        /* ============================================================
-           以下の関数群は呼び出されていたが定義が存在せず、
-           createPlayerCard() 内で ReferenceError を発生させていた。
-           その結果 initializeGrid() が中断し updateLayout() に到達せず、
-           グリッドが暗黙の縦1列レイアウトのままになる不具合の原因だった。
-           ============================================================ */
-
-        function updateLocalTimeDisplay(cardId) {
-            const video = document.getElementById('localVideo_' + cardId);
-            const display = document.getElementById('localTimeDisplay_' + cardId);
-            if (!video || !display) return;
-            const dur = isFinite(video.duration) ? video.duration : 0;
-            display.innerText = formatTime(video.currentTime) + ' / ' + formatTime(dur);
-        }
-
-        function setupSeekTooltip(cardId) {
-            const seek = document.getElementById('localSeek_' + cardId);
-            const tooltip = document.getElementById('seekTooltip_' + cardId);
-            if (!seek || !tooltip) return;
-            const showAt = function(clientX) {
-                const video = document.getElementById('localVideo_' + cardId);
-                const rect = seek.getBoundingClientRect();
-                if (!rect.width) return;
-                let ratio = (clientX - rect.left) / rect.width;
-                ratio = Math.max(0, Math.min(1, ratio));
-                const dur = (video && isFinite(video.duration)) ? video.duration : 0;
-                tooltip.innerText = formatTime(dur * ratio);
-                tooltip.style.left = (ratio * rect.width) + 'px';
-                tooltip.style.display = 'block';
-            };
-            seek.addEventListener('mouseenter', function(e) { showAt(e.clientX); });
-            seek.addEventListener('mousemove', function(e) { showAt(e.clientX); });
-            seek.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
-        }
-
-        function handleLocalSelect(event, cardId) {
-            const file = event.target.files && event.target.files[0];
-            if (!file) return;
-
-            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch (e) {} delete ytPlayers[cardId]; }
-            delete cardVideoKeys[cardId]; // ローカル動画に差し替わったのでYouTube側のキーは破棄
-            closeChat(cardId);            // ローカル動画にチャットは存在しないので畳む
-            localStorage.removeItem('sync_url_' + cardId);
-            markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
-
-            const container = document.getElementById('playerContainer_' + cardId);
-            container.innerHTML = '<video id="localVideo_' + cardId + '" class="custom-local-video" playsinline></video>';
-            const video = document.getElementById('localVideo_' + cardId);
-            video.src = URL.createObjectURL(file);
-
-            const masterVolEl = document.getElementById('masterVolume');
-            const vol = masterVolEl ? (parseFloat(masterVolEl.value) || 0) / 100 : 0.5;
-            video.volume = Math.max(0, Math.min(1, vol));
-            video.playbackRate = currentPlaybackSpeed;
-
-            document.getElementById('title_' + cardId).innerText = '[Local] ' + file.name;
-            document.getElementById('localOverlay_' + cardId).style.display = 'flex';
-            const volInput = document.getElementById('localVolume_' + cardId);
-            if (volInput) volInput.value = Math.round(video.volume * 100);
-
-            video.addEventListener('loadedmetadata', function() {
-                const seek = document.getElementById('localSeek_' + cardId);
-                if (seek && isFinite(video.duration)) {
-                    seek.min = 0; seek.max = video.duration; seek.step = 0.1; seek.value = video.currentTime;
-                }
-                updateLocalTimeDisplay(cardId);
-                checkLocalVideoExists();
-                updateMasterOptions();
-                // ローカル動画がロードされた瞬間、自動的にマスター（時間基準）へ昇格
-                const select = document.getElementById('syncMasterSelect');
-                if (select && select.querySelector('option[value="local_' + cardId + '"]')) {
-                    select.value = 'local_' + cardId;
-                    updateMasterBadge();
-                    saveSettings();
-                }
-            });
-
-            video.addEventListener('loadeddata', function() {
-                captureLocalVideoThumbnail(video, file.name, cardId);
-            });
-
-            video.addEventListener('timeupdate', function() {
-                if (localSeekActive[cardId]) return;
-                const seek = document.getElementById('localSeek_' + cardId);
-                if (seek) seek.value = video.currentTime;
-                updateLocalTimeDisplay(cardId);
-            });
-
-            video.addEventListener('click', function() { togglePlayLocal(cardId); });
-        }
-
-        function togglePlayLocal(cardId) {
-            const video = document.getElementById('localVideo_' + cardId);
-            if (!video) return;
-            if (video.paused) video.play().catch(function(e) {});
-            else video.pause();
-        }
-
-        function onLocalSeekStart(cardId) {
-            const video = document.getElementById('localVideo_' + cardId);
-            localSeekActive[cardId] = true;
-            localSeekStartTime[cardId] = video ? video.currentTime : 0;
-        }
-
-        function updateLocalTimeOnInput(cardId, value) {
-            const video = document.getElementById('localVideo_' + cardId);
-            const display = document.getElementById('localTimeDisplay_' + cardId);
-            if (!video || !display) return;
-            const dur = isFinite(video.duration) ? video.duration : 0;
-            display.innerText = formatTime(parseFloat(value) || 0) + ' / ' + formatTime(dur);
-        }
-
-        function onLocalSeekEnd(cardId) {
-            const video = document.getElementById('localVideo_' + cardId);
-            const seek = document.getElementById('localSeek_' + cardId);
-            if (!video || !seek) { localSeekActive[cardId] = false; return; }
-            const newTime = parseFloat(seek.value) || 0;
-            const oldTime = (localSeekStartTime[cardId] !== undefined) ? localSeekStartTime[cardId] : video.currentTime;
-            video.currentTime = newTime;
-            localSeekActive[cardId] = false;
-            // この動画がマスターの場合のみ、差分を全体へ同期（自分自身は除外）
-            if (getCurrentMasterType() === 'local_' + cardId) {
-                const diff = newTime - oldTime;
-                if (isFinite(diff) && Math.abs(diff) > 0.01) applySeekToAll(diff, true, cardId);
-            }
-            updateLocalTimeDisplay(cardId);
-        }
-
-        function changeLocalVideoVolume(cardId, value) {
-            const video = document.getElementById('localVideo_' + cardId);
-            if (!video) return;
-            video.volume = Math.max(0, Math.min(1, (parseFloat(value) || 0) / 100));
-            const icon = document.getElementById('localVolIcon_' + cardId);
-            if (icon) icon.innerText = video.volume === 0 ? '🔇' : (video.volume < 0.5 ? '🔉' : '🔊');
-        }
-
-        function showScrapedResults(cardId, items) {
-            const container = document.getElementById('playerContainer_' + cardId);
-            if (!container || !items || !items.length) return;
-            let html = '<div style="width:100%; height:100%; overflow-y:auto; background:#121218; box-sizing:border-box; padding:12px;">' +
-                '<div style="font-size:0.8rem; color:#00ffcc; margin-bottom:8px;">アドオンから取得した候補</div>';
-            items.forEach(function(item) {
-                const safeTitle = escapeJsString(item.title || '');
-                const safeUrl = escapeJsString(item.url || '');
-                if (!safeUrl) return;
-                html += '<div style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #262630; cursor:pointer;" ' +
-                    'onclick="loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')">' +
-                    '<div style="font-size:0.75rem; color:#ccc; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + safeTitle + '</div>' +
-                    '</div>';
-            });
-            html += '</div>';
-            container.innerHTML = html;
-            activeScrapeCardId = null;
-        }
-
-        function getNewSessionState(name, isAutoSave) {
-            let activeMasterName = "内部タイマー";
-            const masterMode = getCurrentMasterType();
-            if (masterMode === 'external') {
-                activeMasterName = externalSiteName ? '外部サイト (' + externalSiteName + ')' : "外部配信サイト";
-            } else if (masterMode.startsWith('local_')) {
-                const cardId = masterMode.replace('local_', '');
-                const titleText = document.getElementById('title_' + cardId);
-                activeMasterName = titleText ? titleText.innerText.replace("[Local] ", "").replace("[再選択待ち] ", "") : "ローカル動画";
-            }
-            const session = {
-                name: name || (isAutoSave ? '自動保存: ' + new Date().toLocaleString() + ' [' + activeMasterName + ']' : 'マイリスト: ' + new Date().toLocaleString()),
-                timestamp: Date.now(), isAutoSave: isAutoSave, playerCount: playerCount, masterMode: masterMode,
-                globalTime: globalCurrentTime, layoutCols: document.getElementById('layoutCols').value,
-                layout2Dir: document.getElementById('layout2Dir').value, skipSecBack: document.getElementById('skipSecBack').value,
-                skipSecForward: document.getElementById('skipSecForward').value,
-                confirmReset: document.getElementById('confirmReset').checked, confirmDelete: document.getElementById('confirmDelete').checked,
-                players: []
-            };
-            activeCardIds.forEach(cardId => {
-                const yt = ytPlayers[cardId];
-                const lv = document.getElementById('localVideo_' + cardId);
-                const input = document.getElementById('urlInput_' + cardId);
-                let pState = { cardId: cardId, type: 'empty', url: input ? input.value : (localStorage.getItem('sync_url_' + cardId) || ''), title: '未ロード', currentTime: 0,
-                               chatVisible: !!chatVisible[cardId], chatRatio: chatRatio[cardId] || CHAT_RATIO_DEFAULT };
-                if (lv && lv.src && lv.src !== window.location.href) {
-                    pState.type = 'local';
-                    pState.title = document.getElementById('title_' + cardId).innerText.replace("[Local] ", "").replace("[再選択待ち] ", "");
-                    pState.currentTime = lv.currentTime;
-                } else if (yt && typeof yt.getCurrentTime === 'function') {
-                    pState.type = 'yt';
-                    pState.title = document.getElementById('title_' + cardId).innerText;
-                    pState.currentTime = yt.getCurrentTime();
-                    pState.url = localStorage.getItem('sync_url_' + cardId) || '';
-                }
-                session.players.push(pState);
-            });
-            return session;
-        }
-        function saveSessionState(name, isAutoSave = false) {
-            const newState = getNewSessionState(name, isAutoSave);
-            let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
-            if (isAutoSave) {
-                let autosaves = list.filter(item => item.isAutoSave);
-                let manualSaves = list.filter(item => !item.isAutoSave);
-                autosaves.unshift(newState);
-                if (autosaves.length > 10) autosaves = autosaves.slice(0, 10);
-                list = [...manualSaves, ...autosaves];
-            } else { list.unshift(newState); }
-            if (list.length > 50) list = list.slice(0, 50);
-            localStorage.setItem('sync_session_history', JSON.stringify(list));
-            updateSessionListUI();
-        }
-        function saveSessionManual() {
-            const input = document.getElementById('sessionNameInput');
-            const name = input ? input.value.trim() : '';
-            saveSessionState(name, false);
-            if (input) input.value = '';
-            alert('現在の視聴セットをマイリストに保存しました。');
-        }
-        function loadSession(session) {
-            playerCount = session.playerCount;
-            updatePlayerCountDisplay();
-            setSelectValueSafe('layoutCols', session.layoutCols, 'auto');
-            setSelectValueSafe('layout2Dir', session.layout2Dir, 'horizontal');
-            document.getElementById('skipSecBack').value = session.skipSecBack;
-            document.getElementById('skipSecForward').value = session.skipSecForward;
-            document.getElementById('confirmReset').checked = session.confirmReset;
-            document.getElementById('confirmDelete').checked = session.confirmDelete;
-            globalCurrentTime = session.globalTime;
-            const grid = document.getElementById('playersGrid');
-            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {};
-            chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatMode = {}; chatModeManual = {};
-            session.players.forEach(p => {
-                activeCardIds.push(p.cardId);
-                restorePlayerCardFromState(p);
-            });
-            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists();
-            setTimeout(() => {
-                updateMasterOptions();
-                const select = document.getElementById('syncMasterSelect');
-                if (select) { select.value = session.masterMode; saveSettings(); }
-            }, 300);
-            // 読み込んだ直後の状態は既に履歴として存在するため、
-            // そのまま再生しても重複保存しないようフラグを立てておく
-            hasAutoSavedThisSession = true;
-            saveSettings(); toggleSessionMenu(false);
-        }
-        function restorePlayerCardFromState(p) {
-            const grid = document.getElementById('playersGrid');
-            const card = document.createElement('div');
-            card.className = 'player-card'; card.id = p.cardId;
-            card.innerHTML = generateHeaderHTML(p.cardId) +
-                '<div class="player-container-wrapper" id="wrapper_' + p.cardId + '">' +
-                    '<div class="player-container" id="playerContainer_' + p.cardId + '">' + (p.type === 'empty' ? generatePlaceholderHTML(p.cardId) : '') + '</div>' +
-                    generateChatPaneHTML(p.cardId) +
-                '</div>' +
-                '<div class="local-video-overlay" id="localOverlay_' + p.cardId + '" style="display:none;">' +
-                    '<button onclick="togglePlayLocal(\'' + p.cardId + '\')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>' +
-                    '<div class="local-seek-container">' +
-                        '<input type="range" id="localSeek_' + p.cardId + '" min="0" max="100" value="0" step="0.1" ' +
-                            'onmousedown="onLocalSeekStart(\'' + p.cardId + '\')" ontouchstart="onLocalSeekStart(\'' + p.cardId + '\')" ' +
-                            'oninput="updateLocalTimeOnInput(\'' + p.cardId + '\', this.value)" ' +
-                            'onchange="onLocalSeekEnd(\'' + p.cardId + '\')" onmouseup="onLocalSeekEnd(\'' + p.cardId + '\')" ontouchend="onLocalSeekEnd(\'' + p.cardId + '\')">' +
-                        '<div class="seek-tooltip" id="seekTooltip_' + p.cardId + '">00:00</div>' +
-                    '</div>' +
-                    '<span id="localTimeDisplay_' + p.cardId + '">00:00 / 00:00</span>' +
-                    '<div style="display:flex; align-items:center; gap:5px;"><span id="localVolIcon_' + p.cardId + '" style="font-size:0.8rem;">🔊</span>' +
-                        '<input type="range" id="localVolume_' + p.cardId + '" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume(\'' + p.cardId + '\', this.value)">' +
-                    '</div>' +
-                '</div>';
-            grid.appendChild(card);
-            setupSeekTooltip(p.cardId);
-
-            // チャット表示状態（表示/非表示・幅の比率）を復元
-            if (p.chatVisible !== undefined) chatVisible[p.cardId] = !!p.chatVisible;
-            if (p.chatRatio) chatRatio[p.cardId] = p.chatRatio;
-            applyChatLayoutForCard(p.cardId);
-
-            if (p.type === 'yt') {
-                localStorage.setItem('sync_url_' + p.cardId, p.url);
-                const container = document.getElementById('playerContainer_' + p.cardId);
-                container.innerHTML = '<div id="ytPlayer_' + p.cardId + '"></div>';
-                let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0, 'start': Math.floor(p.currentTime) };
-                const playlistId = getPlaylistId(p.url);
-                cardVideoKeys[p.cardId] = playlistId ? ('list:' + playlistId) : getYouTubeId(p.url, true);
-                if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
-                ytPlayers[p.cardId] = new YT.Player('ytPlayer_' + p.cardId, {
-                    videoId: getYouTubeId(p.url, true) || undefined,
-                    playerVars: playerVarsSetting,
-                    events: {
-                        'onReady': (event) => {
-                            document.getElementById('title_' + p.cardId).innerText = p.title;
-                            event.target.setVolume(document.getElementById('masterVolume').value);
-                            event.target.setPlaybackRate(currentPlaybackSpeed);
-                            event.target.seekTo(p.currentTime, true);
-                            if (playlistId) {
-                                document.getElementById('playlistPrev_' + p.cardId).style.display = 'inline-block';
-                                document.getElementById('playlistNext_' + p.cardId).style.display = 'inline-block';
-                            }
-                        }
-                    }
-                });
-            } else if (p.type === 'local') {
-                const safeTitle = escapeJsString(p.title);
-                document.getElementById('title_' + p.cardId).innerText = '[再選択待ち] ' + p.title;
-                const container = document.getElementById('playerContainer_' + p.cardId);
-                container.innerHTML = '<div class="placeholder-box" style="border-color:#ff4757;">' +
-                    '<span style="color:#ff4757; font-weight:bold; font-size:0.9rem; margin-bottom:10px;">ファイル再選択待ち</span>' +
-                    '<div style="font-size:0.8rem; color:#ccc; margin-bottom:15px; text-align:center;">「' + safeTitle + '」を再アップロードしてください。<br>自動的に <strong>' + formatTime(p.currentTime) + '</strong> から再開します。</div>' +
-                    '<input type="file" accept="video/*" onchange="handleLocalReSelect(event, \'' + p.cardId + '\', ' + p.currentTime + ')" style="width:200px; font-size:0.8rem;">' +
-                    '</div>';
-            }
-        }
-        function handleLocalReSelect(event, cardId, targetTime) {
-            handleLocalSelect(event, cardId);
-            setTimeout(() => {
-                const video = document.getElementById('localVideo_' + cardId);
-                if (video) video.currentTime = targetTime;
-            }, 800);
-        }
-        function updateSessionListUI() {
-            const listEl = document.getElementById('sessionHistoryList');
-            if (!listEl) return;
-            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
-            if (list.length === 0) {
-                listEl.innerHTML = '<div style="color:#666; text-align:center; padding:10px; font-size:0.8rem;">保存されたセッション履歴はありません。</div>';
-                return;
-            }
-            let html = '';
-            list.forEach((session, index) => {
-                const color = session.isAutoSave ? '#888' : '#ff9f43';
-                const label = session.isAutoSave ? '🕒 自動保存' : '⭐ マイリスト';
-                let badges = '';
-                session.players.forEach(p => {
-                    if (p.type === 'yt') badges += '<span style="background:#ff0000; color:#fff; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">YT</span>';
-                    else if (p.type === 'local') badges += '<span style="background:#00ffcc; color:#000; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">Local</span>';
-                });
-                const safeName = escapeJsString(session.name);
-                html += '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #222; padding:6px 4px; font-size:0.8rem;">' +
-                    '<div style="cursor:pointer; flex:1; min-width:0; margin-right:8px;" onclick="loadSessionByIndex(' + index + ')">' +
-                    '<div style="font-weight:bold; color:' + color + '; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">[' + label + '] ' + safeName + '</div>' +
-                    '<div style="font-size:0.7rem; color:#888; display:flex; align-items:center; margin-top:2px;"><span style="margin-right:8px;">⏱ ' + formatTime(session.globalTime) + '</span>' + badges + '</div>' +
-                    '</div><button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>';
-            });
-            listEl.innerHTML = html;
-        }
-        function loadSessionByIndex(index) {
-            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
-            if (list[index] && confirm('セッションをロードして現在の状態を復元しますか？')) loadSession(list[index]);
-        }
-        function deleteSessionByIndex(index) {
-            let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
-            list.splice(index, 1);
-            localStorage.setItem('sync_session_history', JSON.stringify(list));
-            updateSessionListUI();
-        }
-        function exportSessionFile() {
-            const state = getNewSessionState("エクスポートセッション", false);
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
-            const downloadAnchor = document.createElement('a');
-            downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", 'sync_session_' + Date.now() + '.json');
-            document.body.appendChild(downloadAnchor);
-            downloadAnchor.click();
-            downloadAnchor.remove();
-        }
-        function importSessionFile(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const session = JSON.parse(e.target.result);
-                    if (session && session.playerCount) {
-                        if (confirm('外部ファイル「' + file.name + '」からセッションをインポートしますか？')) loadSession(session);
-                    } else { alert('不正なセッションファイル形式です。'); }
-                } catch (err) { alert('ファイルの読み込みに失敗しました。'); }
-            };
-            reader.readAsText(file);
-        }
-
-        /* ------------------------------------------------------------
-           自動バックアップのトリガー
-           旧: 30秒ごとの定期実行（ほぼ同一の履歴が大量に溜まる）
-           新: 以下をすべて満たしたときに1回だけ保存
-               1) 開いている枠すべてに動画が読み込まれている
-               2) 一括再生ボタンが押された
-               3) その視聴セット（ラインナップ）で初回である
-           ------------------------------------------------------------ */
-
-        // 現在のラインナップで既に自動保存済みかどうかのフラグ
-        let hasAutoSavedThisSession = false;
-
-        // 動画の構成が変わったら「新しい視聴セット」とみなしフラグを戻す
-        function markSessionLineupChanged() {
-            hasAutoSavedThisSession = false;
-        }
-
-        // 開いている枠すべてに動画（YouTube または ローカル）が入っているか判定
-        function areAllSlotsLoaded() {
-            if (!activeCardIds.length) return false;
-            return activeCardIds.every(function(id) {
-                const lv = document.getElementById('localVideo_' + id);
-                if (lv && lv.src && lv.src !== window.location.href) return true;
-                if (ytPlayers[id]) return true;
-                return false; // 空枠・[再選択待ち]状態はいずれも未ロード扱い
-            });
-        }
-
-        function tryAutoSaveOnFirstPlay() {
-            if (hasAutoSavedThisSession) return;
-            if (!areAllSlotsLoaded()) return;
-            saveSessionState(null, true);
-            hasAutoSavedThisSession = true;
-        }
-
-        // タブを閉じる／リロードする直前の保険的な保存は従来どおり残す
-        window.addEventListener('beforeunload', () => { saveSessionState(null, true); });
-
-        function destroyPlayerCard(cardId) {
-            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
-            delete cardVideoKeys[cardId];
-            delete chatLoadedVideoId[cardId];
-            const card = document.getElementById(cardId);
-            if (card) card.remove();
-        }
-        function checkLocalVideoExists() {
-            let hasLocal = false;
-            document.querySelectorAll('.custom-local-video').forEach(v => { if (v.src && v.src !== window.location.href) hasLocal = true; });
-            const extBtn = document.getElementById('requestExternalTimeBtn');
-            if (extBtn) extBtn.style.display = hasLocal ? 'none' : 'flex';
-        }
-        function reloadPlayer(cardId) {
-            const lv = document.getElementById('localVideo_' + cardId);
-            if (lv && lv.src) {
-                lv.load();
-                if (isPlayingRequest) lv.play().catch(e=>{});
-                return;
-            }
-            if (ytPlayers[cardId]) {
-                // YouTube の場合はプレイヤーを再読み込み
-                loadSingleYT(cardId);
-                // チャット欄も更新
-                setTimeout(() => { updateChatContent(cardId); }, 200);
-            }
-        }
-        function resetPlayer(cardId) {
-            const needsConfirm = document.getElementById('confirmReset').checked;
-            if (needsConfirm && !confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
-            if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
-            delete cardVideoKeys[cardId]; // 枠を空にしたので重複判定の対象外に戻す
-            const lv = document.getElementById('localVideo_' + cardId);
-            if (lv) { lv.pause(); lv.src = ""; lv.load(); }
-            document.getElementById('title_' + cardId).innerText = '未ロード';
-            document.getElementById('playlistPrev_' + cardId).style.display = 'none';
-            document.getElementById('playlistNext_' + cardId).style.display = 'none';
-            document.getElementById('localOverlay_' + cardId).style.display = 'none';
-            closeChat(cardId); // チャット欄を畳んでiframeも停止
-            document.getElementById('playerContainer_' + cardId).innerHTML = generatePlaceholderHTML(cardId);
-            markSessionLineupChanged();
-            resaveUrlsBasedOnOrder(); checkLocalVideoExists(); updateMasterOptions();
-        }
-        function deletePlayer(cardId) {
-            const needsConfirm = document.getElementById('confirmDelete').checked;
-            if (needsConfirm && !confirm('この枠を完全に削除し、番号を前に詰めますか？')) return;
-            clearChatState(cardId); // チャット表示状態をクリーンアップ
-            destroyPlayerCard(cardId); playerCount--;
-            markSessionLineupChanged();
-            updatePlayerCountDisplay();
-            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists(); updateMasterOptions(); saveSettings();
-        }
-        function resaveUrlsBasedOnOrder() {
-            for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem('sync_url_' + i);
-            const cards = getSortedCards();
-            cards.forEach((card, index) => {
-                const input = document.getElementById('urlInput_' + card.id);
-                if (input && input.value.trim()) localStorage.setItem('sync_url_' + (index + 1), input.value.trim());
-            });
-        }
-        function moveCard(cardId, direction) {
-            const cards = getSortedCards();
-            const currentIndex = cards.findIndex(c => c.id === cardId);
-            if (currentIndex === -1) return;
-            const targetIndex = currentIndex + direction;
-            if (targetIndex < 0 || targetIndex >= cards.length) return; 
-            const currentOrder = cards[currentIndex].style.order;
-            cards[currentIndex].style.order = cards[targetIndex].style.order;
-            cards[targetIndex].style.order = currentOrder;
-            activeCardIds = getSortedCards().map(c => c.id);
-            updateLayout(); resaveUrlsBasedOnOrder(); updateMasterOptions();
-        }
-        function togglePin(cardId) {
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
-            const target = document.getElementById(cardId);
-            const btn = target.querySelector('.pin-btn');
-            if (target.classList.contains('is-main')) {
-                target.classList.remove('is-main'); btn.classList.remove('active');
-            } else {
-                cards.forEach(c => { c.classList.remove('is-main'); const b = c.querySelector('.pin-btn'); if (b) b.classList.remove('active'); });
-                target.classList.add('is-main'); btn.classList.add('active');
-            }
-            updateLayout();
-        }
-        function updateLayout() {
-            const grid = document.getElementById('playersGrid');
-            const cards = Array.from(grid.children);
-            const N = cards.length;
-            if (N === 0) return;
-            if (N === 1) {
-                grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)';
-                cards[0].style.gridColumn = 'span 1'; cards[0].style.gridRow = 'span 1'; return;
-            }
-            const hasPin = cards.some(c => c.classList.contains('is-main'));
-            let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
-            if (N === 2) {
-                const dir = document.getElementById('layout2Dir').value;
-                if (dir === 'vertical') {
-                    grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = hasPin ? 'minmax(0, 2fr) minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)';
-                } else { 
-                    if (hasPin) { grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 2fr) minmax(0, 1fr)'; } 
-                    else { grid.style.gridTemplateColumns = 'minmax(0, 1fr) minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)'; }
-                }
-                cards.forEach(c => { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }); return;
-            }
-            const logicalCount = hasPin ? N + 3 : N;
-            const parsedCols = parseInt(colSetting, 10);
-            let cols;
-            if (colSetting !== 'auto' && Number.isInteger(parsedCols) && parsedCols >= 1 && parsedCols <= 4) {
-                // 手動指定（1〜4列）が有効な場合のみそれを使用
-                cols = parsedCols;
-            } else {
-                // 'auto'、または不正な値（空文字列・NaN等）の場合は自動計算にフォールバック
-                // ※以前はここでNaNになりgrid-template-columnsが無効化され、縦1列に積まれるバグがあった
-                if (logicalCount <= 4) cols = 2;
-                else if (logicalCount <= 6) cols = 3;
-                else if (logicalCount <= 9) cols = 3;
-                else cols = 4;
-            }
-            const rows = Math.ceil(logicalCount / cols);
-            grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
-            grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
-            cards.forEach(c => {
-                if (c.classList.contains('is-main')) {
-                    const spanCol = Math.min(2, cols);
-                    c.style.gridColumn = 'span ' + spanCol; c.style.gridRow = 'span 2';
-                } else { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }
-            });
-        }
         function isChatOnRight() {
             const el = document.getElementById('chatPosition');
             return !el || el.value === 'right';
@@ -2411,9 +2457,6 @@
         // 外部配信サイトへの時間問い合わせ間隔（250ms × 2 = 500ms ごと）
         const EXTERNAL_POLL_TICKS = 2;
         let externalPollCounter = 0;
-        // リプレイチャットへの再生位置通知の間隔（250ms × 4 = 1秒ごと）
-        const CHAT_PUMP_TICKS = 4;
-        let chatPumpCounter = 0;
 
         function syncGlobalTimeFromMaster() {
             const now = performance.now();
@@ -2453,8 +2496,7 @@
             // globalCurrentTime の実際の更新は timeReport 受信ハンドラ側で行われる
 
             /* リプレイチャットを各枠の再生位置へ追従させる。
-               YouTubeの視聴ページは高頻度で進行を通知しているため、
-               1秒間隔では追従が始まらないことがある。毎tick(250ms)送る。 */
+               YouTubeの視聴ページは高頻度で進行を通知しているため毎tick送る。 */
             try { pumpChatProgress(); } catch (e) {}
 
             updateTimerDisplay();
@@ -2558,7 +2600,7 @@
             localStorage.setItem('sync_master_mode', getCurrentMasterType());
         }
         function loadSavedSettings() {
-            loadChatState(); // チャットの表示状態・幅の比率を復元
+            loadChatState(); // チャットの表示状態・幅の比率・モードを復元
             if (localStorage.getItem('sync_layout2_dir')) setSelectValueSafe('layout2Dir', localStorage.getItem('sync_layout2_dir'), 'horizontal');
             if (localStorage.getItem('sync_layout_cols')) setSelectValueSafe('layoutCols', localStorage.getItem('sync_layout_cols'), 'auto');
             if (localStorage.getItem('sync_player_count')) {
