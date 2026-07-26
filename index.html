@@ -249,6 +249,9 @@
             padding: 6px 8px; box-sizing: border-box;
             font-size: calc(0.68rem * var(--ui-scale) * var(--chat-font-scale, 1)); line-height: 1.5;
             scrollbar-width: thin; scrollbar-color: #33333f #0c0c10;
+            /* ★スクロールバーの出現で本文が折り返し直され、
+               「最下部にいる」判定が崩れるのを防ぐ。 */
+            scrollbar-gutter: stable;
         }
         .chat-list::-webkit-scrollbar { width: 8px; }
         .chat-list::-webkit-scrollbar-thumb { background: #33333f; border-radius: 4px; }
@@ -427,6 +430,17 @@
                     </select>
                     <button id="toggleAllChatsBtn" onclick="toggleAllChats()" style="font-size:0.8rem; margin-left:8px;">全枠のチャットを表示</button>
                 </div>
+                <div class="control-row">
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="syncChatRatio" onchange="saveSettings()"> チャット欄の幅を全枠で連動させる（📌で拡大中の枠は除く）</label>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;" for="chatTabPolicy">コメント取得用タブ:</label>
+                    <select id="chatTabPolicy" onchange="saveSettings(); sendChatTabPolicy();">
+                        <option value="keep">隠したまま保持（既定・再取得が速い）</option>
+                        <option value="idle10">10分使わなければ閉じる</option>
+                        <option value="close">取得が終わるたびに閉じる（毎回3秒ほど余計にかかる）</option>
+                    </select>
+                </div>
                 <div class="control-row" style="margin-top: 20px;">
                     <button onclick="clearAllSettings()" style="width:100%; background-color:#8e2430;">全設定・保存URLをリセット</button>
                 </div>
@@ -479,7 +493,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.5.1';
+        const APP_VERSION = '2.6.1';
         let addonVersion = null;
         const ADDON_DETECT_TIMEOUT_MS = 4000;
 
@@ -635,6 +649,10 @@
             // 一定時間アドオンから名乗りが無ければ「未検出」として確定表示する
             setTimeout(updateVersionBadge, ADDON_DETECT_TIMEOUT_MS);
             loadSavedSettings();
+            /* 設定を読み込んだ直後にアドオンへ伝える。
+               アドオン側は storage.local に持つが、版数を上げた直後や
+               別PCへ持ち込んだ直後でも確実に一致させるため毎回送る。 */
+            sendChatTabPolicy();
             updatePlayerCountDisplay();
             initializeGrid();
             setupHoverController();
@@ -773,7 +791,15 @@
                     addonVersion = event.data.version || null;
                     updateVersionBadge();
                 } else if (newState === 'chatArchive') {
-                    handleChatArchiveResult(event.data);
+                    handleChatArchiveResult(event.data);   // 退路（v2.5.x ヘルパー経路）
+                } else if (newState === 'chatMeta') {
+                    handleChatMeta(event.data);
+                } else if (newState === 'chatChunk') {
+                    handleChatChunk(event.data);
+                } else if (newState === 'chatDone') {
+                    handleChatDone(event.data);
+                } else if (newState === 'chatPing') {
+                    handleChatPing(event.data);
                 }
             }
         });
@@ -1727,11 +1753,22 @@
         let chatRatio = {};          // cardId → 0.15〜0.70（枠に占めるチャットの割合）
         let chatLoadedVideoId = {};  // cardId → 現在描画中の videoId
 
-        let chatStore = {};      // videoId → { comments:[{t,n,m,p}], emoji:{}, source }
-        let chatState = {};      // videoId → 'loading' | 'ready' | 'error'
+        let chatStore = {};      // videoId → { comments:[{t,n,m,p}], emoji:{}, source, complete, ... }
+        /* ★v2.6.0: 'streaming' が加わった4状態。
+             loading   … 要求は出したが meta も chunk もまだ来ていない
+             streaming … 先頭が届いた。描画してよいが末尾はまだ伸び続ける
+             ready     … 完走した
+             error     … 失敗
+           'streaming' でも描画を始めてよいのが v2.5.x との最大の違い。
+           供給は約200件/秒、消費は最も濃い動画でも6.7件/秒で30倍以上の余裕がある。 */
+        let chatState = {};      // videoId → 'loading' | 'streaming' | 'ready' | 'error'
         let chatError = {};      // videoId → 失敗理由
         let chatPending = {};    // requestId → videoId
         let chatInflight = {};   // videoId → requestId（多重要求の抑止）
+        let chatStick = {};      // cardId → 自動追尾するか（★v2.6.0）
+        let chatUserScrollAt = {};// cardId → 最後に人間が操作した時刻（★v2.6.0）
+        let chatWatchdog = {};   // requestId → タイマーID（★v2.6.0）
+        let chatFellBack = {};   // videoId → 退路へ落とした際の元エラー（★v2.6.0 / 1回だけ）
         let chatCursor = {};     // cardId → 次に描画するコメントの添字
         let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
         let chatFontScale = {};  // cardId → 文字サイズ倍率（枠ごとに独立）
@@ -1739,8 +1776,14 @@
         const CHAT_RATIO_DEFAULT = 0.30;
         const CHAT_RATIO_MIN = 0.15;
         const CHAT_RATIO_MAX = 0.70;
-        /* yt-dlp の実行は実測8〜10秒。9枠を一括で開くと順番待ちが積み上がるため長めに取る。 */
+        /* 退路（ヘルパー経路）専用。yt-dlp は一括なので長めに取る。 */
         const CHAT_FETCH_TIMEOUT_MS = 180000;
+        /* 🔴 v2.6.0 では固定タイムアウトを使ってはいけない。
+           1,595リクエストの動画は取得だけで約2.6分かかるため、
+           180秒固定だと正常な取得を失敗と誤判定する。
+           「最後に何か届いてからの無音時間」で見る（心拍は5秒間隔）。 */
+        const CHAT_META_TIMEOUT_MS = 25000;    // 最初の応答まで
+        const CHAT_STALL_TIMEOUT_MS = 45000;   // 応答が途切れてから（実測の最大チャンク間隔は3.5秒）
         const CHAT_MAX_NODES = 400;          // DOMに残す最大件数（超えたら古い方から捨てる）
         const CHAT_SEEK_TOLERANCE_MS = 2500; // 位置がこれ以上飛んだらシークとみなす
         const CHAT_CONTEXT_COUNT = 30;       // シーク直後に遡って表示する件数
@@ -1762,7 +1805,15 @@
                         '<button onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を閉じる">✕</button>' +
                     '</div>' +
                     '<div class="chat-body" id="chatBody_' + cardId + '">' +
-                        '<div class="chat-list" id="chatList_' + cardId + '"></div>' +
+                        '<div class="chat-list" id="chatList_' + cardId + '"' +
+                            ' onscroll="onChatScroll(\'' + cardId + '\')"' +
+                            ' onwheel="markChatUserScroll(\'' + cardId + '\')"' +
+                            ' ontouchmove="markChatUserScroll(\'' + cardId + '\')"' +
+                            ' onmousedown="markChatUserScroll(\'' + cardId + '\')"' +
+                            /* スクロールバーを長くドラッグすると mousedown から500msを超えるため、
+                               離した時点でもう一度判定し直す。 */
+                            ' onmouseup="markChatUserScroll(\'' + cardId + '\');onChatScroll(\'' + cardId + '\')"' +
+                            ' onkeydown="markChatUserScroll(\'' + cardId + '\')"></div>' +
                         '<button class="chat-jump" id="chatJump_' + cardId + '" onclick="chatScrollToBottom(\'' + cardId + '\')">▼ 最新へ</button>' +
                         '<div class="chat-note" id="chatNote_' + cardId + '"></div>' +
                     '</div>' +
@@ -1847,7 +1898,26 @@
             if (!el) return;
             const videoId = chatLoadedVideoId[cardId];
             const store = videoId ? chatStore[videoId] : null;
-            el.innerText = store ? ('💬 チャット (' + store.comments.length + ')') : '💬 チャット';
+            if (!store) { el.innerText = '💬 チャット'; return; }
+
+            const n = store.comments.length.toLocaleString();
+            if (chatState[videoId] === 'streaming') {
+                /* 重い動画は全部揃うまで数分かかる。何%まで来たかを出しておかないと
+                   「止まっている」ように見える。 */
+                const pct = store.videoMs > 0
+                    ? Math.min(99, Math.floor(store.lastT / store.videoMs * 100)) : 0;
+                el.innerText = '💬 チャット (' + n + ' / 取得中 ' + pct + '%)';
+            } else if (store.gap || store.truncated || store.complete === false) {
+                el.innerText = '💬 チャット (' + n + ' ⚠不完全)';
+            } else {
+                el.innerText = '💬 チャット (' + n + ')';
+            }
+        }
+
+        function updateChatHeadForVideo(videoId) {
+            activeCardIds.forEach(function (cardId) {
+                if (chatLoadedVideoId[cardId] === videoId) updateChatHeadTitle(cardId);
+            });
         }
 
         function escapeChatText(s) {
@@ -1882,10 +1952,23 @@
             chatLoadedVideoId[cardId] = videoId;
             chatCursor[cardId] = 0;
             chatLastMs[cardId] = -1;
+            chatStick[cardId] = true;
+            delete chatUserScrollAt[cardId];
             updateChatHeadTitle(cardId);
 
             const st = chatState[videoId];
             if (st === 'ready') { showChatList(cardId); rebuildChatList(cardId); return; }
+            /* ★'streaming' も描画対象。末尾が伸びる途中でも見せてよい。 */
+            if (st === 'streaming') {
+                if (chatInflight[videoId]) { showChatList(cardId); rebuildChatList(cardId); return; }
+                /* 取得が止まったまま取り残されている（中止された／裏で落ちた）。
+                   途中から再開する手段が無いので、捨てて取り直す。
+                   ここを入れないと「取得中 12%」のまま永久に進まない枠ができる。 */
+                delete chatStore[videoId];
+                delete chatState[videoId];
+                requestChatArchive(cardId, videoId);
+                return;
+            }
             if (st === 'loading') { showChatLoadingNote(cardId); return; }
             if (st === 'error')   { showChatFailNote(cardId, videoId); return; }
             requestChatArchive(cardId, videoId);
@@ -1894,8 +1977,8 @@
         function showChatLoadingNote(cardId) {
             showChatNote(cardId,
                 'コメントを取得しています…' +
-                '<span class="sub">初回は yt-dlp の実行に10秒ほどかかります。<br>' +
-                '2回目以降はキャッシュから即座に開きます。</span>');
+                '<span class="sub">先頭が届き次第すぐに表示を始めます（通常1〜2秒）。<br>' +
+                '残りは再生しながら裏で取得します。</span>');
         }
 
         /* 同じ videoId への多重要求は抑止する。
@@ -1909,38 +1992,232 @@
             chatPending[requestId] = videoId;
             chatState[videoId] = 'loading';
             delete chatError[videoId];
+            delete chatFellBack[videoId];
 
-            window.postMessage({ type: 'CHAT_ARCHIVE_REQUEST', videoId: videoId, requestId: requestId }, '*');
-
-            setTimeout(function () {
-                if (chatPending[requestId] === undefined) return;   // 応答済み
-                delete chatPending[requestId];
-                delete chatInflight[videoId];
-                chatState[videoId] = 'error';
-                chatError[videoId] = 'アドオンまたはヘルパーから応答がありませんでした。'
-                    + 'アドオンの版数が古い、または Native Messaging が未登録の可能性があります。';
-                refreshChatCardsFor(videoId);
-            }, CHAT_FETCH_TIMEOUT_MS);
+            window.postMessage({ type: 'CHAT_STREAM_REQUEST', videoId: videoId, requestId: requestId }, '*');
+            armChatWatchdog(requestId, CHAT_META_TIMEOUT_MS);
         }
 
+        /* 退路: v2.5.x のヘルパー経路。InnerTube 側が失敗したときだけ1回落とす。
+           v2.6.1 でC側を撤去したら、この関数と handleChatArchiveResult ごと消す。 */
+        function requestChatViaHelper(videoId) {
+            const requestId = 'chatH_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            chatInflight[videoId] = requestId;
+            chatPending[requestId] = videoId;
+            chatState[videoId] = 'loading';
+            window.postMessage({ type: 'CHAT_ARCHIVE_REQUEST', videoId: videoId, requestId: requestId }, '*');
+            armChatWatchdog(requestId, CHAT_FETCH_TIMEOUT_MS);
+            refreshChatCardsFor(videoId);
+        }
+
+        /* 「最後に何か届いてから」で測る見張り。届くたびに張り直す。
+           固定タイムアウトだと重い動画の正常な取得を誤って失敗にしてしまう。 */
+        function armChatWatchdog(requestId, ms) {
+            clearChatWatchdog(requestId);
+            chatWatchdog[requestId] = setTimeout(function () {
+                delete chatWatchdog[requestId];
+                const videoId = chatPending[requestId];
+                if (videoId === undefined) return;   // 応答済み
+                failChat(requestId, videoId,
+                    '取得が ' + Math.round(ms / 1000) + ' 秒間停止しました。'
+                    + 'アドオンの版数が古い、またはYouTubeへの実行許可が無い可能性があります。');
+            }, ms);
+        }
+
+        function clearChatWatchdog(requestId) {
+            if (chatWatchdog[requestId]) {
+                clearTimeout(chatWatchdog[requestId]);
+                delete chatWatchdog[requestId];
+            }
+        }
+
+        /* 枠を閉じた・🔄・動画差し替えのときは取得を止める。
+           9本を開いて即閉じたときに裏で数分走り続けるのを防ぐ。 */
+        function cancelChatRequest(videoId) {
+            const requestId = chatInflight[videoId];
+            if (!requestId) return;
+            window.postMessage({ type: 'CHAT_STREAM_CANCEL', requestId: requestId }, '*');
+            clearChatWatchdog(requestId);
+            delete chatPending[requestId];
+            delete chatInflight[videoId];
+        }
+
+        /* その videoId を表示している枠が他に無ければ取得を止める。 */
+        function maybeCancelChat(videoId, exceptCardId) {
+            if (!videoId) return;
+            const stillUsed = activeCardIds.some(function (id) {
+                return id !== exceptCardId && chatVisible[id] && chatLoadedVideoId[id] === videoId;
+            });
+            if (!stillUsed) cancelChatRequest(videoId);
+        }
+
+        function ensureChatStore(videoId) {
+            let s = chatStore[videoId];
+            if (!s) {
+                s = chatStore[videoId] = {
+                    comments: [], emoji: {}, source: 'innertube',
+                    complete: false, truncated: false, gap: false,
+                    videoMs: 0, lastT: 0, nextSeq: 0
+                };
+            }
+            return s;
+        }
+
+        function handleChatMeta(d) {
+            const videoId = chatPending[d.requestId];
+            if (videoId === undefined) return;
+            armChatWatchdog(d.requestId, CHAT_STALL_TIMEOUT_MS);
+            if (!d.ok) { failChat(d.requestId, videoId, d.error); return; }
+            const store = ensureChatStore(videoId);
+            store.videoMs = d.videoMs || 0;
+        }
+
+        function handleChatChunk(d) {
+            const videoId = chatPending[d.requestId];
+            if (videoId === undefined) return;
+            armChatWatchdog(d.requestId, CHAT_STALL_TIMEOUT_MS);
+
+            const store = ensureChatStore(videoId);
+
+            /* 欠番の検出。実測では190,510件で欠落0だったが、
+               静かに減るのが一番まずい失敗なので検出だけはしておく。 */
+            if (d.seq !== store.nextSeq) store.gap = true;
+            store.nextSeq = d.seq + 1;
+
+            if (d.emoji) {
+                for (const k of Object.keys(d.emoji)) store.emoji[k] = d.emoji[k];
+            }
+            if (Array.isArray(d.comments) && d.comments.length) {
+                for (let i = 0; i < d.comments.length; i++) store.comments.push(d.comments[i]);
+                if (typeof d.lastT === 'number' && d.lastT > store.lastT) store.lastT = d.lastT;
+            }
+
+            /* ★末尾に足すだけなので chatCursor はそのままで正しい。
+               コメントは t 昇順で届くため、後ろに伸ばしても
+               既に描画済みの範囲の意味は変わらない。 */
+            if (chatState[videoId] !== 'streaming') {
+                chatState[videoId] = 'streaming';
+                refreshChatCardsFor(videoId);   // 初回だけリスト表示へ切り替える
+            } else {
+                updateChatHeadForVideo(videoId);
+            }
+        }
+
+        function handleChatDone(d) {
+            const videoId = chatPending[d.requestId];
+            if (videoId === undefined) return;
+
+            /* 🔴 done には最終チャンクが同梱されている。先に取り込む。
+               別メッセージにすると、片付けたあとに届いて丸ごと消える
+               （段階1-F で検証アドオンが7回中7回これを踏んだ）。 */
+            if (Array.isArray(d.comments) && d.comments.length) {
+                handleChatChunk({
+                    requestId: d.requestId, videoId: videoId, seq: d.seq,
+                    comments: d.comments, emoji: d.emoji, lastT: d.lastT
+                });
+            }
+
+            delete chatPending[d.requestId];
+            delete chatInflight[videoId];
+            clearChatWatchdog(d.requestId);
+
+            if (d.ok) {
+                const store = ensureChatStore(videoId);
+                store.complete = (d.complete !== false);
+                store.truncated = !!d.truncated;
+                if (d.videoMs) store.videoMs = d.videoMs;
+                store.reqs = d.reqs;
+                store.elapsed = d.elapsed;
+
+                /* 取得側が数えた件数との突き合わせ。
+                   一致しなければどこかで落ちている。⚠不完全としてヘッダーに出す。 */
+                if (typeof d.total === 'number' && store.comments.length !== d.total) {
+                    store.gap = true;
+                    console.warn('[chat] 件数不一致', videoId, store.comments.length, '/', d.total);
+                }
+
+                chatState[videoId] = 'ready';
+                delete chatError[videoId];
+                delete chatFellBack[videoId];
+                refreshChatCardsFor(videoId);
+                return;
+            }
+            failChat(d.requestId, videoId, d.error);
+        }
+
+        function failChat(requestId, videoId, error) {
+            delete chatPending[requestId];
+            delete chatInflight[videoId];
+            clearChatWatchdog(requestId);
+
+            const store = chatStore[videoId];
+            const gotSomething = store && store.comments.length > 0;
+            const msg = error || 'コメントを取得できませんでした';
+
+            /* 退路へ1回だけ落とす。v2.6.1 でC側を撤去したらこのブロックを消す。 */
+            if (!gotSomething && !chatFellBack[videoId]) {
+                chatFellBack[videoId] = msg;   // 元のエラーを覚えておく（こちらの方が有益なため）
+                requestChatViaHelper(videoId);
+                return;
+            }
+
+            chatError[videoId] = msg;
+            /* 途中まで取れているなら、そこまでを使えるようにして終わる。 */
+            chatState[videoId] = gotSomething ? 'ready' : 'error';
+            if (gotSomething && store) store.complete = false;
+            refreshChatCardsFor(videoId);
+        }
+
+        /* 順番待ちの枠が見張りで誤爆しないよう、心拍で延命する。
+           これが無いと、並列3の後ろに並んだ4本目以降が正常なのに失敗扱いになる。 */
+        function handleChatPing(d) {
+            const all = [].concat(d.active || [], d.waiting || []);
+            for (const e of all) {
+                if (!e || chatPending[e.requestId] === undefined) continue;
+                armChatWatchdog(e.requestId, CHAT_STALL_TIMEOUT_MS);
+            }
+            for (const e of (d.waiting || [])) {
+                const videoId = e && chatPending[e.requestId];
+                if (!videoId || chatState[videoId] !== 'loading') continue;
+                activeCardIds.forEach(function (cardId) {
+                    if (!chatVisible[cardId]) return;
+                    if (chatLoadedVideoId[cardId] !== videoId) return;
+                    showChatNote(cardId, '順番待ちです（あと ' + e.pos + ' 本）'
+                        + '<span class="sub">同時に取得するのは3本までです。<br>'
+                        + '前の取得が終わり次第、自動で始まります。</span>');
+                });
+            }
+        }
+
+        /* 退路（ヘルパー経路）の結果。v2.6.1 で削除予定。 */
         function handleChatArchiveResult(data) {
             if (!data || !data.requestId) return;
             const videoId = chatPending[data.requestId];
             if (videoId === undefined) return;   // 自分の要求ではない／タイムアウト済み
             delete chatPending[data.requestId];
             delete chatInflight[videoId];
+            clearChatWatchdog(data.requestId);
 
             if (data.ok && Array.isArray(data.comments)) {
                 chatStore[videoId] = {
                     comments: data.comments,
                     emoji: data.emoji || {},
-                    source: data.source || null
+                    source: data.source || 'yt-dlp',
+                    complete: true, truncated: false, gap: false,
+                    videoMs: 0,
+                    lastT: data.comments.length ? data.comments[data.comments.length - 1].t : 0,
+                    nextSeq: 0
                 };
                 chatState[videoId] = 'ready';
                 delete chatError[videoId];
             } else {
                 chatState[videoId] = 'error';
-                chatError[videoId] = data.error || 'コメントを取得できませんでした';
+                /* 元の（InnerTube側の）エラーの方が原因に近いので、そちらを主に見せる。 */
+                const orig = chatFellBack[videoId];
+                const helperMsg = data.error || 'コメントを取得できませんでした';
+                chatError[videoId] = orig
+                    ? (orig + '／ヘルパーでの再取得も失敗しました: ' + helperMsg)
+                    : helperMsg;
             }
             refreshChatCardsFor(videoId);
         }
@@ -1951,10 +2228,13 @@
             activeCardIds.forEach(function (cardId) {
                 if (!chatVisible[cardId]) return;
                 if (chatLoadedVideoId[cardId] !== videoId) return;
-                if (chatState[videoId] === 'ready') {
+                const st = chatState[videoId];
+                if (st === 'ready' || st === 'streaming') {
                     showChatList(cardId);
                     updateChatHeadTitle(cardId);
                     rebuildChatList(cardId);
+                } else if (st === 'loading') {
+                    showChatLoadingNote(cardId);
                 } else {
                     showChatFailNote(cardId, videoId);
                 }
@@ -2048,9 +2328,30 @@
             return (list.scrollHeight - list.scrollTop - list.clientHeight) < 24;
         }
 
+        /* 🔴 自動追尾を止めてよいのは「人間が自分でスクロールしたとき」だけ。
+           scrollTop だけを見て判定してはいけない。
+           マウスオーバーでスクロールバーが出る／枠の幅が変わる といった
+           再レイアウトでも scrollHeight は変わるため、
+           勝手に追尾が止まって「▼最新へ」が出続ける（v2.6.0 開発中に実際に発生）。
+           人間の操作イベントを起点にし、それ以外の scroll は全部無視する。 */
+        function markChatUserScroll(cardId) {
+            chatUserScrollAt[cardId] = Date.now();
+        }
+
+        function onChatScroll(cardId) {
+            const at = chatUserScrollAt[cardId];
+            if (!at || Date.now() - at > 500) return;   // ★リフローや自動追尾による scroll は無視
+            const list = document.getElementById('chatList_' + cardId);
+            if (!list) return;
+            chatStick[cardId] = chatIsAtBottom(list);
+            const jump = document.getElementById('chatJump_' + cardId);
+            if (jump) jump.style.display = chatStick[cardId] ? 'none' : 'block';
+        }
+
         function chatScrollToBottom(cardId) {
             const list = document.getElementById('chatList_' + cardId);
             const jump = document.getElementById('chatJump_' + cardId);
+            chatStick[cardId] = true;          // ★追尾を再開する
             if (list) list.scrollTop = list.scrollHeight;
             if (jump) jump.style.display = 'none';
         }
@@ -2077,9 +2378,23 @@
 
             const jump = document.getElementById('chatJump_' + cardId);
             if (jump) jump.style.display = 'none';
+            chatStick[cardId] = true;          // ★組み直したら追尾に戻す
 
             chatCursor[cardId] = idx;
             chatLastMs[cardId] = now;
+
+            /* ★取得が追いついていない位置へ飛んだ場合。
+               取得は再生の約60倍速なので実際に見えるのは開始直後の数秒だけだが、
+               無言で空欄になると壊れたように見えるため一言出す。 */
+            if (chatState[videoId] === 'streaming' && idx >= store.comments.length
+                && store.lastT < now - 1000) {
+                const ph = document.createElement('div');
+                ph.className = 'chat-msg';
+                ph.style.opacity = '0.55';
+                ph.textContent = '（この位置のコメントはまだ取得中です…）';
+                list.appendChild(ph);
+                list.scrollTop = list.scrollHeight;
+            }
         }
 
         /* 毎tick（TIMER_TICK_MS = 250ms）呼ばれる。
@@ -2100,7 +2415,8 @@
                 const nowId = getChatVideoId(cardId);
                 if (nowId && nowId !== videoId) { updateChatContent(cardId, true); return; }
 
-                if (chatState[videoId] !== 'ready') return;
+                const chSt = chatState[videoId];
+                if (chSt !== 'ready' && chSt !== 'streaming') return;   // ★取得中も流す
                 const store = chatStore[videoId];
                 const list = document.getElementById('chatList_' + cardId);
                 if (!store || !list || list.style.display === 'none') return;
@@ -2120,7 +2436,8 @@
                 if (cursor >= store.comments.length) return;
                 if (store.comments[cursor].t > ms) return;
 
-                const stick = chatIsAtBottom(list);
+                /* ★scrollTop から推測せず、明示的な追尾フラグで判断する。 */
+                const stick = chatStick[cardId] !== false;
                 const frag = document.createDocumentFragment();
                 let added = 0;
                 while (cursor < store.comments.length && store.comments[cursor].t <= ms) {
@@ -2149,10 +2466,12 @@
         function reloadChat(cardId) {
             const videoId = getChatVideoId(cardId);
             if (videoId) {
+                cancelChatRequest(videoId);        // ★走っていれば先に止める
                 delete chatStore[videoId];
                 delete chatState[videoId];
                 delete chatError[videoId];
                 delete chatInflight[videoId];
+                delete chatFellBack[videoId];
             }
             chatLoadedVideoId[cardId] = null;
             updateChatContent(cardId, true);
@@ -2174,6 +2493,11 @@
         /* ------------------------------------------------------------
            開閉と状態の保存（UI土台は v2.4.2 から流用・検証済み）
            ------------------------------------------------------------ */
+        /* ⚠️ 閉じても取得は止めない。
+           途中から再開する手段が無いため、止めると開き直したときに
+           最初から取り直すことになる。取得は最長でも数分で終わり、
+           結果はメモリに残るので、そのまま完走させたほうが得。
+           止めるのは 🔄（明示的な取り直し）と枠の削除のときだけ。 */
         function toggleChatVisibility(cardId) {
             const willShow = !chatVisible[cardId];
             chatVisible[cardId] = willShow;
@@ -2191,7 +2515,7 @@
             activeCardIds.forEach(id => {
                 if (!!chatVisible[id] === willShow) return; // 既に目的の状態
                 chatVisible[id] = willShow;
-                if (!willShow) chatLoadedVideoId[id] = null;
+                if (!willShow) chatLoadedVideoId[id] = null;   // 取得は止めない（toggleChatVisibility の注記を参照）
                 applyChatLayoutForCard(id);
             });
             updateToggleAllChatsBtn();
@@ -2214,11 +2538,14 @@
         }
 
         function clearChatState(cardId) {
+            maybeCancelChat(chatLoadedVideoId[cardId], cardId);   // ★枠ごと消えるので止める
             delete chatVisible[cardId];
             delete chatRatio[cardId];
             delete chatLoadedVideoId[cardId];
             delete chatCursor[cardId];
             delete chatLastMs[cardId];
+            delete chatStick[cardId];
+            delete chatUserScrollAt[cardId];
             delete chatFontScale[cardId];
             saveChatState();
         }
@@ -2251,6 +2578,9 @@
                     videoId: vid || '-',
                     状態: vid ? (chatState[vid] || '未取得') : '-',
                     件数: store ? store.comments.length : 0,
+                    完走: store ? (store.complete ? '○' : '×') : '-',
+                    欠番: store ? (store.gap ? '⚠' : '-') : '-',
+                    取得元: store ? (store.source || '-') : '-',
                     絵文字: store ? Object.keys(store.emoji).length : 0,
                     位置ms: getChatPlayheadMs(cardId),
                     カーソル: chatCursor[cardId] || 0
@@ -2268,6 +2598,25 @@
         /* 1枠ぶんのチャット欄レイアウトを確定させる。
            表示/非表示・配置方向・幅(高さ)の比率をここに集約し、
            他の関数が chatContainer.style を直接いじらないようにする。 */
+        function isMainCard(cardId) {
+            const el = document.getElementById(cardId);
+            return !!(el && el.classList.contains('is-main'));
+        }
+
+        function isChatRatioSyncOn() {
+            const el = document.getElementById('syncChatRatio');
+            return !!(el && el.checked);
+        }
+
+        /* 取得用タブをいつ閉じるかをアドオンへ伝える。
+           アドオン側は storage.local に持つので、毎回送る必要はないが、
+           起動時にも送っておくと版数を上げた直後でも確実に一致する。 */
+        function sendChatTabPolicy() {
+            const el = document.getElementById('chatTabPolicy');
+            if (!el) return;
+            window.postMessage({ type: 'CHAT_TAB_POLICY', policy: el.value }, '*');
+        }
+
         function applyChatLayoutForCard(cardId) {
             const wrapper = document.getElementById('wrapper_' + cardId);
             const splitter = document.getElementById('splitter_' + cardId);
@@ -2347,8 +2696,22 @@
                     if (!rect.height) return;
                     ratio = (rect.bottom - clientY) / rect.height;
                 }
-                chatRatio[currentCardId] = Math.max(CHAT_RATIO_MIN, Math.min(CHAT_RATIO_MAX, ratio));
+                const r = Math.max(CHAT_RATIO_MIN, Math.min(CHAT_RATIO_MAX, ratio));
+                chatRatio[currentCardId] = r;
                 applyChatLayoutForCard(currentCardId);
+
+                /* ★幅の連動（設定で有効なときだけ）。
+                   📌 で拡大中の枠（.is-main）は大きさが違うので対象外にする。
+                   拡大枠を掴んだ場合も、その枠だけを変える。 */
+                if (isChatRatioSyncOn() && !isMainCard(currentCardId)) {
+                    activeCardIds.forEach(function (id) {
+                        if (id === currentCardId) return;
+                        if (!chatVisible[id]) return;
+                        if (isMainCard(id)) return;
+                        chatRatio[id] = r;
+                        applyChatLayoutForCard(id);
+                    });
+                }
             }
 
             function endDrag() {
@@ -2422,413 +2785,4 @@
                     if (done) return;
                     done = true;
                     clearTimeout(tm); clearInterval(iv);
-                    video.removeEventListener('seeked', onSeeked);
-                    resolve(ok);
-                };
-                const onSeeked = () => { if (video.readyState >= 3) finish(true); };
-                video.addEventListener('seeked', onSeeked);
-                // 呼び出し側がシークを発行する前にこの関数を呼ぶ前提のため、
-                // 初回チェックは即時に行わず必ず1tick待つ（誤検知防止）。
-                const iv = setInterval(() => {
-                    if (!video.seeking && video.readyState >= 3) finish(true);
-                }, 25);
-                const tm = setTimeout(() => finish(false), timeoutMs);
-            });
-        }
-
-        /* 待機中であることをユーザーへ示す。カウントダウン用オーバーレイを流用。 */
-        function showSeekWaitOverlay(show) {
-            const overlay = document.getElementById('countdownOverlay');
-            if (!overlay) return;
-            if (show) {
-                overlay.innerText = '準備中…';
-                overlay.style.color = '#00ffcc';
-                overlay.style.display = 'block';
-            } else {
-                overlay.style.display = 'none';
-                overlay.style.color = '#ff4757';
-            }
-        }
-
-        /* 経路ごとの遅延を打ち消して、実再生の瞬間を揃える。
-           YouTube を基準（0ms）に置き、速い経路ほど後ろへずらす。 */
-        function staggeredResume() {
-            Object.values(ytPlayers).forEach(p => {
-                if (p && typeof p.playVideo === 'function') p.playVideo();
-            });
-            setTimeout(() => {
-                broadcastSyncCommand('play');
-            }, Math.max(0, YT_PLAY_LEAD_MS - EXT_PLAY_LEAD_MS));
-            setTimeout(() => {
-                document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(() => {}));
-            }, YT_PLAY_LEAD_MS);
-        }
-
-        function applySeekToAll(diff, broadcastToAddon, excludeCardId = null) {
-            globalCurrentTime = Math.max(0, globalCurrentTime + diff);
-            updateTimerDisplay();
-
-            const wasPlaying = isPlayingRequest;
-            const myToken = ++seekSettleToken;
-
-            // ① 再生中なら全経路をいったん止める。ズレの発生源を断つ。
-            //    isPlayingRequest は落とさない（ボタン表示は「一括停止」のまま）。
-            if (wasPlaying) pauseAllPlayersOnly();
-
-            // ② 待機はシーク発行より先に仕掛ける。
-            //    後から addEventListener すると seeked を取り逃す可能性がある。
-            const waiters = [];
-            if (wasPlaying) {
-                document.querySelectorAll('.custom-local-video').forEach(v => {
-                    const id = v.id.replace('localVideo_', '');
-                    if (id === excludeCardId) return;
-                    if (!v.src || v.src === window.location.href) return;
-                    waiters.push(waitLocalSeeked(v, SEEK_SETTLE_TIMEOUT_MS));
-                });
-            }
-
-            // ③ 3経路へシークを発行（ここは従来どおり）
-            if (broadcastToAddon) broadcastSyncCommand('seek', diff);
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                const id = v.id.replace('localVideo_', '');
-                if (id !== excludeCardId) v.currentTime = Math.max(0, v.currentTime + diff);
-            });
-            Object.entries(ytPlayers).forEach(([id, player]) => {
-                if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
-                    player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
-                }
-            });
-
-            // 停止中のシークは揃える必要がない（次の一括再生で揃う）
-            if (!wasPlaying) return;
-
-            // ④ 全ローカル動画が整うまで待ってから、経路別オフセットで再開
-            if (!waiters.length) { staggeredResume(); return; }
-
-            showSeekWaitOverlay(true);
-            Promise.all(waiters).then(results => {
-                showSeekWaitOverlay(false);
-                if (myToken !== seekSettleToken) return;   // 連打で追い越された
-                if (!isPlayingRequest) return;             // 待機中に停止操作が入った
-                if (results.some(ok => !ok)) {
-                    console.warn('【コントローラー】シーク完了待ちがタイムアウトしました（' +
-                                 SEEK_SETTLE_TIMEOUT_MS + 'ms）。そのまま再開します。');
-                }
-                staggeredResume();
-            });
-        }
-        function skipPlayer(cardId, seconds) {
-            const yt = ytPlayers[cardId];
-            const lv = document.getElementById('localVideo_' + cardId);
-            if (yt && typeof yt.getCurrentTime === 'function') yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
-            else if (lv) lv.currentTime = Math.max(0, lv.currentTime + seconds);
-        }
-        function changePlaybackSpeed(val) {
-            currentPlaybackSpeed = Math.min(2.0, Math.max(0.25, currentPlaybackSpeed + val));
-            currentPlaybackSpeed = parseFloat(currentPlaybackSpeed.toFixed(1)); 
-            document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
-            applyPlaybackSpeed(); saveSettings();
-        }
-        function applyPlaybackSpeed() {
-            document.querySelectorAll('.custom-local-video').forEach(v => v.playbackRate = currentPlaybackSpeed);
-            Object.values(ytPlayers).forEach(player => {
-                if (player && typeof player.setPlaybackRate === 'function') player.setPlaybackRate(currentPlaybackSpeed);
-            });
-            broadcastSyncCommand('speed', currentPlaybackSpeed);
-        }
-
-        function togglePlayPauseAll() {
-            if (isPlayingRequest) pauseAll();
-            else {
-                // 「全枠ロード済み」かつ「このラインナップで初回」の再生時のみ自動バックアップ
-                tryAutoSaveOnFirstPlay();
-                const isDelayEnabled = document.getElementById('enableDelaySync').checked;
-                if (isDelayEnabled) startDelayCountdown(); else playAll();
-            }
-        }
-        function startDelayCountdown() {
-            cancelCountdown();
-            isPlayingRequest = true; 
-            const playPauseBtn = document.getElementById('playPauseBtn');
-            playPauseBtn.innerText = '⏸ カウント中止'; playPauseBtn.classList.remove('primary'); playPauseBtn.classList.add('playing-state');
-            const overlay = document.getElementById('countdownOverlay');
-            overlay.style.display = 'block';
-            let count = parseInt(document.getElementById('delaySec').value, 10) || 3;
-            overlay.innerText = count;
-            countdownInterval = setInterval(() => {
-                count--;
-                if (count > 0) {
-                    overlay.innerText = count; overlay.style.animation = 'none'; overlay.offsetHeight; overlay.style.animation = '';
-                } else if (count === 0) {
-                    overlay.innerText = 'START!'; overlay.style.color = '#00ffcc'; overlay.style.textShadow = '0 0 35px rgba(0,0,0,0.95), 0 0 15px #00ffcc';
-                    const pBtn = document.getElementById('playPauseBtn');
-                    pBtn.innerText = '⏸ 一括停止';
-                    playAllPlayersOnly(); 
-                    countdownTimer = setTimeout(() => {
-                        overlay.style.display = 'none'; overlay.style.color = '#ff4757'; overlay.style.textShadow = '0 0 35px rgba(0, 0, 0, 0.95), 0 0 15px #ff4757';
-                    }, 800);
-                    clearInterval(countdownInterval); countdownInterval = null;
-                }
-            }, 1000);
-        }
-        function cancelCountdown() {
-            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-            clearTimeout(countdownTimer);
-            const overlay = document.getElementById('countdownOverlay');
-            overlay.style.display = 'none'; overlay.style.color = '#ff4757';
-        }
-        function playAll() {
-            isPlayingRequest = true;
-            const btn = document.getElementById('playPauseBtn');
-            btn.innerText = '⏸ 一括停止'; btn.classList.remove('primary'); btn.classList.add('playing-state');
-            playAllPlayersOnly();
-        }
-        function pauseAll() {
-            isPlayingRequest = false;
-            cancelCountdown();
-            const btn = document.getElementById('playPauseBtn');
-            btn.innerText = '▶ 一括再生'; btn.classList.add('primary'); btn.classList.remove('playing-state');
-            pauseAllPlayersOnly();
-        }
-        function playAllPlayersOnly() {
-            broadcastSyncCommand('play');
-            document.querySelectorAll('.custom-local-video').forEach(v => v.play().catch(e=>{}));
-            Object.entries(ytPlayers).forEach(([id, player]) => {
-                if (player && typeof player.playVideo === 'function') player.playVideo();
-            });
-        }
-        function pauseAllPlayersOnly() {
-            broadcastSyncCommand('pause');
-            document.querySelectorAll('.custom-local-video').forEach(v => v.pause());
-            Object.values(ytPlayers).forEach(player => {
-                if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
-            });
-        }
-        function skipAll(seconds) { applySeekToAll(seconds, true, null); }
-        function changeMasterVolume(value) {
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                v.volume = Math.max(0, Math.min(1, value / 100));
-                // cardIdは 'card_3' のようにアンダースコアを含むため split('_')[1] では 'card' になってしまう。
-                // prefixを除去する方式に修正。
-                const cardId = v.id.replace('localVideo_', '');
-                const localVolInput = document.getElementById('localVolume_' + cardId);
-                if (localVolInput) localVolInput.value = value;
-                const icon = document.getElementById('localVolIcon_' + cardId);
-                if (icon) icon.innerText = v.volume === 0 ? '🔇' : (v.volume < 0.5 ? '🔉' : '🔊');
-            });
-            Object.values(ytPlayers).forEach(player => {
-                if (player && typeof player.setVolume === 'function') player.setVolume(value);
-            });
-        }
-
-        /* ------------------------------------------------------------
-           タイマーのティック処理
-           「時間同調の基準（マスター）」の種別に応じて globalCurrentTime を更新する。
-
-           ・local_<cardId> : そのローカル動画の再生位置をそのまま反映（壁時計は使わない）
-           ・internal       : 実経過時間 × 再生速度 を加算（再生中のみ）
-           ・external       : アドオンへ定期的に requestTime を送り、timeReport の返答で更新
-
-           【設計上の注意】
-           この処理が書き換えるのは #mainTimer のテキストのみで、
-           <select> の option や DOM構造には一切触れない。
-           過去に発生していた「ポーリングによるちらつき・プルダウンが閉じる」不具合は
-           DOMプロパティの再書き込みが原因だったため、ここでは再発しない。
-
-           setInterval + performance.now() の差分方式を採用している。
-           バックグラウンドタブでタイマーが間引かれても、実経過時間から算出するため
-           ズレが蓄積しない（requestAnimationFrame は非表示タブで停止するため不採用）。
-           ------------------------------------------------------------ */
-        let timerTickHandle = null;
-        const TIMER_TICK_MS = 250;
-        // 外部配信サイトへの時間問い合わせ間隔（250ms × 2 = 500ms ごと）
-        const EXTERNAL_POLL_TICKS = 2;
-        let externalPollCounter = 0;
-
-        function syncGlobalTimeFromMaster() {
-            const now = performance.now();
-            const elapsedSec = (now - lastTimeUpdate) / 1000;
-            lastTimeUpdate = now;
-
-            const mode = getCurrentMasterType();
-
-            if (mode.startsWith('local_')) {
-                const video = document.getElementById('localVideo_' + mode.replace('local_', ''));
-                if (video) {
-                    globalCurrentTime = video.currentTime;
-                    globalDuration = isFinite(video.duration) ? video.duration : 0;
-                }
-            } else if (mode === 'internal') {
-                globalDuration = 0;
-                // カウントダウン中は isPlayingRequest が true でも実際には未再生のため進めない
-                if (isPlayingRequest && !countdownInterval) {
-                    globalCurrentTime += elapsedSec * currentPlaybackSpeed;
-                }
-            } else if (mode === 'external') {
-                // 外部配信サイトが基準の場合、アドオン側（content_video.js）は
-                // requestTime を受け取ったときしか timeReport を送らない。
-                // そのため、ここから定期的に現在時間を要求し続ける。
-                //
-                // ポーリング方式にしている利点:
-                //   ・A側の「一括再生」だけでなく、配信サイト側で直接再生した場合も追従する
-                //   ・配信サイト側で一時停止すれば報告値が止まるため、タイマーも自然に停止する
-                //   ・B側（アドオン）の改修が不要（requestTime / timeReport は実装済み）
-                globalDuration = 0; // 外部動画の総再生時間は取得できないため常に0
-                externalPollCounter++;
-                if (externalPollCounter >= EXTERNAL_POLL_TICKS) {
-                    externalPollCounter = 0;
-                    broadcastSyncCommand('requestTime');
-                }
-            }
-            // globalCurrentTime の実際の更新は timeReport 受信ハンドラ側で行われる
-
-            /* リプレイチャットを各枠の再生位置へ追従させる。
-               YouTubeの視聴ページは高頻度で進行を通知しているため毎tick送る。 */
-            try { pumpChatProgress(); } catch (e) {}
-
-            updateTimerDisplay();
-        }
-
-        function startTimerTick() {
-            if (timerTickHandle) return;
-            lastTimeUpdate = performance.now();
-            timerTickHandle = setInterval(syncGlobalTimeFromMaster, TIMER_TICK_MS);
-        }
-
-        function updateTimerDisplay() {
-            if (!isEditingTimer) {
-                const cur = formatTime(globalCurrentTime);
-                const dur = formatTime(globalDuration);
-                document.getElementById('mainTimer').innerText = globalDuration > 0 ? cur + ' / ' + dur : cur;
-            }
-        }
-
-        function editTimer() {
-            isEditingTimer = true;
-            const display = document.getElementById('mainTimer');
-            const input = document.getElementById('timerInput');
-            input.value = display.innerText.split(' / ')[0];
-            display.style.display = 'none'; input.style.display = 'inline-block'; input.focus();
-        }
-        function finishEditTimer() {
-            if (!isEditingTimer) return;
-            isEditingTimer = false;
-            const display = document.getElementById('mainTimer');
-            const input = document.getElementById('timerInput');
-            const parts = input.value.split(':').reverse();
-            let sec = 0;
-            if (parts[0]) sec += parseFloat(parts[0]) || 0;
-            if (parts[1]) sec += (parseFloat(parts[1]) || 0) * 60;
-            if (parts[2]) sec += (parseFloat(parts[2]) || 0) * 3600;
-            globalCurrentTime = Math.max(0, sec);
-            broadcastSyncCommand('seekTo', globalCurrentTime);
-            document.querySelectorAll('.custom-local-video').forEach(v => { v.currentTime = globalCurrentTime; });
-            Object.entries(ytPlayers).forEach(([id, player]) => {
-                if (player && typeof player.seekTo === 'function') player.seekTo(globalCurrentTime, true);
-            });
-            display.style.display = 'inline-block'; input.style.display = 'none'; updateTimerDisplay();
-        }
-        function resetGlobalTimer() {
-            globalCurrentTime = 0;
-            broadcastSyncCommand('seekTo', 0);
-            document.querySelectorAll('.custom-local-video').forEach(v => { v.currentTime = 0; });
-            Object.entries(ytPlayers).forEach(([id, player]) => {
-                if (player && typeof player.seekTo === 'function') player.seekTo(0, true);
-            });
-            updateTimerDisplay();
-        }
-        function requestExternalTime() { broadcastSyncCommand('requestTime'); }
-
-        function toggleControllerLock() {
-            isControllerLocked = !isControllerLocked;
-            const btn = document.getElementById('lockControllerBtn');
-            btn.innerText = isControllerLocked ? '🔒' : '🔓';
-            saveSettings();
-            if (isControllerLocked) showController(); else hideController();
-        }
-        function showController() {
-            const controller = document.getElementById('overlayController');
-            const mainView = document.getElementById('mainView');
-            controller.classList.add('active'); mainView.classList.add('controller-active'); 
-        }
-        function hideController() {
-            if (isControllerLocked) return;
-            const controller = document.getElementById('overlayController');
-            const mainView = document.getElementById('mainView');
-            controller.classList.remove('active'); mainView.classList.remove('controller-active'); 
-        }
-        function setupHoverController() {
-            const controller = document.getElementById('overlayController');
-            let hideTimer;
-            document.addEventListener('mousemove', (e) => {
-                if (e.clientY > window.innerHeight - 80) { showController(); clearTimeout(hideTimer); } 
-                else { clearTimeout(hideTimer); hideTimer = setTimeout(() => { if (!controller.matches(':hover')) hideController(); }, 1500); }
-            });
-            controller.addEventListener('mouseenter', () => { showController(); clearTimeout(hideTimer); });
-            controller.addEventListener('mouseleave', () => { clearTimeout(hideTimer); hideTimer = setTimeout(() => { hideController(); }, 1000); });
-        }
-
-        function saveSettings() {
-            localStorage.setItem('sync_layout2_dir', document.getElementById('layout2Dir').value);
-            const colsEl = document.getElementById('layoutCols');
-            if (colsEl) localStorage.setItem('sync_layout_cols', colsEl.value);
-            localStorage.setItem('sync_player_count', playerCount); 
-            localStorage.setItem('sync_ui_size', document.getElementById('uiSizeSelect').value);
-            localStorage.setItem('sync_chat_position', document.getElementById('chatPosition').value);
-            localStorage.setItem('sync_skip_sec_back', document.getElementById('skipSecBack').value); 
-            localStorage.setItem('sync_skip_sec_forward', document.getElementById('skipSecForward').value); 
-            localStorage.setItem('sync_enable_delay_sync', document.getElementById('enableDelaySync').checked);
-            localStorage.setItem('sync_delay_sec', document.getElementById('delaySec').value);
-            localStorage.setItem('sync_playback_speed', currentPlaybackSpeed);
-            localStorage.setItem('sync_master_volume', document.getElementById('masterVolume').value);
-            localStorage.setItem('sync_controller_lock', isControllerLocked);
-            localStorage.setItem('sync_confirm_reset', document.getElementById('confirmReset').checked);
-            localStorage.setItem('sync_confirm_delete', document.getElementById('confirmDelete').checked);
-            localStorage.setItem('sync_master_mode', getCurrentMasterType());
-        }
-        function loadSavedSettings() {
-            loadChatState(); // チャットの表示状態・幅の比率・モードを復元
-            if (localStorage.getItem('sync_layout2_dir')) setSelectValueSafe('layout2Dir', localStorage.getItem('sync_layout2_dir'), 'horizontal');
-            if (localStorage.getItem('sync_layout_cols')) setSelectValueSafe('layoutCols', localStorage.getItem('sync_layout_cols'), 'auto');
-            if (localStorage.getItem('sync_player_count')) {
-                playerCount = parseInt(localStorage.getItem('sync_player_count'), 10) || 2;
-                updatePlayerCountDisplay();
-            }
-            if (localStorage.getItem('sync_ui_size')) {
-                const size = localStorage.getItem('sync_ui_size');
-                document.getElementById('uiSizeSelect').value = size; document.documentElement.setAttribute('data-ui-size', size);
-            }
-            if (localStorage.getItem('sync_chat_position')) document.getElementById('chatPosition').value = localStorage.getItem('sync_chat_position');
-            if (localStorage.getItem('sync_skip_sec_back')) document.getElementById('skipSecBack').value = localStorage.getItem('sync_skip_sec_back');
-            if (localStorage.getItem('sync_skip_sec_forward')) document.getElementById('skipSecForward').value = localStorage.getItem('sync_skip_sec_forward');
-            if (localStorage.getItem('sync_enable_delay_sync') !== null) document.getElementById('enableDelaySync').checked = localStorage.getItem('sync_enable_delay_sync') === 'true';
-            if (localStorage.getItem('sync_delay_sec')) document.getElementById('delaySec').value = localStorage.getItem('sync_delay_sec');
-            if (localStorage.getItem('sync_playback_speed')) {
-                currentPlaybackSpeed = parseFloat(localStorage.getItem('sync_playback_speed')) || 1.0;
-                document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
-            }
-            if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
-            if (localStorage.getItem('sync_controller_lock') === 'true') {
-                isControllerLocked = true;
-                const btn = document.getElementById('lockControllerBtn');
-                if (btn) btn.innerText = '🔒';
-                showController();
-            }
-            if (localStorage.getItem('sync_confirm_reset') !== null) document.getElementById('confirmReset').checked = localStorage.getItem('sync_confirm_reset') === 'true';
-            if (localStorage.getItem('sync_confirm_delete') !== null) document.getElementById('confirmDelete').checked = localStorage.getItem('sync_confirm_delete') === 'true';
-            toggleDelaySettingView();
-            setTimeout(() => {
-                const savedMaster = localStorage.getItem('sync_master_mode');
-                if (savedMaster) {
-                    const select = document.getElementById('syncMasterSelect');
-                    if (select && select.querySelector('option[value="' + savedMaster + '"]')) select.value = savedMaster;
-                }
-                updateMasterOptions();
-            }, 300);
-        }
-        function clearAllSettings() {
-            if (confirm('すべての設定と保存URLをリセットしますか？')) { localStorage.clear(); location.reload(); }
-        }
-</script>
-</body>
-</html>
+                    video.removeEventListener('seeke
