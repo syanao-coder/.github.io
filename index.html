@@ -441,6 +441,14 @@
                         <option value="close">取得が終わるたびに閉じる（毎回3秒ほど余計にかかる）</option>
                     </select>
                 </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;">コメントのキャッシュ:</label>
+                    <span id="chatCacheStat" style="font-size:0.85rem; color:#aaa; font-family:monospace;">-</span>
+                    <button onclick="clearChatCacheFromUI()" style="font-size:0.8rem; margin-left:8px;">すべて削除</button>
+                </div>
+                <div class="control-row" style="margin-top:-6px;">
+                    <span style="font-size:0.75rem; color:#888;">取得済みのコメントを圧縮してこのPCに保存し、次回は取り直さずに表示します（上限150MB・超えたら古い順に削除）。</span>
+                </div>
                 <div class="control-row" style="margin-top: 20px;">
                     <button onclick="clearAllSettings()" style="width:100%; background-color:#8e2430;">全設定・保存URLをリセット</button>
                 </div>
@@ -493,7 +501,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.6.1';
+        const APP_VERSION = '2.6.3';
         let addonVersion = null;
         const ADDON_DETECT_TIMEOUT_MS = 4000;
 
@@ -790,8 +798,6 @@
                 } else if (newState === 'addonInfo') {
                     addonVersion = event.data.version || null;
                     updateVersionBadge();
-                } else if (newState === 'chatArchive') {
-                    handleChatArchiveResult(event.data);   // 退路（v2.5.x ヘルパー経路）
                 } else if (newState === 'chatMeta') {
                     handleChatMeta(event.data);
                 } else if (newState === 'chatChunk') {
@@ -875,6 +881,7 @@
                 container.classList.remove('open'); btn.classList.remove('active'); arrow.innerText = '▼';
             } else {
                 container.classList.add('open'); btn.classList.add('active'); arrow.innerText = '▲';
+                refreshChatCacheStat();
             }
         }
         function toggleSessionMenu(forceClose) {
@@ -1737,12 +1744,19 @@
            さらに iframe は中身をJSから読めないため、最終目的である
            「ニコニコ風のコメント流し」には原理的に到達できない。
 
-           ■ 現在の方式
-           C側ヘルパー（Native Messaging）が yt-dlp でコメントを一括取得し、
-           整形済みJSONを返す。A側はそれを保持し、再生位置に合わせて描画する。
-             取得   : CHAT_ARCHIVE_REQUEST → (B) → (C) → state:'chatArchive'
+           ■ 現在の方式（★v2.6.2 で InnerTube 一本化）
+           アドオンが専用の YouTube タブ（隠しタブ）の MAIN world から InnerTube を
+           直接叩き、取得しながら逐次送ってくる。A側は届いた順に溜め、
+           再生位置に合わせて描画する。
+             取得   : CHAT_STREAM_REQUEST → (B) → state:'chatMeta' / 'chatChunk' / 'chatDone'
              コメント: { t:経過ms, n:投稿者, m:本文, p:スパチャ金額(任意) }
              絵文字  : { ':_ショートカット:' → 画像URL }（チャンネル固有の絵文字用）
+
+           ■ ⛔ 撤去済みの退路（v2.6.2 / 復活させないこと）
+           v2.5.x のC側ヘルパー（Python / yt-dlp / .bat / .reg / Native Messaging）と、
+           そこへ落ちるフォールバック（requestChatViaHelper / handleChatArchiveResult /
+           chatFellBack / CHAT_FETCH_TIMEOUT_MS）は削除した。
+           取得に失敗したときは退路がないので、原因を画面に出し切ること。
 
            ■ 同期
            各枠の getCurrentTime()（ms換算）と t を比較するだけ。
@@ -1768,7 +1782,6 @@
         let chatStick = {};      // cardId → 自動追尾するか（★v2.6.0）
         let chatUserScrollAt = {};// cardId → 最後に人間が操作した時刻（★v2.6.0）
         let chatWatchdog = {};   // requestId → タイマーID（★v2.6.0）
-        let chatFellBack = {};   // videoId → 退路へ落とした際の元エラー（★v2.6.0 / 1回だけ）
         let chatCursor = {};     // cardId → 次に描画するコメントの添字
         let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
         let chatFontScale = {};  // cardId → 文字サイズ倍率（枠ごとに独立）
@@ -1776,9 +1789,7 @@
         const CHAT_RATIO_DEFAULT = 0.30;
         const CHAT_RATIO_MIN = 0.15;
         const CHAT_RATIO_MAX = 0.70;
-        /* 退路（ヘルパー経路）専用。yt-dlp は一括なので長めに取る。 */
-        const CHAT_FETCH_TIMEOUT_MS = 180000;
-        /* 🔴 v2.6.0 では固定タイムアウトを使ってはいけない。
+        /* 🔴 固定タイムアウトを使ってはいけない。
            1,595リクエストの動画は取得だけで約2.6分かかるため、
            180秒固定だと正常な取得を失敗と誤判定する。
            「最後に何か届いてからの無音時間」で見る（心拍は5秒間隔）。 */
@@ -1792,6 +1803,243 @@
         const CHAT_FONT_MIN = 0.6;
         const CHAT_FONT_MAX = 2.4;
         const CHAT_FONT_STEP = 0.1;
+
+        /* ============================================================
+           コメントのキャッシュ（★v2.6.3 / IndexedDB）
+
+           ■ なぜ要るか
+           重い1本の取り直しは165〜234秒かかる。再読込のたびにこれが走ると使い物にならない。
+           v2.6.2 でC側（NAS上の共有キャッシュ）を撤去したため、代わりが要る。
+
+           ■ 保存形式は gzip（段階3-A 実測 / 2026-07-27 / 73,228件の動画）
+             形式            読出    実使用量
+             raw（配列のまま） 55ms   2.58MB
+             json（文字列）    40ms   1.96MB
+             gzip             39ms   1.16MB  ← 採用。最速かつ最小
+           読出時間には gunzip と JSON.parse を含む。**圧縮のCPU代は小さいI/Oで元が取れる。**
+           「圧縮はCPUを食う」という事前の想定はこの規模では成り立たなかった。
+           取り直し234秒 → 39ms（約6,000倍）。
+
+           ■ meta と data を分けている理由
+           使用量の集計・LRU・本数表示のたびに本体（数MB）を読みたくないため。
+           meta だけ走査すれば済む。
+
+           ■ 設計の前提
+           ・キャッシュは「あれば速い」もの。**使えない環境では黙って通常の取得へ進む**
+           ・`navigator.storage.persisted()` は false（実測）。ディスク逼迫でまるごと
+             消えることがあるが、取り直せるので `persist()` は呼ばない（許可を求める方が高くつく）
+           ・オリジンごとに別。`127.0.0.1:8080` と GitHub Pages のキャッシュは共有されない
+           ・保存するのは complete なものだけ。途中で失敗したものを完全と誤認させない
+           ============================================================ */
+
+        const CHAT_CACHE_DB = 'syncViewerChat';
+        const CHAT_CACHE_DB_VER = 1;
+        const CHAT_CACHE_FORMAT = 2;                        // 整形フォーマットの版。変われば作り直す
+        const CHAT_CACHE_LIMIT_BYTES = 150 * 1024 * 1024;   // 重い9本で約4.8MB。150MBなら実質無制限
+
+        let chatCacheSkip = {};      // videoId → true（🔄のとき1回だけキャッシュを無視）
+        let chatCacheDbPromise = null;
+
+        function chatCacheAvailable() {
+            return (typeof indexedDB !== 'undefined')
+                && (typeof CompressionStream !== 'undefined')
+                && (typeof DecompressionStream !== 'undefined');
+        }
+
+        function openChatCache() {
+            if (chatCacheDbPromise) return chatCacheDbPromise;
+            chatCacheDbPromise = new Promise(function (resolve) {
+                if (!chatCacheAvailable()) { resolve(null); return; }
+                let req;
+                try { req = indexedDB.open(CHAT_CACHE_DB, CHAT_CACHE_DB_VER); }
+                catch (e) { resolve(null); return; }
+                req.onupgradeneeded = function () {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+                    if (!db.objectStoreNames.contains('data')) db.createObjectStore('data');
+                };
+                req.onsuccess = function () { resolve(req.result); };
+                req.onerror = function () { resolve(null); };
+                req.onblocked = function () { resolve(null); };
+            });
+            return chatCacheDbPromise;
+        }
+
+        /* ⚠️ IndexedDB のトランザクションは、他の非同期処理を待つと勝手に閉じる。
+           圧縮・伸長は必ずトランザクションの外で行うこと。
+           完了は tx.oncomplete で見る（put の onsuccess はコミット前に発火する）。 */
+        function chatCacheTx(db, names, mode, body) {
+            return new Promise(function (resolve, reject) {
+                let tx;
+                try { tx = db.transaction(names, mode); } catch (e) { reject(e); return; }
+                let result = null;
+                tx.oncomplete = function () { resolve(result); };
+                tx.onerror = function () { reject(tx.error); };
+                tx.onabort = function () { reject(tx.error); };
+                try { body(tx, function (v) { result = v; }); }
+                catch (e) { try { tx.abort(); } catch (e2) {} reject(e); }
+            });
+        }
+
+        async function gzipFromText(text) {
+            return await new Response(new Blob([text]).stream()
+                .pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+        }
+        async function gunzipToText(buf) {
+            return await new Response(new Blob([buf]).stream()
+                .pipeThrough(new DecompressionStream('gzip'))).text();
+        }
+
+        function chatCacheAllMeta(db) {
+            return chatCacheTx(db, ['meta'], 'readonly', function (tx, set) {
+                const q = tx.objectStore('meta').getAll();
+                q.onsuccess = function () { set(q.result || []); };
+            });
+        }
+
+        async function chatCacheDelete(videoId) {
+            try {
+                const db = await openChatCache();
+                if (!db) return;
+                await chatCacheTx(db, ['meta', 'data'], 'readwrite', function (tx) {
+                    tx.objectStore('meta').delete(videoId);
+                    tx.objectStore('data').delete(videoId);
+                });
+            } catch (e) { /* 消せなくても実害はない */ }
+        }
+
+        async function chatCacheTouch(videoId) {
+            try {
+                const db = await openChatCache();
+                if (!db) return;
+                await chatCacheTx(db, ['meta'], 'readwrite', function (tx) {
+                    const s = tx.objectStore('meta');
+                    const q = s.get(videoId);
+                    q.onsuccess = function () {
+                        if (!q.result) return;
+                        q.result.lastUsedAt = Date.now();
+                        s.put(q.result, videoId);
+                    };
+                });
+            } catch (e) {}
+        }
+
+        /* 取り出す。壊れている・形式が古い・件数が合わないものは捨てて null を返す。 */
+        async function chatCacheGet(videoId) {
+            try {
+                const db = await openChatCache();
+                if (!db) return null;
+                const rec = await chatCacheTx(db, ['meta', 'data'], 'readonly', function (tx, set) {
+                    const out = {};
+                    const mq = tx.objectStore('meta').get(videoId);
+                    mq.onsuccess = function () { out.meta = mq.result; };
+                    const dq = tx.objectStore('data').get(videoId);
+                    dq.onsuccess = function () { out.data = dq.result; set(out); };
+                });
+                if (!rec || !rec.meta || !rec.data) return null;
+                if (rec.meta.v !== CHAT_CACHE_FORMAT) { chatCacheDelete(videoId); return null; }
+
+                const body = JSON.parse(await gunzipToText(rec.data));
+                if (!body || !Array.isArray(body.comments)) { chatCacheDelete(videoId); return null; }
+                if (body.comments.length !== rec.meta.total) { chatCacheDelete(videoId); return null; }
+
+                chatCacheTouch(videoId);
+                const last = body.comments.length ? body.comments[body.comments.length - 1].t : 0;
+                return {
+                    comments: body.comments, emoji: body.emoji || {}, source: 'cache',
+                    complete: true, truncated: false, gap: false,
+                    videoMs: rec.meta.videoMs || 0, lastT: last, nextSeq: 0,
+                    fetchedAt: rec.meta.fetchedAt
+                };
+            } catch (e) { return null; }
+        }
+
+        /* しまう。complete なものだけ。 */
+        async function chatCachePut(videoId, store) {
+            try {
+                if (!store || !store.complete || store.gap || store.truncated) return;
+                if (!Array.isArray(store.comments) || !store.comments.length) return;
+                const db = await openChatCache();
+                if (!db) return;
+
+                // ★圧縮はトランザクションの外で終わらせる
+                const gz = await gzipFromText(JSON.stringify({
+                    emoji: store.emoji || {}, comments: store.comments
+                }));
+                const meta = {
+                    v: CHAT_CACHE_FORMAT, videoId: videoId,
+                    fetchedAt: Math.floor(Date.now() / 1000), lastUsedAt: Date.now(),
+                    total: store.comments.length, videoMs: store.videoMs || 0,
+                    bytes: gz.byteLength
+                };
+                await chatCacheTx(db, ['meta', 'data'], 'readwrite', function (tx) {
+                    tx.objectStore('meta').put(meta, videoId);
+                    tx.objectStore('data').put(gz, videoId);
+                });
+                await chatCacheEvict();
+            } catch (e) { /* キャッシュできなくても本体は動く */ }
+        }
+
+        /* 合計が上限を超えたら、最後に使った日時が古い順に削除する。 */
+        async function chatCacheEvict() {
+            try {
+                const db = await openChatCache();
+                if (!db) return;
+                const metas = await chatCacheAllMeta(db);
+                let sum = 0;
+                for (const m of metas) sum += (m.bytes || 0);
+                if (sum <= CHAT_CACHE_LIMIT_BYTES) return;
+                metas.sort(function (a, b) { return (a.lastUsedAt || 0) - (b.lastUsedAt || 0); });
+                for (const m of metas) {
+                    if (sum <= CHAT_CACHE_LIMIT_BYTES) break;
+                    await chatCacheDelete(m.videoId);
+                    sum -= (m.bytes || 0);
+                    console.log('[chat] キャッシュを削除しました:', m.videoId);
+                }
+            } catch (e) {}
+        }
+
+        async function chatCacheStats() {
+            try {
+                const db = await openChatCache();
+                if (!db) return null;
+                const metas = await chatCacheAllMeta(db);
+                let bytes = 0;
+                for (const m of metas) bytes += (m.bytes || 0);
+                return { count: metas.length, bytes: bytes };
+            } catch (e) { return null; }
+        }
+
+        async function chatCacheClearAll() {
+            try {
+                const db = await openChatCache();
+                if (!db) return;
+                await chatCacheTx(db, ['meta', 'data'], 'readwrite', function (tx) {
+                    tx.objectStore('meta').clear();
+                    tx.objectStore('data').clear();
+                });
+            } catch (e) {}
+        }
+
+        /* 設定メニュー用 */
+        function refreshChatCacheStat() {
+            const el = document.getElementById('chatCacheStat');
+            if (!el) return;
+            if (!chatCacheAvailable()) { el.innerText = 'この環境では使えません'; return; }
+            el.innerText = '集計中…';
+            chatCacheStats().then(function (s) {
+                if (!s) { el.innerText = 'この環境では使えません'; return; }
+                el.innerText = s.count + '本 / ' + (s.bytes / 1048576).toFixed(1) + ' MB';
+            });
+        }
+
+        function clearChatCacheFromUI() {
+            if (!confirm('保存済みのコメントをすべて削除しますか？\n次に開いたときは取得し直しになります（重い動画で3〜4分）。')) return;
+            chatCacheClearAll().then(function () {
+                refreshChatCacheStat();
+                alert('コメントのキャッシュを削除しました。');
+            });
+        }
 
         function generateChatPaneHTML(cardId) {
             return '<div class="chat-splitter" id="splitter_' + cardId + '" title="ドラッグでチャット欄の幅を変更"></div>' +
@@ -1925,10 +2173,17 @@
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
+        /* ★v2.6.2: ヘルパー経路を撤去したので、ここが失敗の終点になる。
+           自動で別経路へ逃げられない以上、利用者が自力で切り分けられる案内を必ず出す。
+           順序は /get-protocol-spec 7節🔴（注入されない問題）の切り分け手順に合わせてある。 */
         function showChatFailNote(cardId, videoId) {
             showChatNote(cardId,
                 'コメントを取得できませんでした。' +
-                '<span class="sub">' + escapeChatText(chatError[videoId] || '') + '</span>' +
+                '<span class="sub">' + escapeChatText(chatError[videoId] || '') + '<br><br>' +
+                '確認する順番:<br>' +
+                '① YouTubeのタブでツールバーの拡張機能アイコン →「このサイトでの実行を許可」<br>' +
+                '② 画面右上のバッジが緑（HTMLとアドオンの版数が一致）か<br>' +
+                '③ チャット無効／メンバー限定の配信ではないか</span>' +
                 '<button onclick="reloadChat(\'' + cardId + '\')">再試行</button>');
         }
 
@@ -1982,7 +2237,11 @@
         }
 
         /* 同じ videoId への多重要求は抑止する。
-           applyChatLayoutForCard から updateChatContent が繰り返し呼ばれるため。 */
+           applyChatLayoutForCard から updateChatContent が繰り返し呼ばれるため。
+
+           ★v2.6.3: 取得要求を出す前にキャッシュを見る。
+           ⚠️ `chatInflight` は**同期的に**立てること。キャッシュ照会を待ってから立てると、
+              その間に繰り返し呼ばれて要求が多重に走る。 */
         function requestChatArchive(cardId, videoId) {
             showChatLoadingNote(cardId);
             if (chatInflight[videoId]) return;
@@ -1992,22 +2251,28 @@
             chatPending[requestId] = videoId;
             chatState[videoId] = 'loading';
             delete chatError[videoId];
-            delete chatFellBack[videoId];
 
-            window.postMessage({ type: 'CHAT_STREAM_REQUEST', videoId: videoId, requestId: requestId }, '*');
+            /* キャッシュ照会が固まっても取り残されないよう、先に見張りを張る。 */
             armChatWatchdog(requestId, CHAT_META_TIMEOUT_MS);
-        }
 
-        /* 退路: v2.5.x のヘルパー経路。InnerTube 側が失敗したときだけ1回落とす。
-           v2.6.1 でC側を撤去したら、この関数と handleChatArchiveResult ごと消す。 */
-        function requestChatViaHelper(videoId) {
-            const requestId = 'chatH_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
-            chatInflight[videoId] = requestId;
-            chatPending[requestId] = videoId;
-            chatState[videoId] = 'loading';
-            window.postMessage({ type: 'CHAT_ARCHIVE_REQUEST', videoId: videoId, requestId: requestId }, '*');
-            armChatWatchdog(requestId, CHAT_FETCH_TIMEOUT_MS);
-            refreshChatCardsFor(videoId);
+            const skip = !!chatCacheSkip[videoId];
+            delete chatCacheSkip[videoId];
+
+            (skip ? Promise.resolve(null) : chatCacheGet(videoId)).then(function (hit) {
+                if (chatPending[requestId] === undefined) return;   // 途中で中止された
+
+                if (hit) {
+                    delete chatPending[requestId];
+                    delete chatInflight[videoId];
+                    clearChatWatchdog(requestId);
+                    chatStore[videoId] = hit;
+                    chatState[videoId] = 'ready';
+                    refreshChatCardsFor(videoId);
+                    return;
+                }
+                window.postMessage({ type: 'CHAT_STREAM_REQUEST', videoId: videoId, requestId: requestId }, '*');
+                armChatWatchdog(requestId, CHAT_META_TIMEOUT_MS);
+            });
         }
 
         /* 「最後に何か届いてから」で測る見張り。届くたびに張り直す。
@@ -2138,7 +2403,7 @@
 
                 chatState[videoId] = 'ready';
                 delete chatError[videoId];
-                delete chatFellBack[videoId];
+                chatCachePut(videoId, store);   // ★v2.6.3: complete なものだけ保存される
                 refreshChatCardsFor(videoId);
                 return;
             }
@@ -2152,16 +2417,10 @@
 
             const store = chatStore[videoId];
             const gotSomething = store && store.comments.length > 0;
-            const msg = error || 'コメントを取得できませんでした';
 
-            /* 退路へ1回だけ落とす。v2.6.1 でC側を撤去したらこのブロックを消す。 */
-            if (!gotSomething && !chatFellBack[videoId]) {
-                chatFellBack[videoId] = msg;   // 元のエラーを覚えておく（こちらの方が有益なため）
-                requestChatViaHelper(videoId);
-                return;
-            }
-
-            chatError[videoId] = msg;
+            /* ★v2.6.2: 退路（ヘルパー経路）は撤去した。ここが終点になる。
+               自動で別経路へ逃げない代わりに、原因の切り分け先を必ず添える。 */
+            chatError[videoId] = error || 'コメントを取得できませんでした';
             /* 途中まで取れているなら、そこまでを使えるようにして終わる。 */
             chatState[videoId] = gotSomething ? 'ready' : 'error';
             if (gotSomething && store) store.complete = false;
@@ -2187,39 +2446,6 @@
                         + '前の取得が終わり次第、自動で始まります。</span>');
                 });
             }
-        }
-
-        /* 退路（ヘルパー経路）の結果。v2.6.1 で削除予定。 */
-        function handleChatArchiveResult(data) {
-            if (!data || !data.requestId) return;
-            const videoId = chatPending[data.requestId];
-            if (videoId === undefined) return;   // 自分の要求ではない／タイムアウト済み
-            delete chatPending[data.requestId];
-            delete chatInflight[videoId];
-            clearChatWatchdog(data.requestId);
-
-            if (data.ok && Array.isArray(data.comments)) {
-                chatStore[videoId] = {
-                    comments: data.comments,
-                    emoji: data.emoji || {},
-                    source: data.source || 'yt-dlp',
-                    complete: true, truncated: false, gap: false,
-                    videoMs: 0,
-                    lastT: data.comments.length ? data.comments[data.comments.length - 1].t : 0,
-                    nextSeq: 0
-                };
-                chatState[videoId] = 'ready';
-                delete chatError[videoId];
-            } else {
-                chatState[videoId] = 'error';
-                /* 元の（InnerTube側の）エラーの方が原因に近いので、そちらを主に見せる。 */
-                const orig = chatFellBack[videoId];
-                const helperMsg = data.error || 'コメントを取得できませんでした';
-                chatError[videoId] = orig
-                    ? (orig + '／ヘルパーでの再取得も失敗しました: ' + helperMsg)
-                    : helperMsg;
-            }
-            refreshChatCardsFor(videoId);
         }
 
         /* 同じ動画を開いている枠すべてに結果を反映する
@@ -2461,8 +2687,8 @@
         }
 
         /* 🔄: 取得し直す。
-           C側にもキャッシュがあるため通常は即座に返る。
-           本当に取り直したい場合は cache フォルダの <videoId>.json を削除する。 */
+           ★v2.6.3: キャッシュを捨ててから取り直し、完走したら入れ直す。
+           「表示がおかしいので取り直したい」ときにキャッシュを返しては意味がない。 */
         function reloadChat(cardId) {
             const videoId = getChatVideoId(cardId);
             if (videoId) {
@@ -2471,7 +2697,8 @@
                 delete chatState[videoId];
                 delete chatError[videoId];
                 delete chatInflight[videoId];
-                delete chatFellBack[videoId];
+                chatCacheSkip[videoId] = true;
+                chatCacheDelete(videoId);
             }
             chatLoadedVideoId[cardId] = null;
             updateChatContent(cardId, true);
