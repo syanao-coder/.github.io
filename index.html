@@ -97,6 +97,42 @@
             border-color: #ff9f43 !important;
         }
 
+        /* ★v2.7.2: トップバーのドロップダウンメニュー（現在は「💬 コメント設定」の1枚）。
+           .settings-container は画面幅いっぱいに降りてくるため、動画とコメント流しを覆う。
+           流しの調整は効果を見ながら動かす設定なので、ボタン直下に出る幅の狭い形にする。
+           🔴 .top-bar へ position:relative を足してはいけない。既存の .settings-container 2枚が
+              .top-bar を基準にしてしまい、top:35px / width:100% の解決先が変わって位置と幅が壊れる。
+              アンカーはこの span だけに持たせる。
+           🔴 外側をクリックしても閉じない（document へ click リスナーを付けない）。
+              動画を見ながらスライダーを動かすため、動画を押した瞬間に閉じると使えない。 */
+        .topmenu-anchor { position: relative; display: inline-flex; margin-right: 8px; }
+        .topmenu-dropdown {
+            display: none;
+            position: absolute; top: calc(100% + 6px); right: 0;
+            /* box-sizing は必須。既定の content-box だと padding 12px×2 と border 1px×2 が
+               max-height の外側に乗り、70vh 指定でも実測 429px（＝70vh+26px）になる。 */
+            box-sizing: border-box;
+            width: 420px; max-width: calc(100vw - 20px);
+            max-height: 70vh; overflow-y: auto;
+            z-index: 120;
+            background: var(--panel-bg); border: 1px solid #00ffcc; border-radius: 6px;
+            padding: 12px; backdrop-filter: blur(10px); text-align: left;
+            box-shadow: 0 10px 30px rgba(0, 255, 204, 0.15);
+        }
+        .topmenu-dropdown.open { display: block; }
+        .topmenu-dropdown h3 {
+            margin: 0 0 10px 0; font-size: 0.95rem; color: #00ffcc;
+            border-bottom: 1px solid var(--border-color); padding-bottom: 5px;
+        }
+        /* 幅420px に収めるための微調整。id・関数は変えず CSS 側だけで寄せる。 */
+        .topmenu-dropdown .control-row { margin-bottom: 8px; }
+        .topmenu-dropdown input[type="range"] { max-width: 100%; }
+        /* 見出しの直下に来る区切り線は h3 の下線と二重になるので、
+           移設元の inline style は残したまま CSS 側で打ち消す。 */
+        .topmenu-dropdown h3 + .control-row {
+            margin-top: 0 !important; border-top: none !important; padding-top: 0 !important;
+        }
+
         .settings-container {
             position: absolute; top: 35px; left: 0; width: 100%; z-index: 100;
             pointer-events: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
@@ -284,6 +320,15 @@
         .chat-toggle-btn { opacity: 0.45; }
         .chat-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
         .chat-toggle-btn.active:hover { background-color: #55ffdd; }
+        /* ★v2.7.0: コメント流し。
+           🔴 pointer-events: none は必須。付け忘れると動画のクリックとシークバーの
+              操作をこの層が全部奪う（YouTube は iframe なので操作不能になる）。 */
+        .flow-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; display: none; }
+        .flow-msg { position: absolute; left: 100%; top: 0; white-space: nowrap; will-change: transform; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000; }
+        .flow-msg .chat-emoji { height: 1em; width: auto; vertical-align: -0.15em; }
+        .flow-toggle-btn { opacity: 0.45; }
+        .flow-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
+        .flow-toggle-btn.active:hover { background-color: #55ffdd; }
         .local-video-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.85); padding: calc(6px * var(--ui-scale)) calc(12px * var(--ui-scale)); display: flex; align-items: center; gap: 12px; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 9; }
         .player-card:hover .local-video-overlay { opacity: 1; pointer-events: auto; }
         .local-seek-container { position: relative; flex: 1; display: flex; align-items: center; }
@@ -323,6 +368,65 @@
             <span class="topbar-count-value" id="topActiveCountDisplay">2</span>
             <button class="topbar-count-btn" id="topCountPlus" onclick="changePlayerCount(1)" title="枠を1つ増やす">➕</button>
         </div>
+        <!-- ★v2.7.2: コメント系設定の独立メニュー。
+             パネルはこの span を基準にボタン直下へ出す（.top-bar を基準にしない）。 -->
+        <span class="topmenu-anchor">
+            <button id="topCommentBtn" class="settings-toggle-btn" onclick="toggleCommentMenu()">💬 コメント設定</button>
+            <div class="topmenu-dropdown" id="commentMenu">
+                <h3>💬 コメント設定</h3>
+                <!-- ★v2.7.1: コメント流しの調整。全枠共通（グローバル）。
+                     スライダーは oninput で即時反映する（onchange だと離すまで効かない）。
+                     laneRatio / gapPx / maxLanes は利用者が意味を判断できないので出さない。 -->
+                <div class="control-row" style="margin-top:14px; border-top:1px solid #333; padding-top:12px;">
+                    <label style="font-size:0.9rem; font-weight:bold;">🌊 コメント流しの表示（全枠共通）</label>
+                    <button onclick="resetFlowSettings()" style="font-size:0.75rem; margin-left:auto;">既定値に戻す</button>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.85rem; width:150px;" for="flowMaxOnscreen">同時表示数の上限:</label>
+                    <input type="range" id="flowMaxOnscreen" min="5" max="100" step="5" value="40" style="width:160px;" oninput="applyFlowSettingsFromUI()">
+                    <span id="flowMaxOnscreenVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">40件</span>
+                    <span style="font-size:0.72rem; color:#888;">下げると軽くなります</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.85rem; width:150px;" for="flowDurationMs">画面を横切る時間:</label>
+                    <input type="range" id="flowDurationMs" min="2000" max="12000" step="100" value="4000" style="width:160px;" oninput="applyFlowSettingsFromUI()">
+                    <span id="flowDurationMsVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">4.0秒</span>
+                    <span style="font-size:0.72rem; color:#888;">長いほどゆっくり流れますが、画面に残る数が増えて重くなります（6.0秒以上はカクつきます）</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.85rem; width:150px;" for="flowFontPx">文字サイズ:</label>
+                    <input type="range" id="flowFontPx" min="10" max="32" step="1" value="16" style="width:160px;" oninput="applyFlowSettingsFromUI()">
+                    <span id="flowFontPxVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">16px</span>
+                    <span style="font-size:0.72rem; color:#888;">大きくすると流せる行数が減ります</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.85rem; width:150px;" for="flowColor">文字の色:</label>
+                    <input type="color" id="flowColor" value="#ffffff" style="width:44px; height:24px; padding:0;" oninput="applyFlowSettingsFromUI()">
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.85rem; width:150px;" for="flowOpacity">不透明度:</label>
+                    <input type="range" id="flowOpacity" min="0.2" max="1" step="0.05" value="1" style="width:160px;" oninput="applyFlowSettingsFromUI()">
+                    <span id="flowOpacityVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">1.00</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.85rem; width:150px;" for="flowAreaRatio">表示位置の範囲:</label>
+                    <input type="range" id="flowAreaRatio" min="0.2" max="1" step="0.05" value="1" style="width:160px;" oninput="applyFlowSettingsFromUI()">
+                    <span id="flowAreaRatioVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">上100%</span>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.85rem; margin-left:10px;"><input type="checkbox" id="flowShadow" checked onchange="applyFlowSettingsFromUI()"> 文字を縁取る</label>
+                </div>
+                <div class="control-row" style="margin-top:-6px;">
+                    <span style="font-size:0.72rem; color:#888;">設定はすべての枠に効きます。色・不透明度・文字サイズは<strong>これから出るコメント</strong>から反映されます（すでに流れているものは変わりません）。</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem;">コメントのキャッシュ:</label>
+                    <span id="chatCacheStat" style="font-size:0.85rem; color:#aaa; font-family:monospace;">-</span>
+                    <button onclick="clearChatCacheFromUI()" style="font-size:0.8rem; margin-left:8px;">すべて削除</button>
+                </div>
+                <div class="control-row" style="margin-top:-6px;">
+                    <span style="font-size:0.75rem; color:#888;">取得済みのコメントを圧縮してこのPCに保存し、次回は取り直さずに表示します（上限150MB・超えたら古い順に削除）。</span>
+                </div>
+            </div>
+        </span>
         <button id="topSessionBtn" class="settings-toggle-btn" onclick="toggleSessionMenu()">📂 マイリスト・セッション</button>
         <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()"><span id="topSettingsArrow">▼</span> 設定メニュー</button>
     </div>
@@ -441,14 +545,6 @@
                         <option value="close">取得が終わるたびに閉じる（毎回3秒ほど余計にかかる）</option>
                     </select>
                 </div>
-                <div class="control-row">
-                    <label style="font-size:0.9rem;">コメントのキャッシュ:</label>
-                    <span id="chatCacheStat" style="font-size:0.85rem; color:#aaa; font-family:monospace;">-</span>
-                    <button onclick="clearChatCacheFromUI()" style="font-size:0.8rem; margin-left:8px;">すべて削除</button>
-                </div>
-                <div class="control-row" style="margin-top:-6px;">
-                    <span style="font-size:0.75rem; color:#888;">取得済みのコメントを圧縮してこのPCに保存し、次回は取り直さずに表示します（上限150MB・超えたら古い順に削除）。</span>
-                </div>
                 <div class="control-row" style="margin-top: 20px;">
                     <button onclick="clearAllSettings()" style="width:100%; background-color:#8e2430;">全設定・保存URLをリセット</button>
                 </div>
@@ -501,8 +597,11 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.6.3';
+        const APP_VERSION = '2.7.2';
         let addonVersion = null;
+        /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
+           null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
+        let ytPermission = null;
         const ADDON_DETECT_TIMEOUT_MS = 4000;
 
         function updateVersionBadge() {
@@ -517,9 +616,21 @@
                          + '・拡張機能アイコンからこのサイトでの実行を許可しているか\n'
                          + 'を確認してください。';
             } else if (addonVersion === APP_VERSION) {
-                el.innerText = 'v' + APP_VERSION;
-                el.classList.add('ok');
-                el.title = 'HTML と アドオン のバージョンが一致しています。';
+                if (ytPermission === false) {
+                    /* ★v2.7.0: 版数は合っているのに YouTube の許可が無い状態。
+                       これを緑で出すと、チャットが取れない理由が画面から読めない。
+                       ⚠️ ytPermission === null（未応答）は緑のままにする。=== false だけ橙。 */
+                    el.innerText = 'v' + APP_VERSION + ' / YouTube権限なし';
+                    el.classList.add('warn');
+                    el.title = 'アドオンは動いていますが、YouTube への実行許可がありません。\n'
+                             + 'YouTubeのタブでツールバーの拡張機能アイコン →\n'
+                             + '「このサイトでの実行を許可」を選んでください。\n'
+                             + '許可したあとこのタブに戻ると自動で緑に戻ります。';
+                } else {
+                    el.innerText = 'v' + APP_VERSION;
+                    el.classList.add('ok');
+                    el.title = 'HTML と アドオン のバージョンが一致しています。';
+                }
             } else {
                 el.innerText = 'HTML v' + APP_VERSION + ' ⇔ アドオン v' + addonVersion;
                 el.classList.add('warn');
@@ -593,6 +704,17 @@
            必ずIDへ正規化してから比較する。
            ------------------------------------------------------------ */
         let cardVideoKeys = {};
+
+        /* ------------------------------------------------------------
+           ★v2.7.1: 枠ごとの「いま入っている動画のURL」
+             cardId → URL文字列
+           入力欄（urlInput_*）は loadSingleYT() が container.innerHTML で
+           潰すため、読み込み済みの枠には存在しない。
+           resaveUrlsBasedOnOrder() が DOM を情報源にしていたせいで、
+           再読み込みのたびにロード済みの枠のURLが全部消えていた。
+           cardVideoKeys と同じ寿命で管理する（記録／破棄の場所も揃える）。
+           ------------------------------------------------------------ */
+        let cardUrls = {};
 
         function buildVideoKey(url) {
             const videoId = getYouTubeId(url, true);
@@ -798,6 +920,10 @@
                 } else if (newState === 'addonInfo') {
                     addonVersion = event.data.version || null;
                     updateVersionBadge();
+                } else if (newState === 'ytPermission') {
+                    /* ★v2.7.0: 表示専用。この値で取得や操作を止めてはいけない。 */
+                    ytPermission = (event.data.granted === true);
+                    updateVersionBadge();
                 } else if (newState === 'chatMeta') {
                     handleChatMeta(event.data);
                 } else if (newState === 'chatChunk') {
@@ -871,33 +997,61 @@
             sendYoutubeAddResult(requestId, 'loaded', getSlotIndex(emptyCardId));
         }
 
+        /* トップバーのメニューは同時に1つしか開かない。
+           ★v2.7.2: 2枚のときは互いを名指しで閉じていたが、3枚目を足すと
+           組み合わせが増えて閉じ忘れが出るため、ここへ集約した。
+           パネルの open だけでなく、ボタンの active と設定メニューの矢印もここで戻す。 */
+        const TOP_MENUS = [
+            { panel: 'sessionContainer',  btn: 'topSessionBtn' },
+            { panel: 'settingsContainer', btn: 'topSettingsBtn', arrow: 'topSettingsArrow' },
+            { panel: 'commentMenu',       btn: 'topCommentBtn' }
+        ];
+        function closeTopMenus(exceptId) {
+            TOP_MENUS.forEach(function (m) {
+                if (m.panel === exceptId) return;
+                const panel = document.getElementById(m.panel);
+                const btn = document.getElementById(m.btn);
+                if (panel) panel.classList.remove('open');
+                if (btn) btn.classList.remove('active');
+                if (m.arrow) {
+                    const a = document.getElementById(m.arrow);
+                    if (a) a.innerText = '▼';
+                }
+            });
+        }
+
         function toggleSettings() {
             const container = document.getElementById('settingsContainer');
             const btn = document.getElementById('topSettingsBtn');
             const arrow = document.getElementById('topSettingsArrow');
-            const sessionContainer = document.getElementById('sessionContainer');
-            if (sessionContainer.classList.contains('open')) toggleSessionMenu(false);
-            if (container.classList.contains('open')) {
-                container.classList.remove('open'); btn.classList.remove('active'); arrow.innerText = '▼';
-            } else {
+            const willOpen = !container.classList.contains('open');
+            closeTopMenus(null);
+            if (willOpen) {
                 container.classList.add('open'); btn.classList.add('active'); arrow.innerText = '▲';
-                refreshChatCacheStat();
             }
         }
+        /* 引数の規約は変えない：false を渡すと強制的に閉じる（他からも呼ばれている）。 */
         function toggleSessionMenu(forceClose) {
             const container = document.getElementById('sessionContainer');
             const btn = document.getElementById('topSessionBtn');
-            const settingsContainer = document.getElementById('settingsContainer');
-            if (settingsContainer.classList.contains('open')) {
-                const sBtn = document.getElementById('topSettingsBtn');
-                const arrow = document.getElementById('topSettingsArrow');
-                settingsContainer.classList.remove('open'); sBtn.classList.remove('active'); arrow.innerText = '▼';
-            }
-            if (container.classList.contains('open') || forceClose === false) {
-                container.classList.remove('open'); btn.classList.remove('active');
-            } else {
+            const willOpen = !container.classList.contains('open') && forceClose !== false;
+            closeTopMenus(null);
+            if (willOpen) {
                 container.classList.add('open'); btn.classList.add('active');
                 updateSessionListUI();
+            }
+        }
+        /* ★v2.7.2: コメント系設定のドロップダウン。
+           キャッシュの集計はこのメニューを開いたときに行う
+           （v2.7.1 までは toggleSettings() が呼んでいたが、行がこちらへ移った）。 */
+        function toggleCommentMenu() {
+            const panel = document.getElementById('commentMenu');
+            const btn = document.getElementById('topCommentBtn');
+            const willOpen = !panel.classList.contains('open');
+            closeTopMenus(null);
+            if (willOpen) {
+                panel.classList.add('open'); btn.classList.add('active');
+                refreshChatCacheStat();
             }
         }
         function changeUiSize(size) {
@@ -980,6 +1134,7 @@
                 '<button class="header-action-btn playlist-nav-btn" id="playlistNext_' + cardId + '" onclick="nextPlaylistItem(\'' + cardId + '\')" title="再生リスト: 次の動画">⏭</button>' +
                 '<span class="player-title" id="title_' + cardId + '">未ロード</span>' +
                 '<div style="margin-left: auto; display: flex; gap: calc(4px * var(--ui-scale));">' +
+                    '<button class="header-action-btn flow-toggle-btn" id="flowToggleBtn_' + cardId + '" onclick="toggleFlowVisibility(\'' + cardId + '\')" title="コメントを画面に流す（チャット欄とは独立）">🌊</button>' +
                     '<button class="header-action-btn chat-toggle-btn" id="chatToggleBtn_' + cardId + '" onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を表示/非表示">💬</button>' +
                     '<button class="header-action-btn" onclick="reloadPlayer(\'' + cardId + '\')" title="再読み込み">🔄</button>' +
                     '<button class="header-action-btn" onclick="resetPlayer(\'' + cardId + '\')" title="空にする">🧹</button>' +
@@ -1065,6 +1220,7 @@
 
             // 重複判定用のキーを記録
             cardVideoKeys[cardId] = playlistId ? ('list:' + playlistId) : videoId;
+            cardUrls[cardId] = url;          // ★v2.7.1: 入力欄が消えても残る情報源
 
             localStorage.setItem('sync_url_' + cardId, url);
             markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
@@ -1229,6 +1385,7 @@
 
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch (e) {} delete ytPlayers[cardId]; }
             delete cardVideoKeys[cardId]; // ローカル動画に差し替わったのでYouTube側のキーは破棄
+            delete cardUrls[cardId];      // ★v2.7.1: URLの情報源も破棄
             closeChat(cardId);            // ローカル動画にチャットは存在しないので畳む
             localStorage.removeItem('sync_url_' + cardId);
             markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
@@ -1377,7 +1534,7 @@
                     pState.type = 'yt';
                     pState.title = document.getElementById('title_' + cardId).innerText;
                     pState.currentTime = yt.getCurrentTime();
-                    pState.url = localStorage.getItem('sync_url_' + cardId) || '';
+                    pState.url = cardUrls[cardId] || localStorage.getItem('sync_url_' + cardId) || ''; // ★v2.7.1
                 }
                 session.players.push(pState);
             });
@@ -1415,7 +1572,7 @@
             document.getElementById('confirmDelete').checked = session.confirmDelete;
             globalCurrentTime = session.globalTime;
             const grid = document.getElementById('playersGrid');
-            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {};
+            grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {}; cardUrls = {}; // ★v2.7.1
             chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatCursor = {}; chatLastMs = {}; chatFontScale = {};
             session.players.forEach(p => {
                 activeCardIds.push(p.cardId);
@@ -1464,6 +1621,7 @@
 
             if (p.type === 'yt') {
                 localStorage.setItem('sync_url_' + p.cardId, p.url);
+                cardUrls[p.cardId] = p.url;   // ★v2.7.1: この経路を忘れると「セッション読込直後の再読み込みで消える」で再発する
                 const container = document.getElementById('playerContainer_' + p.cardId);
                 container.innerHTML = '<div id="ytPlayer_' + p.cardId + '"></div>';
                 let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0, 'start': Math.floor(p.currentTime) };
@@ -1607,6 +1765,7 @@
         function destroyPlayerCard(cardId) {
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
             delete cardVideoKeys[cardId];
+            delete cardUrls[cardId];      // ★v2.7.1: URLの情報源も枠と一緒に捨てる
             delete chatLoadedVideoId[cardId];
             const card = document.getElementById(cardId);
             if (card) card.remove();
@@ -1631,6 +1790,8 @@
             if (needsConfirm && !confirm('この枠の動画をクリアし、URL入力待ちに戻しますか？')) return;
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
             delete cardVideoKeys[cardId]; // 枠を空にしたので重複判定の対象外に戻す
+            delete cardUrls[cardId];      // ★v2.7.1: 消さないと再読み込みで復活する
+            localStorage.removeItem('sync_url_' + cardId); // ★v2.7.1: cardId系のキーも道連れにする
             const lv = document.getElementById('localVideo_' + cardId);
             if (lv) { lv.pause(); lv.src = ""; lv.load(); }
             document.getElementById('title_' + cardId).innerText = '未ロード';
@@ -1649,14 +1810,26 @@
             destroyPlayerCard(cardId); playerCount--;
             markSessionLineupChanged();
             updatePlayerCountDisplay();
-            updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists(); updateMasterOptions(); saveSettings();
+            /* ★v2.7.1: 枠を削除したら番号を詰め直す。
+               呼んでいなかったため localStorage 側に削除した枠のURLが
+               残り、再読み込みで消したはずの動画が復活していた。
+               （URL永続化の修正で表面化するため同時に直す） */
+            updateCardOrder(); resaveUrlsBasedOnOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists(); updateMasterOptions(); saveSettings();
         }
+        /* ★v2.7.1: 情報源を DOM から cardUrls へ変えた。
+           urlInput_* は loadSingleYT() が container.innerHTML で潰すため、
+           読み込み済みの枠には存在しない。DOM から読むと「消えた」ことに
+           なってしまい、再読み込みで全枠が空になっていた。
+           🔴 入力欄がまだ生きている枠（未ロード）は入力欄を優先する。
+              利用者が入力途中の文字列を持っている可能性があるため、
+              この優先順位を入れ替えてはいけない。 */
         function resaveUrlsBasedOnOrder() {
             for (let i = 1; i <= MAX_TOTAL_COUNT; i++) localStorage.removeItem('sync_url_' + i);
             const cards = getSortedCards();
             cards.forEach((card, index) => {
                 const input = document.getElementById('urlInput_' + card.id);
-                if (input && input.value.trim()) localStorage.setItem('sync_url_' + (index + 1), input.value.trim());
+                const url = (input && input.value.trim()) ? input.value.trim() : (cardUrls[card.id] || '');
+                if (url) localStorage.setItem('sync_url_' + (index + 1), url);
             });
         }
         function moveCard(cardId, direction) {
@@ -1785,6 +1958,26 @@
         let chatCursor = {};     // cardId → 次に描画するコメントの添字
         let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
         let chatFontScale = {};  // cardId → 文字サイズ倍率（枠ごとに独立）
+
+        /* ★v2.7.0: コメント流し（ニコニコ風）。
+           🔴 チャット欄用の chatCursor / chatLastMs と共用しないこと。
+              共用すると、チャット欄を閉じた瞬間に流しが進まなくなる
+              （pumpChatProgress は表示していない枠で早期に抜けるため）。
+              逆にチャット欄だけを開くと、流しのぶんだけカーソルが進んでいて一覧が飛ぶ。 */
+        let flowVisible = {};    // cardId → bool（流すか）
+        let flowCursor = {};     // cardId → 次に流すコメントの添字
+        let flowLastMs = {};     // cardId → 前回tickの再生位置（シーク検知用）
+        let flowLanes = {};      // cardId → レーンごとの表示中コメント配列
+        let flowVideoId = {};    // cardId → いま流している videoId（差し替え検知用）
+        let flowLayerEl = {};    // cardId → 現在のオーバーレイ要素（作り直し検知用）
+        let flowClockMs = {};    // cardId → 直近tickで読んだ再生位置
+        let flowClockAt = {};    // cardId → それを読んだ performance.now()
+        let flowPaused = {};     // cardId → 前回tickから再生位置が進んでいないか（保険の判定）
+        let flowFrozenMs = {};   // cardId → 一時停止した瞬間の位置を掴んでおく
+        let flowLastEstMs = {};  // cardId → 直近フレームで描いた位置
+        let flowW = {};          // cardId → 直近の枠の幅（変わったら移動量を引き直す）
+        let flowRaf = null;      // 🔴 全枠で1本だけ。枠ごとに立てないこと
+        let flowCanvasCtx = null;
 
         const CHAT_RATIO_DEFAULT = 0.30;
         const CHAT_RATIO_MIN = 0.15;
@@ -2155,6 +2348,10 @@
                 const pct = store.videoMs > 0
                     ? Math.min(99, Math.floor(store.lastT / store.videoMs * 100)) : 0;
                 el.innerText = '💬 チャット (' + n + ' / 取得中 ' + pct + '%)';
+            } else if (store.comments.length === 0) {
+                /* ★v2.6.5: 0件は「不完全」ではなく「無い」。案内文（showChatEmptyNote）が
+                   原因の候補を出すので、ヘッダーでは件数だけを示す。 */
+                el.innerText = '💬 チャット (コメントなし)';
             } else if (store.gap || store.truncated || store.complete === false) {
                 el.innerText = '💬 チャット (' + n + ' ⚠不完全)';
             } else {
@@ -2175,11 +2372,42 @@
 
         /* ★v2.6.2: ヘルパー経路を撤去したので、ここが失敗の終点になる。
            自動で別経路へ逃げられない以上、利用者が自力で切り分けられる案内を必ず出す。
-           順序は /get-protocol-spec 7節🔴（注入されない問題）の切り分け手順に合わせてある。 */
+           ★v2.6.4: B側が error の先頭へ理由コードを載せるようになった（'CODE: 説明'）。
+              原因が確定しているものは切り分け手順を出さない。
+              権限を疑わせる案内を無関係な失敗にまで出すと、利用者を無駄に迷わせる。
+           順序は /get-protocol-spec 8節🔴（注入されない問題）の切り分け手順に合わせてある。 */
         function showChatFailNote(cardId, videoId) {
+            const raw  = String(chatError[videoId] || '');
+            const m    = raw.match(/^([A-Z_]+):\s*([\s\S]*)$/);
+            const code = m ? m[1] : '';
+            const msg  = m ? m[2] : raw;
+
+            /* 何度試しても結果が変わらないもの: 説明だけを出し、再試行ボタンも出さない。 */
+            if (code === 'NOT_LIVE_ARCHIVE') {
+                showChatNote(cardId, escapeChatText(msg) +
+                    '<span class="sub">通常の動画にはチャットのリプレイがありません。<br>' +
+                    'ライブ配信のアーカイブを読み込むと表示されます。</span>');
+                return;
+            }
+            if (code === 'CHAT_DISABLED') {
+                showChatNote(cardId, escapeChatText(msg) +
+                    '<span class="sub">配信者がチャットのリプレイを公開していないため、' +
+                    '取得する方法はありません。</span>');
+                return;
+            }
+            /* ログインし直せば状況が変わりうるので、これだけ再試行を残す。 */
+            if (code === 'MEMBERS_ONLY') {
+                showChatNote(cardId, escapeChatText(msg) +
+                    '<span class="sub">メンバー限定コンテンツへの対応は未実装です。<br>' +
+                    'ブラウザで該当チャンネルにログイン済みでも、現時点では取得できません。</span>' +
+                    '<button onclick="reloadChat(\'' + cardId + '\')">再試行</button>');
+                return;
+            }
+
+            /* 原因が確定していないもの（権限・通信・注入など）: 従来どおり切り分け手順を出す。 */
             showChatNote(cardId,
                 'コメントを取得できませんでした。' +
-                '<span class="sub">' + escapeChatText(chatError[videoId] || '') + '<br><br>' +
+                '<span class="sub">' + escapeChatText(msg) + '<br><br>' +
                 '確認する順番:<br>' +
                 '① YouTubeのタブでツールバーの拡張機能アイコン →「このサイトでの実行を許可」<br>' +
                 '② 画面右上のバッジが緑（HTMLとアドオンの版数が一致）か<br>' +
@@ -2212,7 +2440,12 @@
             updateChatHeadTitle(cardId);
 
             const st = chatState[videoId];
-            if (st === 'ready') { showChatList(cardId); rebuildChatList(cardId); return; }
+            if (st === 'ready') {
+                /* ★v2.6.5: 0件のときは空のリストではなく専用の案内を出す。 */
+                const store = chatStore[videoId];
+                if (!store || store.comments.length === 0) { showChatEmptyNote(cardId, videoId); return; }
+                showChatList(cardId); rebuildChatList(cardId); return;
+            }
             /* ★'streaming' も描画対象。末尾が伸びる途中でも見せてよい。 */
             if (st === 'streaming') {
                 if (chatInflight[videoId]) { showChatList(cardId); rebuildChatList(cardId); return; }
@@ -2236,14 +2469,36 @@
                 '残りは再生しながら裏で取得します。</span>');
         }
 
+        /* ★v2.6.5: 取得は成功したのに1件も無い状態。成功でも失敗でもないので専用の表示にする。
+           実測（2026-07-29 / AoaL9zbPAkA）では、メンバー限定アーカイブにログイン済みで入ると
+           liveChatRenderer には到達できるが、辿った先が空で返る。
+           v2.6.4 まではここが空欄になり、不具合と区別がつかなかった。 */
+        function showChatEmptyNote(cardId, videoId) {
+            const store = chatStore[videoId];
+            const incomplete = !!(store && (store.complete === false || store.truncated || store.gap));
+
+            showChatNote(cardId,
+                'コメントが1件も見つかりませんでした。' +
+                '<span class="sub">' +
+                '考えられる原因:<br>' +
+                '① メンバー限定の配信（ログイン済みでもリプレイ本体が空で返ることがあります）<br>' +
+                '② 配信者がチャットのリプレイを公開していない<br>' +
+                '③ 配信中にコメントが1件も無かった<br>' +
+                (incomplete ? '<br>取得は最後まで到達していません。' : '') +
+                '</span>' +
+                '<button onclick="reloadChat(\'' + cardId + '\')">再試行</button>');
+        }
+
         /* 同じ videoId への多重要求は抑止する。
            applyChatLayoutForCard から updateChatContent が繰り返し呼ばれるため。
 
            ★v2.6.3: 取得要求を出す前にキャッシュを見る。
            ⚠️ `chatInflight` は**同期的に**立てること。キャッシュ照会を待ってから立てると、
               その間に繰り返し呼ばれて要求が多重に走る。 */
-        function requestChatArchive(cardId, videoId) {
-            showChatLoadingNote(cardId);
+        function requestChatArchive(cardId, videoId, quiet) {
+            /* ★v2.7.0: quiet=true は流しからの要求。チャット欄を開いていないので
+               案内文の描画だけを省く。取得の流れそのものは変えない。 */
+            if (!quiet) showChatLoadingNote(cardId);
             if (chatInflight[videoId]) return;
 
             const requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
@@ -2456,6 +2711,18 @@
                 if (chatLoadedVideoId[cardId] !== videoId) return;
                 const st = chatState[videoId];
                 if (st === 'ready' || st === 'streaming') {
+                    /* ★v2.6.5: ここは updateChatContent を経由しないので、0件の判定を独立して持つ。
+                       handleChatDone → refreshChatCardsFor が取得完了時の唯一の反映経路であり、
+                       ここを通さないと『取得直後だけ空欄』になる。
+                       streaming（取得中）は 0 件でも案内を出さない。まだ届いていないだけなので。 */
+                    if (st === 'ready') {
+                        const store = chatStore[videoId];
+                        if (!store || store.comments.length === 0) {
+                            updateChatHeadTitle(cardId);
+                            showChatEmptyNote(cardId, videoId);
+                            return;
+                        }
+                    }
                     showChatList(cardId);
                     updateChatHeadTitle(cardId);
                     rebuildChatList(cardId);
@@ -2774,6 +3041,7 @@
             delete chatStick[cardId];
             delete chatUserScrollAt[cardId];
             delete chatFontScale[cardId];
+            clearFlowState(cardId);        // ★v2.7.0
             saveChatState();
         }
 
@@ -2782,6 +3050,7 @@
                 localStorage.setItem('sync_chat_visible_map', JSON.stringify(chatVisible));
                 localStorage.setItem('sync_chat_ratio_map', JSON.stringify(chatRatio));
                 localStorage.setItem('sync_chat_font_map', JSON.stringify(chatFontScale));
+                localStorage.setItem('sync_flow_map', JSON.stringify(flowVisible));   // ★v2.7.0
             } catch (e) {}
         }
 
@@ -2792,6 +3061,492 @@
             catch (e) { chatRatio = {}; }
             try { chatFontScale = JSON.parse(localStorage.getItem('sync_chat_font_map')) || {}; }
             catch (e) { chatFontScale = {}; }
+            try { flowVisible = JSON.parse(localStorage.getItem('sync_flow_map')) || {}; }   // ★v2.7.0
+            catch (e) { flowVisible = {}; }
+        }
+
+        /* ============================================================
+           ニコニコ風コメント流し（v2.7.0 / 段階4-C）
+
+           ■ 実測にもとづく設計（danmaku_lab / 2026-07-31）
+             ・描画は D3（requestAnimationFrame で毎フレーム transform を書く）。
+               9枠・6.7件/秒で fps最低 89.6。CSS の transition / keyframes は
+               同じ条件で 65〜66 しか出なかった。243個が同時にアニメーションすると
+               ブラウザ側の再計算がメインスレッドで走るため、JSで書くほうが軽い。
+               🔴 指示書 4-2節の「rAFループを新設しない／CSSに任せれば軽い」は
+                  実測で覆っている。
+             ・時刻は実時間ではなく**動画の再生位置**を使う。
+               これにより一時停止・速度変更・シークが自動的に付いてくる。
+             ・間引きは T1（レーンが空いていなければ捨てる）。
+               lab で T2（割り込み）は追い越しが 231 回発生し、画面の途中で
+               コメントが消える挙動になった。T3/T4 は T1 より表示数が減った。
+
+           ■ 既定値は変数として持つ（v2.7.1 で調整UIを載せるため。直書きしない） */
+        const FLOW = {
+            durationMs: 4000,     // 画面を横断する時間（動画時間）。6000以上はカクつく
+            maxLanes: 0,          // 0 = 枠に入るだけ。9枠でも要間引き0%だったので上限は設けない
+            laneRatio: 1.3,       // レーン高 = round(文字px × 1.3)
+            maxOnscreen: 40,      // 1枠あたりの同時表示上限（実測最大27の1.5倍）
+            fontPx: 16,
+            gapPx: 8,             // 同じレーンの前後の最小すき間
+            emojiRatio: 1.2,      // 絵文字1個ぶんの幅を文字サイズの何倍とみなすか
+            /* ★v2.7.1: ここから下は設定メニューのスライダーで変えられる見た目 */
+            color: '#ffffff',     // 文字色
+            opacity: 1,           // 不透明度
+            areaRatio: 1,         // 画面の上側 何割 に流すか（動画の字幕・顔を避けるため）
+            shadow: true          // 文字の縁取り。切ると白い動画で読めなくなるので既定は on
+        };
+
+        /* ★v2.7.1: 「既定値に戻す」で書き戻す値。UIから触れるものだけを持つ。
+           laneRatio / gapPx / maxLanes / emojiRatio は利用者に触らせない。 */
+        const FLOW_DEFAULTS = {
+            maxOnscreen: 40, durationMs: 4000, fontPx: 16,
+            color: '#ffffff', opacity: 1, areaRatio: 1, shadow: true
+        };
+        const FLOW_KEYS = {
+            maxOnscreen: 'sync_flow_max_onscreen', durationMs: 'sync_flow_duration_ms',
+            fontPx: 'sync_flow_font_px', color: 'sync_flow_color',
+            opacity: 'sync_flow_opacity', areaRatio: 'sync_flow_area_ratio',
+            shadow: 'sync_flow_shadow'
+        };
+
+        /* スライダーの値を FLOW へ反映し、数値表示を更新して保存する。
+           🔴 レーンは作り直さない。flowEnsureLanes() が
+              「減ったぶんだけ片づける」実装になっているので、そちらに任せる。
+              全消しすると「一時停止したらコメントが消えた」ように見える。 */
+        function applyFlowSettingsFromUI() {
+            const num = function (id, fallback) {
+                const el = document.getElementById(id);
+                const v = el ? parseFloat(el.value) : NaN;
+                return isFinite(v) ? v : fallback;
+            };
+            FLOW.maxOnscreen = Math.round(num('flowMaxOnscreen', FLOW_DEFAULTS.maxOnscreen));
+            FLOW.durationMs  = Math.round(num('flowDurationMs',  FLOW_DEFAULTS.durationMs));
+            FLOW.fontPx      = Math.round(num('flowFontPx',      FLOW_DEFAULTS.fontPx));
+            FLOW.opacity     = num('flowOpacity',   FLOW_DEFAULTS.opacity);
+            FLOW.areaRatio   = num('flowAreaRatio', FLOW_DEFAULTS.areaRatio);
+            const colorEl  = document.getElementById('flowColor');
+            const shadowEl = document.getElementById('flowShadow');
+            if (colorEl)  FLOW.color  = colorEl.value || FLOW_DEFAULTS.color;
+            if (shadowEl) FLOW.shadow = !!shadowEl.checked;
+            updateFlowSettingLabels();
+            /* ドラッグ中は1フレームごとに呼ばれるので、書き込むのは流しの7項目だけにする
+               （saveSettings() 全体を呼ぶと毎回17項目を書くことになる）。 */
+            saveFlowSettings();
+        }
+
+        function updateFlowSettingLabels() {
+            const set = function (id, text) {
+                const el = document.getElementById(id);
+                if (el) el.innerText = text;
+            };
+            set('flowMaxOnscreenVal', FLOW.maxOnscreen + '件');
+            set('flowDurationMsVal', (FLOW.durationMs / 1000).toFixed(1) + '秒');
+            set('flowFontPxVal', FLOW.fontPx + 'px');
+            set('flowOpacityVal', Number(FLOW.opacity).toFixed(2));
+            set('flowAreaRatioVal', '上' + Math.round(FLOW.areaRatio * 100) + '%');
+        }
+
+        /* FLOW の現在値をスライダー側へ書き戻す（起動時の復元・既定値に戻すの両方で使う）。
+           ⚠️ 値だけ戻してUIが既定位置のままだと、次に触った瞬間に値が飛ぶ。 */
+        function syncFlowSettingUI() {
+            const put = function (id, v) {
+                const el = document.getElementById(id);
+                if (el) el.value = v;
+            };
+            put('flowMaxOnscreen', FLOW.maxOnscreen);
+            put('flowDurationMs', FLOW.durationMs);
+            put('flowFontPx', FLOW.fontPx);
+            put('flowColor', FLOW.color);
+            put('flowOpacity', FLOW.opacity);
+            put('flowAreaRatio', FLOW.areaRatio);
+            const shadowEl = document.getElementById('flowShadow');
+            if (shadowEl) shadowEl.checked = !!FLOW.shadow;
+            updateFlowSettingLabels();
+        }
+
+        function resetFlowSettings() {
+            for (const k in FLOW_DEFAULTS) FLOW[k] = FLOW_DEFAULTS[k];
+            syncFlowSettingUI();
+            saveFlowSettings();
+        }
+
+        function saveFlowSettings() {
+            for (const k in FLOW_KEYS) localStorage.setItem(FLOW_KEYS[k], FLOW[k]);
+        }
+
+        function loadFlowSettings() {
+            for (const k in FLOW_KEYS) {
+                const raw = localStorage.getItem(FLOW_KEYS[k]);
+                if (raw === null) continue;
+                if (k === 'color') { FLOW.color = raw; continue; }
+                if (k === 'shadow') { FLOW.shadow = (raw === 'true'); continue; }
+                const v = parseFloat(raw);
+                if (isFinite(v)) FLOW[k] = v;
+            }
+            syncFlowSettingUI();
+        }
+
+        function flowLaneHeight() { return Math.round(FLOW.fontPx * FLOW.laneRatio); }
+
+        /* 文字幅は canvas で測る。要素を足して offsetWidth を読むと
+           コメント1件ごとに強制レイアウトが走る。 */
+        function flowTextWidth(text) {
+            try {
+                if (!flowCanvasCtx) flowCanvasCtx = document.createElement('canvas').getContext('2d');
+                flowCanvasCtx.font = 'bold ' + FLOW.fontPx + 'px ' + getComputedStyle(document.body).fontFamily;
+                // 絵文字は画像に置き換わるので、文字幅ではなく固定幅とみなす
+                const plain = String(text == null ? '' : text).replace(/:[^:\s]+:/g, '');
+                const emojiCount = (String(text || '').match(/:[^:\s]+:/g) || []).length;
+                return flowCanvasCtx.measureText(plain).width + emojiCount * FLOW.fontPx * FLOW.emojiRatio;
+            } catch (e) {
+                return String(text || '').length * FLOW.fontPx * 0.95;
+            }
+        }
+
+        /* 🔴 オーバーレイは毎tick作り直しを確認する（自己修復）。
+           loadSingleYT() などが container.innerHTML でプレイヤーを差し込むため、
+           一度置いただけの層は動画を読み込むたびに消える。 */
+        function ensureFlowLayer(cardId) {
+            const container = document.getElementById('playerContainer_' + cardId);
+            if (!container) return null;
+            let layer = container.querySelector(':scope > .flow-layer');
+            if (!layer) {
+                layer = document.createElement('div');
+                layer.className = 'flow-layer';
+                layer.id = 'flowLayer_' + cardId;
+                container.appendChild(layer);
+            }
+            if (flowLayerEl[cardId] !== layer) {
+                // 作り直された＝中身は消えている。状態も作り直す
+                flowLayerEl[cardId] = layer;
+                flowLanes[cardId] = null;
+                flowLastMs[cardId] = null;
+            }
+            layer.style.display = flowVisible[cardId] ? 'block' : 'none';
+            return layer;
+        }
+
+        function flowClearCard(cardId) {
+            const lanes = flowLanes[cardId];
+            if (lanes) {
+                for (let i = 0; i < lanes.length; i++) {
+                    for (let j = 0; j < lanes[i].length; j++) lanes[i][j].el.remove();
+                    lanes[i] = [];
+                }
+            }
+            const layer = document.getElementById('flowLayer_' + cardId);
+            if (layer) while (layer.firstChild) layer.removeChild(layer.firstChild);
+        }
+
+        /* 🔴 レーン数が変わっても、流れているコメントを消さないこと。
+              枠の高さは、下部の操作バーが引っ込む・YouTube のコントロールが出る・
+              ピン留めするなど、利用者が意図しない場面でも普通に変わる。
+              そのたびに全消しすると「一時停止したらコメントが消えた」ように見える。
+              増えたぶんは足し、減ったぶんに載っていたコメントだけを片づける。 */
+        function flowEnsureLanes(cardId, layer) {
+            const lh = flowLaneHeight();
+            /* ★v2.7.1: 画面の上側 areaRatio ぶんにだけ流す（字幕や顔を避ける設定）。
+               レーンが減ったときの片づけは下の分岐がそのまま担当する。 */
+            let n = Math.max(1, Math.floor(((layer.clientHeight || 0) * FLOW.areaRatio) / lh));
+            if (FLOW.maxLanes > 0) n = Math.min(n, FLOW.maxLanes);
+            let lanes = flowLanes[cardId];
+            if (!lanes) {
+                lanes = [];
+                for (let i = 0; i < n; i++) lanes.push([]);
+                flowLanes[cardId] = lanes;
+            } else if (lanes.length !== n) {
+                if (n < lanes.length) {
+                    for (let i = n; i < lanes.length; i++) {
+                        for (let j = 0; j < lanes[i].length; j++) lanes[i][j].el.remove();
+                    }
+                    lanes.length = n;
+                } else {
+                    while (lanes.length < n) lanes.push([]);
+                }
+            }
+            /* 幅が変わったら、流れている途中のコメントの移動量を引き直す。
+               引き直さないと画面の途中で止まったり行き過ぎたりする。 */
+            const W = layer.clientWidth || 0;
+            if (W && flowW[cardId] !== W) {
+                flowW[cardId] = W;
+                for (let i = 0; i < lanes.length; i++) {
+                    for (let j = 0; j < lanes[i].length; j++) lanes[i][j].target = -(W + lanes[i][j].w);
+                }
+            }
+            return lanes;
+        }
+
+        /* レーンを1本選ぶ。空いていなければ捨てる（T1・先着優先）。
+           幅が広いコメントほど速く進むので、前のコメントに追いつかない条件も見る。
+
+           🔴 空いているレーンの「先頭」を返してはいけない。
+              コメントが薄い動画（例: 902件/101分 = 0.15件/秒）では常に最上段が空くため、
+              流れるコメントが全部1行目に集まり、動画のタイトル帯の上に重なって見える。
+              空きの中から無作為に選ぶ。 */
+        function flowPickLane(lanes, W, w, nowMs) {
+            const free = [];
+            for (let i = 0; i < lanes.length; i++) {
+                const items = lanes[i];
+                if (!items.length) { free.push(i); continue; }
+                const prev = items[items.length - 1];
+                const need = FLOW.durationMs * Math.max(
+                    (prev.w + FLOW.gapPx) / (W + prev.w),
+                    w / (W + w));
+                if ((nowMs - prev.t0) >= need) free.push(i);
+            }
+            if (!free.length) return -1;
+            return free[(Math.random() * free.length) | 0];
+        }
+
+        function flowSpawn(cardId, layer, lanes, c, emojiMap) {
+            const W = layer.clientWidth || 0;
+            if (!W) return;
+            let onscreen = 0;
+            for (let i = 0; i < lanes.length; i++) onscreen += lanes[i].length;
+            if (onscreen >= FLOW.maxOnscreen) return;
+
+            const w = flowTextWidth(c.m);
+            const lane = flowPickLane(lanes, W, w, c.t);
+            if (lane < 0) return;
+
+            const el = document.createElement('div');
+            el.className = 'flow-msg';
+            el.style.fontSize = FLOW.fontPx + 'px';
+            el.style.lineHeight = flowLaneHeight() + 'px';
+            /* ★v2.7.1: 見た目は生成時に焼き付ける。
+               すでに流れている要素は変わらない（文字サイズを変えると幅が変わり、
+               移動量の再計算が要るため。複雑さに見合わないので許容する）。 */
+            el.style.color = FLOW.color;
+            el.style.opacity = FLOW.opacity;
+            el.style.textShadow = FLOW.shadow ? '' : 'none';
+            el.style.top = (lane * flowLaneHeight()) + 'px';
+            el.style.transform = 'translateX(0px)';
+            appendChatBody(el, c.m, emojiMap);   /* 🔴 innerHTML は使わない（他人が書いた文字列） */
+            layer.appendChild(el);
+            lanes[lane].push({ el: el, w: w, t0: c.t, target: -(W + w) });
+        }
+
+        /* 一時停止しているか。
+           🔴 250ms tick の位置比較だけで判定すると、止めてから最大0.5秒流れ続ける。
+              YouTube のプレイヤーは再生状態を手元に持っている（getPlayerState は
+              問い合わせではなく取得済みの値を返す）ので、これを毎フレーム見る。
+              1=再生中。2=一時停止 / 3=バッファ中 / 0=終了 はいずれも止める。
+              プレイヤーが無い場合だけ tick 側の位置比較へ落ちる。 */
+        function flowIsPaused(cardId) {
+            const yt = ytPlayers[cardId];
+            if (yt && typeof yt.getPlayerState === 'function') {
+                try {
+                    const st = yt.getPlayerState();
+                    if (typeof st === 'number' && st >= 0) return st !== 1;
+                } catch (e) {}
+            }
+            return !!flowPaused[cardId];
+        }
+
+        /* tick で読んだ再生位置を、フレーム間は performance.now() で補間する。
+           毎フレーム 9枠ぶん getCurrentTime() を叩かないための仕掛け。
+           補間は 400ms で頭打ちにする（tick が遅れても走りすぎないように）。 */
+        function flowEstMs(cardId) {
+            const base = flowClockMs[cardId];
+            if (base === undefined || base === null) return null;
+
+            if (flowIsPaused(cardId)) {
+                /* 止めた瞬間に描いていた位置をそのまま掴む。
+                   tick の値（最大250ms古い）へ戻すと、止めた瞬間に巻き戻って見える。 */
+                if (flowFrozenMs[cardId] === undefined || flowFrozenMs[cardId] === null) {
+                    flowFrozenMs[cardId] = (flowLastEstMs[cardId] === undefined || flowLastEstMs[cardId] === null)
+                        ? base : flowLastEstMs[cardId];
+                }
+                return flowFrozenMs[cardId];
+            }
+
+            if (flowFrozenMs[cardId] !== undefined && flowFrozenMs[cardId] !== null) {
+                /* 再開した瞬間だけ、その場で再生位置を読み直す（次のtickまで待たない）。 */
+                flowFrozenMs[cardId] = null;
+                const now = getChatPlayheadMs(cardId);
+                if (now !== null) {
+                    flowClockMs[cardId] = now;
+                    flowClockAt[cardId] = performance.now();
+                    flowLastEstMs[cardId] = now;
+                    return now;
+                }
+            }
+
+            const dt = Math.min(400, performance.now() - (flowClockAt[cardId] || 0));
+            const est = base + dt * (currentPlaybackSpeed || 1);
+            flowLastEstMs[cardId] = est;
+            return est;
+        }
+
+        /* 🔴 rAF ループは全枠で1本だけ。枠ごとに立てると9本同時に回る。 */
+        function flowRafLoop() {
+            flowRaf = requestAnimationFrame(flowRafLoop);
+            let any = false;
+            for (let k = 0; k < activeCardIds.length; k++) {
+                const cardId = activeCardIds[k];
+                if (!flowVisible[cardId]) continue;
+                const lanes = flowLanes[cardId];
+                if (!lanes) continue;
+                any = true;
+                const ms = flowEstMs(cardId);
+                if (ms === null) continue;
+                for (let i = 0; i < lanes.length; i++) {
+                    const items = lanes[i];
+                    for (let j = items.length - 1; j >= 0; j--) {
+                        const it = items[j];
+                        const p = (ms - it.t0) / FLOW.durationMs;
+                        if (p >= 1) { it.el.remove(); items.splice(j, 1); continue; }
+                        /* 補間した位置が一瞬だけ巻き戻ることがある（tickの再取得時）。
+                           そこで消すと出たばかりのコメントが点滅するので、0で止めるだけにする。 */
+                        it.el.style.transform = 'translateX(' + (it.target * (p < 0 ? 0 : p)) + 'px)';
+                    }
+                }
+            }
+            if (!any) { cancelAnimationFrame(flowRaf); flowRaf = null; }
+        }
+
+        function flowSyncRaf(anyOn) {
+            if (anyOn && !flowRaf) flowRaf = requestAnimationFrame(flowRafLoop);
+        }
+
+        /* 毎tick（TIMER_TICK_MS = 250ms）呼ばれる。生成だけを担当し、移動は rAF に任せる。
+
+           🔴 pumpChatProgress には乗せられない。あちらは冒頭で
+              「チャット欄が非表示なら何もしない」で抜けるため、
+              チャット欄を閉じた状態で流しが止まってしまう。 */
+        function pumpFlowProgress() {
+            let anyOn = false;
+            activeCardIds.forEach(function (cardId) {
+                const btn = document.getElementById('flowToggleBtn_' + cardId);
+                if (btn) btn.classList.toggle('active', !!flowVisible[cardId]);
+
+                if (!flowVisible[cardId]) {
+                    const layer = document.getElementById('flowLayer_' + cardId);
+                    if (layer && layer.style.display !== 'none') {
+                        flowClearCard(cardId);
+                        layer.style.display = 'none';
+                    }
+                    return;
+                }
+                anyOn = true;
+
+                const layer = ensureFlowLayer(cardId);
+                if (!layer) return;
+
+                const videoId = getChatVideoId(cardId);
+                if (!videoId) { flowClearCard(cardId); return; }
+                if (flowVideoId[cardId] !== videoId) {      // 動画が差し替わった
+                    flowVideoId[cardId] = videoId;
+                    flowClearCard(cardId);
+                    flowCursor[cardId] = 0;
+                    flowLastMs[cardId] = null;
+                }
+
+                /* ★流しだけをオンにしても取得を始める（チャット欄を開かない使い方が主用途）。
+                   多重要求の抑止は requestChatArchive 側の chatInflight が担う。 */
+                if (chatState[videoId] === undefined) requestChatArchive(cardId, videoId, true);
+
+                const store = chatStore[videoId];
+                if (!store) return;
+                const comments = store.comments;
+
+                const ms = getChatPlayheadMs(cardId);
+                if (ms === null) return;                   // YouTube枠以外は流さない
+
+                const prev = flowLastMs[cardId];
+                flowClockMs[cardId] = ms;
+                flowClockAt[cardId] = performance.now();
+                flowPaused[cardId] = (prev !== null && prev !== undefined && Math.abs(ms - prev) < 30);
+
+                /* シーク検知。途中から繋げようとせず、全消しして出し直す。
+                   動いている要素の位置を後から補正する実装は状態が増えて不具合の温床になる。 */
+                if (prev === null || prev === undefined || ms < prev - 500 || ms > prev + 2000) {
+                    flowClearCard(cardId);
+                    flowCursor[cardId] = chatIndexFor(comments, ms);
+                }
+                flowLastMs[cardId] = ms;
+
+                const lanes = flowEnsureLanes(cardId, layer);
+                let i = flowCursor[cardId];
+                if (i === undefined || i === null) i = chatIndexFor(comments, ms);
+                let guard = 0;
+                while (i < comments.length && comments[i].t <= ms) {
+                    if (++guard > 200) {                   // 取りこぼしが大きすぎる → 現在位置へ追いつかせる
+                        flowClearCard(cardId);
+                        i = chatIndexFor(comments, ms);
+                        break;
+                    }
+                    flowSpawn(cardId, layer, lanes, comments[i], store.emoji);
+                    i++;
+                }
+                flowCursor[cardId] = i;
+            });
+            flowSyncRaf(anyOn);
+        }
+
+        /* チャット欄とは独立。併用できる（どちらも同じ chatStore を読むだけ）。 */
+        function toggleFlowVisibility(cardId) {
+            const willShow = !flowVisible[cardId];
+            flowVisible[cardId] = willShow;
+            if (!willShow) {
+                flowClearCard(cardId);
+                const layer = document.getElementById('flowLayer_' + cardId);
+                if (layer) layer.style.display = 'none';
+            } else {
+                ensureFlowLayer(cardId);
+                const videoId = getChatVideoId(cardId);
+                if (videoId && chatState[videoId] === undefined) requestChatArchive(cardId, videoId, true);
+                const store = videoId ? chatStore[videoId] : null;
+                const ms = getChatPlayheadMs(cardId);
+                flowVideoId[cardId] = videoId || null;
+                flowCursor[cardId] = (store && ms !== null) ? chatIndexFor(store.comments, ms) : 0;
+                flowLastMs[cardId] = null;      // 次のtickで現在位置から出し直す
+            }
+            const btn = document.getElementById('flowToggleBtn_' + cardId);
+            if (btn) btn.classList.toggle('active', willShow);
+            saveChatState();
+        }
+
+        function clearFlowState(cardId) {
+            flowClearCard(cardId);
+            delete flowVisible[cardId];
+            delete flowCursor[cardId];
+            delete flowLastMs[cardId];
+            delete flowLanes[cardId];
+            delete flowVideoId[cardId];
+            delete flowLayerEl[cardId];
+            delete flowClockMs[cardId];
+            delete flowClockAt[cardId];
+            delete flowPaused[cardId];
+            delete flowFrozenMs[cardId];
+            delete flowLastEstMs[cardId];
+            delete flowW[cardId];
+        }
+
+        /* 診断モード。コンソールで flowDebug() と打つと現在の状態を一覧する。 */
+        function flowDebug() {
+            const rows = activeCardIds.map(function (cardId) {
+                const lanes = flowLanes[cardId] || [];
+                let on = 0;
+                for (let i = 0; i < lanes.length; i++) on += lanes[i].length;
+                const layer = document.getElementById('flowLayer_' + cardId);
+                return {
+                    枠: cardId,
+                    流し: !!flowVisible[cardId],
+                    videoId: flowVideoId[cardId] || '-',
+                    レーン: lanes.length,
+                    画面上: on,
+                    DOM: layer ? layer.childElementCount : '-',
+                    flowCursor: flowCursor[cardId],
+                    chatCursor: chatCursor[cardId],
+                    位置ms: flowClockMs[cardId],
+                    停止中: flowIsPaused(cardId),
+                    停止位置: flowFrozenMs[cardId] === undefined ? null : flowFrozenMs[cardId]
+                };
+            });
+            console.table(rows);
+            return 'rAFループ: ' + (flowRaf ? '1本' : 'なし');
         }
 
         /* 診断モード。コンソールで chatDebug() と打つと現在の状態を一覧する。 */
@@ -3275,6 +4030,7 @@
             /* リプレイチャットを各枠の再生位置へ追従させる。
                YouTubeの視聴ページは高頻度で進行を通知しているため毎tick送る。 */
             try { pumpChatProgress(); } catch (e) {}
+            try { pumpFlowProgress(); } catch (e) {}     // ★v2.7.0: 流しの生成（移動は rAF 側）
 
             updateTimerDisplay();
         }
@@ -3377,9 +4133,11 @@
             localStorage.setItem('sync_confirm_reset', document.getElementById('confirmReset').checked);
             localStorage.setItem('sync_confirm_delete', document.getElementById('confirmDelete').checked);
             localStorage.setItem('sync_master_mode', getCurrentMasterType());
+            saveFlowSettings();          // ★v2.7.1: コメント流しの調整値
         }
         function loadSavedSettings() {
             loadChatState(); // チャットの表示状態・幅の比率・モードを復元
+            loadFlowSettings(); // ★v2.7.1: コメント流しの調整値（スライダーの位置も戻す）
             if (localStorage.getItem('sync_layout2_dir')) setSelectValueSafe('layout2Dir', localStorage.getItem('sync_layout2_dir'), 'horizontal');
             if (localStorage.getItem('sync_layout_cols')) setSelectValueSafe('layoutCols', localStorage.getItem('sync_layout_cols'), 'auto');
             if (localStorage.getItem('sync_player_count')) {
@@ -3421,7 +4179,11 @@
             }, 300);
         }
         function clearAllSettings() {
-            if (confirm('すべての設定と保存URLをリセットしますか？')) { localStorage.clear(); location.reload(); }
+            if (confirm('すべての設定と保存URLをリセットしますか？')) {
+                cardUrls = {};            // ★v2.7.1: localStorage だけ消すとメモリ側から復活する
+                localStorage.clear();
+                location.reload();
+            }
         }
 </script>
 </body>
