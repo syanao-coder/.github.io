@@ -597,7 +597,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.7.2';
+        const APP_VERSION = '2.7.3';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -4186,5 +4186,10 @@
             }
         }
 </script>
+<!-- ★v2.7.3: 自動デバッグ基盤。本体機能ではなく開発基盤である。
+     既定では何も作らない（localStorage の sync_debug === '1' のときだけ有効）。
+     有効化は ?debug=1 / 無効化は ?debug=0。
+     このファイルを消すと 404 になるだけで本体は無傷。 -->
+<script src="debug_suite.js"></script>
 </body>
 </html>
