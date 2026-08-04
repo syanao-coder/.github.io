@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>スパイク5-A ─ メンバー限定アーカイブの埋め込み可否</title>
+<style>
+    :root { --panel-bg: rgba(20,26,32,0.92); --accent: #00ffcc; }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; padding: 16px; background: #0d1117; color: #d8e0e6;
+        font-family: "Segoe UI", "Meiryo", sans-serif; font-size: 14px; line-height: 1.6;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; color: var(--accent); }
+    h2 { font-size: 15px; margin: 0 0 10px; color: var(--accent); border-bottom: 1px solid #2a3540; padding-bottom: 4px; }
+    h3 { font-size: 13px; margin: 12px 0 6px; color: #9fe8dc; }
+    .meta { font-size: 12px; color: #8a9aa6; margin-bottom: 10px; }
+    .panel {
+        background: var(--panel-bg); border: 1px solid #23404a; border-radius: 6px;
+        padding: 12px; margin-bottom: 14px;
+    }
+    .warn { background: #3a2a12; border: 1px solid #a06a20; color: #ffd699; padding: 8px 10px; border-radius: 4px; margin-bottom: 14px; font-size: 13px; }
+    .ng { background: #3a1616; border: 1px solid #a03030; color: #ffb3b3; padding: 8px 10px; border-radius: 4px; margin: 8px 0; font-size: 13px; }
+    .ok { background: #14301f; border: 1px solid #2f8a55; color: #a9f0c4; padding: 8px 10px; border-radius: 4px; margin: 8px 0; font-size: 13px; }
+    button {
+        background: #17323a; color: var(--accent); border: 1px solid var(--accent);
+        border-radius: 4px; padding: 8px 14px; font-size: 14px; cursor: pointer; margin: 2px 4px 2px 0;
+    }
+    button:hover:not(:disabled) { background: #1f4650; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.sub { font-size: 12px; padding: 4px 10px; color: #cfd8dd; border-color: #4a5a66; }
+    input[type=text] {
+        background: #0f1720; color: #d8e0e6; border: 1px solid #3a4a56; border-radius: 3px;
+        padding: 4px 6px; font-size: 13px; font-family: monospace;
+    }
+    label { cursor: pointer; margin-right: 14px; }
+    .row { margin-bottom: 8px; }
+    .players { display: flex; gap: 10px; flex-wrap: wrap; }
+    .pbox { flex: 1 1 320px; min-width: 300px; }
+    .pbox .ptitle { font-size: 13px; font-weight: bold; margin-bottom: 4px; color: #9fe8dc; }
+    .pbox .pframe { width: 100%; aspect-ratio: 16 / 9; background: #000; border: 1px solid #2a3540; }
+    .pbox .pframe iframe, .pbox .pframe div { width: 100%; height: 100%; border: 0; }
+    .pbox .pstat { font-size: 12px; color: #8a9aa6; min-height: 34px; margin-top: 4px; white-space: pre-wrap; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { border: 1px solid #2a3540; padding: 3px 6px; text-align: left; vertical-align: top; }
+    th { background: #16232b; color: #9fe8dc; white-space: nowrap; }
+    td.c { text-align: center; }
+    .miss { color: #ff9f9f; font-weight: bold; }
+    .yes { color: #7fe8a4; font-weight: bold; }
+    .no { color: #ff9f9f; font-weight: bold; }
+    pre#log {
+        background: #070b0f; border: 1px solid #23404a; border-radius: 4px; padding: 8px;
+        font-size: 11px; max-height: 260px; overflow-y: auto; white-space: pre-wrap; margin: 0;
+    }
+    .vblock { border: 1px solid #2a3540; border-radius: 4px; padding: 8px; margin-bottom: 8px; }
+    .vblock .choices label { display: block; margin: 2px 0; font-size: 13px; }
+    .grid td.done { background: #14301f; color: #a9f0c4; }
+    .grid td.todo { background: #2a1a1a; color: #ffb3b3; }
+    .hint { font-size: 12px; color: #8a9aa6; }
+</style>
+</head>
+<body>
+
+<h1>スパイク5-A ─ メンバー限定アーカイブの埋め込み可否</h1>
+<div class="meta">
+    spike_5a.html v<span id="sv"></span> ／ オリジン <span id="org"></span> ／ <span id="apiState">YouTube IFrame API 読み込み中…</span>
+</div>
+
+<div class="warn">
+    ⚠️ 調査専用ページ。本番コード（controller.html / アドオン）には一切影響しない。検証後に削除する。<br>
+    🔴 <b>プライベートウィンドウで取った記録は、ウィンドウを閉じると消える。</b>
+    状態Aを測り終えたら、状態Bへ移る前に必ず「📋 報告書用にコピー」を押して貼り付けておくこと。
+</div>
+
+<section class="panel">
+    <h2>1. 条件</h2>
+    <div class="row">
+        <b>ログイン状態</b>：
+        <label><input type="radio" name="login" value="A" checked> A: 非ログイン（プライベートウィンドウ）</label>
+        <label><input type="radio" name="login" value="B"> B: メンバーとしてログイン（通常ウィンドウ）</label>
+    </div>
+    <div class="row">
+        <b>VID_LIGHT</b>（通常の公開アーカイブ / positive control）：
+        <input type="text" id="vidLight" value="zuuZyNH0F1Y" size="16">
+        　<b>VID_MEMBERS</b>（メンバー限定アーカイブ）：
+        <input type="text" id="vidMembers" value="AoaL9zbPAkA" size="16">
+    </div>
+    <div class="row">
+        <label><input type="checkbox" id="muteFirst" checked> 再生時にミュートする（Firefox の自動再生ブロックを避けるため。既定ON）</label>
+    </div>
+</section>
+
+<section class="panel">
+    <h2>2. 実行</h2>
+    <div class="row">
+        <button id="btnStep1">▶ ステップ1：VID_LIGHT を3方式で実行（positive control）</button>
+        <button id="btnStep2" disabled>▶ ステップ2：VID_MEMBERS を3方式で実行</button>
+    </div>
+    <div id="pcBanner"></div>
+    <div id="runStatus" class="hint">未実行。まずログイン状態を選び、ステップ1から押すこと。</div>
+    <div class="hint">1回の実行は約22秒（onReady 待ち最大12秒 ＋ 計測10秒）。実行中はプレイヤーを見ていること。</div>
+</section>
+
+<section class="panel">
+    <h2>3. プレイヤー</h2>
+    <div class="players">
+        <div class="pbox">
+            <div class="ptitle">方式① YT.Player（本番と同一条件）</div>
+            <div class="pframe" id="c1"><div id="p1"></div></div>
+            <div class="pstat" id="s1">—</div>
+        </div>
+        <div class="pbox">
+            <div class="ptitle">方式② YT.Player ＋ youtube-nocookie（対照）</div>
+            <div class="pframe" id="c2"><div id="p2"></div></div>
+            <div class="pstat" id="s2">—</div>
+        </div>
+        <div class="pbox">
+            <div class="ptitle">方式③ iframe 直書き（enablejsapi=1）</div>
+            <div class="pframe" id="c3"></div>
+            <div class="pstat" id="s3">—</div>
+        </div>
+    </div>
+    <div class="hint">⚠️ 方式② は構造上ログインを運べない。対照としてのみ記録し、可否の判定には使わない。</div>
+</section>
+
+<section class="panel" id="visualPanel" style="display:none">
+    <h2>4. 目視の記録（計測直後に入力する）</h2>
+    <div id="visualBody"></div>
+    <button id="btnVisualSave">✅ 目視の記録を確定する</button>
+    <span class="hint">未選択があると保存できない。</span>
+</section>
+
+<section class="panel">
+    <h2>5. 記録</h2>
+    <h3>12通りの進捗（このウィンドウで測ったぶんだけ）</h3>
+    <div id="coverage"></div>
+    <h3>結果表</h3>
+    <div id="tableBox"></div>
+    <div class="row" style="margin-top:10px">
+        <button id="btnCopy">📋 報告書用にコピー</button>
+        <button id="btnClear" class="sub">🗑 このウィンドウの記録を消す</button>
+        <span id="copyMsg" class="hint"></span>
+    </div>
+</section>
+
+<section class="panel">
+    <h2>6. ログ</h2>
+    <pre id="log"></pre>
+</section>
+
+<script>
+(function () {
+    'use strict';
+
+    const SPIKE_VERSION = '1.0.0';
+    const LS_KEY = 'spike5a_results';
+    const READY_TIMEOUT_MS = 12000;
+    const STEP_A_MS = 3000;   // onReady から3秒後：state(3s)・videoData・playVideo()
+    const STEP_B_MS = 5000;   // playVideo() から5秒後：currentTime の進行判定
+    const STEP_C_MS = 2000;   // さらに2秒後（onReady から10秒後）：state(10s)
+
+    const STATE_NAME = {
+        '-1': 'unstarted(-1)', '0': 'ended(0)', '1': 'playing(1)',
+        '2': 'paused(2)', '3': 'buffering(3)', '5': 'cued(5)'
+    };
+    const ERR_NAME = {
+        2: '2:パラメータ不正', 5: '5:HTML5プレイヤーのエラー',
+        100: '100:動画が見つからない/非公開', 101: '101:埋め込み再生が所有者により禁止',
+        150: '150:101と同じ（埋め込み禁止）'
+    };
+    const METHOD_NAME = {
+        1: '方式①YT.Player', 2: '方式②nocookie', 3: '方式③iframe直書き'
+    };
+    const TEXT_CHOICES = [
+        'エラー文言なし（正常に再生された）',
+        '動画は再生できません',
+        'この動画は現在ご利用いただけません',
+        '別のウェブサイトでの再生は動画の所有者によって無効にされています',
+        'メンバーシップ関連の文言（メンバーになる必要がある等）',
+        '非公開の動画です',
+        '黒画面のまま何も表示されない',
+        'その他（下の欄に記入）'
+    ];
+    const AVATAR_CHOICES = ['あり（アバターが出ている）', 'なし（出ていない）', '判別できない'];
+
+    let RESULTS = [];
+    let ytApiReady = false;
+    let running = false;
+    let pending = [];       // 目視入力待ちのレコード
+    let m3rec = null;       // 方式③の postMessage 受信先
+    let players = { 1: null, 2: null };
+
+    const $ = (id) => document.getElementById(id);
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const nowIso = () => new Date().toISOString();
+
+    function two(n) { return (n < 10 ? '0' : '') + n; }
+    function stamp() {
+        const d = new Date();
+        return two(d.getHours()) + ':' + two(d.getMinutes()) + ':' + two(d.getSeconds());
+    }
+    function log(msg) {
+        const el = $('log');
+        el.textContent += '[' + stamp() + '] ' + msg + '\n';
+        el.scrollTop = el.scrollHeight;
+    }
+    function safe(fn, fallback) {
+        try {
+            const v = fn();
+            return (typeof v === 'undefined') ? (typeof fallback === 'undefined' ? null : fallback) : v;
+        } catch (e) {
+            return (typeof fallback === 'undefined') ? ('(取得不可: ' + e.name + ')') : fallback;
+        }
+    }
+    function stateLabel(v) {
+        if (v === null || typeof v === 'undefined') return '(取得不可)';
+        if (typeof v !== 'number') return String(v);
+        return STATE_NAME[String(v)] || String(v);
+    }
+    function currentLogin() {
+        const r = document.querySelector('input[name=login]:checked');
+        return r ? r.value : 'A';
+    }
+
+    /* ---------- 保存・復元 ---------- */
+    function save() {
+        try {
+            // _player / _frame は DOM・API オブジェクトで循環参照するため除外する
+            const json = JSON.stringify(RESULTS, function (k, v) { return (k.charAt(0) === '_') ? undefined : v; });
+            localStorage.setItem(LS_KEY, json);
+        } catch (e) { log('保存失敗: ' + e.message); }
+    }
+    function load() {
+        try {
+            const s = localStorage.getItem(LS_KEY);
+            if (s) RESULTS = JSON.parse(s) || [];
+        } catch (e) { RESULTS = []; }
+    }
+
+    /* ---------- YouTube IFrame API ---------- */
+    window.onYouTubeIframeAPIReady = function () {
+        ytApiReady = true;
+        $('apiState').textContent = 'YouTube IFrame API 読み込み完了';
+        log('YouTube IFrame API 読み込み完了');
+        updateButtons();
+    };
+    setTimeout(function () {
+        if (!ytApiReady) {
+            $('apiState').textContent = '⚠️ YouTube IFrame API が15秒経っても読み込めていない';
+            log('⚠️ YouTube IFrame API 未読み込み（15秒経過）');
+        }
+    }, 15000);
+
+    /* ---------- 方式③ の postMessage 受信 ---------- */
+    window.addEventListener('message', function (e) {
+        if (!m3rec || !m3rec._frame) return;
+        try { if (e.source !== m3rec._frame.contentWindow) return; } catch (_) { return; }
+        let d = e.data;
+        if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { return; } }
+        if (!d || typeof d !== 'object') return;
+        m3rec.pmCount++;
+        if (d.event) {
+            m3rec.pmEvents[d.event] = (m3rec.pmEvents[d.event] || 0) + 1;
+            if (d.event === 'onError') m3rec.pmError = d.info;
+            if (d.event === 'onStateChange' && typeof d.info === 'number') m3rec.pmState = d.info;
+            if (d.event === 'infoDelivery' && d.info && typeof d.info === 'object') {
+                if (typeof d.info.playerState === 'number') m3rec.pmState = d.info.playerState;
+                if (typeof d.info.currentTime === 'number') m3rec.pmTime = d.info.currentTime;
+                if (typeof d.info.duration === 'number') m3rec.pmDuration = d.info.duration;
+                if (d.info.videoData) m3rec.pmVideoData = d.info.videoData;
+                if (typeof d.info.errorCode !== 'undefined' && d.info.errorCode !== null) m3rec.pmError = d.info.errorCode;
+            }
+        }
+    });
+    function post3(rec, obj) {
+        try {
+            obj.id = 5; obj.channel = 'widget';
+            rec._frame.contentWindow.postMessage(JSON.stringify(obj), '*');
+        } catch (_) { }
+    }
+
+    /* ---------- レコード生成 ---------- */
+    function mkRec(method, videoKey, videoId) {
+        return {
+            uid: 'r' + Date.now().toString(36) + '_' + method + Math.floor(Math.random() * 1000),
+            at: nowIso(),
+            login: currentLogin(),
+            videoKey: videoKey,
+            videoLabel: (videoKey === 'light' ? 'VID_LIGHT' : 'VID_MEMBERS'),
+            videoId: videoId,
+            method: method,
+            muted: $('muteFirst').checked,
+            basis: null,
+            ready: false,
+            readyElapsedMs: null,
+            errors: [],
+            stateChanges: [],
+            state3: null,
+            state10: null,
+            title: null, vid: null, author: null, duration: null,
+            ctBefore: null, ctAfter: null, advanced: null,
+            iframeLoadedMs: null,
+            pmCount: 0, pmEvents: {}, pmState: null, pmTime: null,
+            pmDuration: null, pmVideoData: null, pmError: null,
+            displayedText: null, displayedTextFree: '', avatar: null,
+            _player: null, _frame: null, _t0: 0
+        };
+    }
+
+    /* ---------- 方式①② ---------- */
+    function createYT(rec, divId) {
+        return new Promise(function (resolve) {
+            let done = false;
+            const opts = {
+                videoId: rec.videoId,
+                playerVars: { 'playsinline': 1, 'controls': 1, 'rel': 0 },
+                events: {
+                    'onReady': function (ev) {
+                        rec.ready = true;
+                        rec.readyElapsedMs = Math.round(performance.now() - rec._t0);
+                        log(METHOD_NAME[rec.method] + ' onReady 到達 (' + rec.readyElapsedMs + 'ms)');
+                        setStat(rec.method, 'onReady 到達 ' + rec.readyElapsedMs + 'ms');
+                        if (!done) { done = true; resolve(ev.target); }
+                    },
+                    'onError': function (ev) {
+                        rec.errors.push({ code: ev.data, atMs: Math.round(performance.now() - rec._t0) });
+                        log('🔴 ' + METHOD_NAME[rec.method] + ' onError = ' + (ERR_NAME[ev.data] || ev.data));
+                        setStat(rec.method, 'onError = ' + (ERR_NAME[ev.data] || ev.data));
+                    },
+                    'onStateChange': function (ev) {
+                        rec.stateChanges.push({ s: ev.data, atMs: Math.round(performance.now() - rec._t0) });
+                    }
+                }
+            };
+            if (rec.method === 2) opts.host = 'https://www.youtube-nocookie.com';
+            rec._player = new YT.Player(divId, opts);
+            setTimeout(function () { if (!done) { done = true; resolve(null); } }, READY_TIMEOUT_MS);
+        });
+    }
+
+    /* ---------- 方式③ ---------- */
+    function createRaw(rec) {
+        const c = $('c3');
+        c.innerHTML = '';
+        const f = document.createElement('iframe');
+        f.setAttribute('allow', 'autoplay; encrypted-media');
+        f.setAttribute('allowfullscreen', 'true');
+        f.src = 'https://www.youtube.com/embed/' + rec.videoId + '?enablejsapi=1';
+        f.addEventListener('load', function () {
+            rec.iframeLoadedMs = Math.round(performance.now() - rec._t0);
+            log('方式③ iframe load (' + rec.iframeLoadedMs + 'ms)');
+            setStat(3, 'iframe load ' + rec.iframeLoadedMs + 'ms');
+        });
+        c.appendChild(f);
+        rec._frame = f;
+        m3rec = rec;
+        // listening を撒いて postMessage 経路が生きているかを確かめる
+        let n = 0;
+        const iv = setInterval(function () {
+            post3(rec, { event: 'listening' });
+            if (++n >= 20) clearInterval(iv);
+        }, 400);
+    }
+
+    function setStat(method, text) {
+        $('s' + method).textContent = text;
+    }
+
+    /* ---------- 1方式ぶんの計測 ---------- */
+    async function measure(rec) {
+        rec._t0 = performance.now();
+        if (rec.method === 3) {
+            createRaw(rec);
+            await wait(3000);
+            rec.basis = 'iframe作成から';
+            rec.state3 = rec.pmState;
+            rec.ctBefore = rec.pmTime;
+            if (rec.muted) post3(rec, { event: 'command', func: 'mute', args: [] });
+            post3(rec, { event: 'command', func: 'playVideo', args: [] });
+            log('方式③ playVideo コマンド送信');
+            await wait(STEP_B_MS);
+            rec.ctAfter = rec.pmTime;
+            rec.advanced = (typeof rec.ctBefore === 'number' && typeof rec.ctAfter === 'number')
+                ? (rec.ctAfter - rec.ctBefore > 0.5) : null;
+            await wait(STEP_C_MS);
+            rec.state10 = rec.pmState;
+            rec.title = rec.pmVideoData ? (rec.pmVideoData.title || null) : null;
+            rec.vid = rec.pmVideoData ? (rec.pmVideoData.video_id || null) : null;
+            rec.author = rec.pmVideoData ? (rec.pmVideoData.author || null) : null;
+            rec.duration = rec.pmDuration;
+            if (rec.pmError !== null && typeof rec.pmError !== 'undefined') {
+                rec.errors.push({ code: rec.pmError, atMs: null, via: 'postMessage' });
+            }
+            post3(rec, { event: 'command', func: 'pauseVideo', args: [] });
+            setStat(3, 'postMessage 受信 ' + rec.pmCount + '件 / state=' + stateLabel(rec.state10)
+                + ' / 再生進行=' + (rec.advanced === null ? '判定不能' : (rec.advanced ? 'YES' : 'NO')));
+            return;
+        }
+
+        const divId = 'p' + rec.method;
+        const cont = $('c' + rec.method);
+        if (players[rec.method]) { try { players[rec.method].destroy(); } catch (_) { } players[rec.method] = null; }
+        cont.innerHTML = '<div id="' + divId + '"></div>';
+        setStat(rec.method, 'onReady 待ち…');
+        const p = await createYT(rec, divId);
+        players[rec.method] = rec._player;
+        rec.basis = rec.ready ? 'onReadyから' : 'onReady未到達（作成から計測）';
+        if (!rec.ready) { log('⚠️ ' + METHOD_NAME[rec.method] + ' onReady 未到達（' + READY_TIMEOUT_MS + 'ms）'); }
+
+        await wait(STEP_A_MS);
+        const pl = rec._player;
+        rec.state3 = safe(function () { return pl.getPlayerState(); });
+        const vd = safe(function () { return pl.getVideoData(); }, null);
+        if (vd && typeof vd === 'object') {
+            rec.title = vd.title || null; rec.vid = vd.video_id || null; rec.author = vd.author || null;
+        }
+        rec.duration = safe(function () { return pl.getDuration(); });
+        rec.ctBefore = safe(function () { return pl.getCurrentTime(); });
+        if (rec.muted) safe(function () { pl.mute(); });
+        safe(function () { pl.playVideo(); });
+        log(METHOD_NAME[rec.method] + ' playVideo() 呼び出し / state(3s)=' + stateLabel(rec.state3));
+
+        await wait(STEP_B_MS);
+        rec.ctAfter = safe(function () { return pl.getCurrentTime(); });
+        rec.advanced = (typeof rec.ctBefore === 'number' && typeof rec.ctAfter === 'number')
+            ? (rec.ctAfter - rec.ctBefore > 0.5) : null;
+
+        await wait(STEP_C_MS);
+        rec.state10 = safe(function () { return pl.getPlayerState(); });
+        safe(function () { pl.pauseVideo(); });
+        setStat(rec.method, 'onReady=' + (rec.ready ? rec.readyElapsedMs + 'ms' : '未到達')
+            + ' / onError=' + (rec.errors.length ? rec.errors.map(function (x) { return x.code; }).join(',') : 'なし')
+            + '\nstate3=' + stateLabel(rec.state3) + ' / state10=' + stateLabel(rec.state10)
+            + ' / 再生進行=' + (rec.advanced === null ? '判定不能' : (rec.advanced ? 'YES' : 'NO')));
+    }
+
+    /* ---------- 実行 ---------- */
+    async function runStep(videoKey) {
+        if (running) return;
+        if (!ytApiReady) { alert('YouTube IFrame API がまだ読み込まれていない。'); return; }
+        const videoId = (videoKey === 'light' ? $('vidLight').value : $('vidMembers').value).trim();
+        if (!videoId) { alert('動画IDが空。'); return; }
+        if (pending.length) { alert('先に「✅ 目視の記録を確定する」を押すこと。'); return; }
+
+        running = true;
+        updateButtons();
+        const login = currentLogin();
+        log('===== 実行開始: 状態' + login + ' / ' + (videoKey === 'light' ? 'VID_LIGHT' : 'VID_MEMBERS') + ' = ' + videoId + ' =====');
+        $('runStatus').textContent = '実行中… 約22秒。プレイヤーの表示を見ていること。';
+
+        const recs = [mkRec(1, videoKey, videoId), mkRec(2, videoKey, videoId), mkRec(3, videoKey, videoId)];
+        await Promise.all(recs.map(measure));
+
+        recs.forEach(function (r) { RESULTS.push(r); });
+        save();
+        render();
+        showVisual(recs);
+        log('===== 実行終了。目視の記録を入力すること =====');
+        $('runStatus').textContent = '計測完了。「4. 目視の記録」を入力して確定すること。';
+        running = false;
+        updateButtons();
+    }
+
+    /* ---------- 目視入力 ---------- */
+    function showVisual(recs) {
+        pending = recs;
+        const box = $('visualBody');
+        box.innerHTML = '';
+        recs.forEach(function (r) {
+            const d = document.createElement('div');
+            d.className = 'vblock';
+            let h = '<b>' + METHOD_NAME[r.method] + '</b> ／ ' + r.videoLabel + '（' + r.videoId + '） ／ 状態' + r.login
+                + '<div class="hint">自動記録: onError=' + (r.errors.length ? r.errors.map(function (x) { return x.code; }).join(',') : 'なし')
+                + ' / onReady=' + (r.ready ? r.readyElapsedMs + 'ms' : '未到達')
+                + ' / 再生進行=' + (r.advanced === null ? '判定不能' : (r.advanced ? 'YES' : 'NO')) + '</div>';
+            h += '<div class="choices"><b>プレイヤー内に表示された文言</b>';
+            TEXT_CHOICES.forEach(function (c, i) {
+                h += '<label><input type="radio" name="tx_' + r.uid + '" value="' + i + '"> ' + c + '</label>';
+            });
+            h += '</div>';
+            h += '<div class="row">自由記入（画面の文言をそのまま書き写す）：<input type="text" id="free_' + r.uid + '" size="60"></div>';
+            h += '<div class="choices"><b>プレイヤー右上のアカウントのアバター</b>';
+            AVATAR_CHOICES.forEach(function (c, i) {
+                h += '<label><input type="radio" name="av_' + r.uid + '" value="' + i + '"> ' + c + '</label>';
+            });
+            h += '</div>';
+            d.innerHTML = h;
+            box.appendChild(d);
+        });
+        $('visualPanel').style.display = 'block';
+        try { $('visualPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { }
+    }
+
+    function saveVisual() {
+        const missing = [];
+        pending.forEach(function (r) {
+            const t = document.querySelector('input[name=tx_' + r.uid + ']:checked');
+            const a = document.querySelector('input[name=av_' + r.uid + ']:checked');
+            if (!t) missing.push(METHOD_NAME[r.method] + ' の表示文言');
+            if (!a) missing.push(METHOD_NAME[r.method] + ' のアバター');
+        });
+        if (missing.length) { alert('未選択があります:\n' + missing.join('\n')); return; }
+        pending.forEach(function (r) {
+            const t = document.querySelector('input[name=tx_' + r.uid + ']:checked');
+            const a = document.querySelector('input[name=av_' + r.uid + ']:checked');
+            const f = $('free_' + r.uid);
+            const target = RESULTS.filter(function (x) { return x.uid === r.uid; })[0] || r;
+            target.displayedText = TEXT_CHOICES[Number(t.value)];
+            target.displayedTextFree = f ? f.value.trim() : '';
+            target.avatar = AVATAR_CHOICES[Number(a.value)];
+        });
+        pending = [];
+        $('visualPanel').style.display = 'none';
+        save();
+        render();
+        updateButtons();
+        log('目視の記録を確定した');
+    }
+
+    /* ---------- 表示 ---------- */
+    function hasStep1(login) {
+        return RESULTS.some(function (r) { return r.login === login && r.videoKey === 'light'; });
+    }
+    function pcOf(login, method) {
+        const rows = RESULTS.filter(function (r) {
+            return r.login === login && r.videoKey === 'light' && r.method === method;
+        });
+        if (!rows.length) return null;
+        const last = rows[rows.length - 1];
+        return last.advanced === true;
+    }
+    function updateButtons() {
+        $('btnStep1').disabled = running || !ytApiReady || pending.length > 0;
+        $('btnStep2').disabled = running || !ytApiReady || pending.length > 0 || !hasStep1(currentLogin());
+        const b = $('pcBanner');
+        const login = currentLogin();
+        if (!hasStep1(login)) {
+            b.innerHTML = '<div class="ng">状態' + login + ' の positive control（ステップ1）が未実施。先にステップ1を実行すること。</div>';
+        } else {
+            const r = [1, 2, 3].map(function (m) { return METHOD_NAME[m] + '=' + (pcOf(login, m) ? '再生OK' : '再生NG'); }).join(' / ');
+            const allOk = [1, 2, 3].every(function (m) { return pcOf(login, m); });
+            b.innerHTML = '<div class="' + (allOk ? 'ok' : 'ng') + '">positive control（状態' + login + ' / VID_LIGHT）: ' + r
+                + (allOk ? '' : ' ← 落ちている方式があるため、その方式の VID_MEMBERS の結果は判定に使えない') + '</div>';
+        }
+    }
+
+    function renderCoverage() {
+        const logins = ['A', 'B'], vids = ['light', 'members'];
+        let h = '<table class="grid"><tr><th>状態</th><th>動画</th><th>方式①</th><th>方式②</th><th>方式③</th></tr>';
+        logins.forEach(function (lg) {
+            vids.forEach(function (vk) {
+                h += '<tr><td>' + lg + '</td><td>' + (vk === 'light' ? 'VID_LIGHT' : 'VID_MEMBERS') + '</td>';
+                [1, 2, 3].forEach(function (m) {
+                    const done = RESULTS.some(function (r) { return r.login === lg && r.videoKey === vk && r.method === m && r.displayedText; });
+                    const partial = RESULTS.some(function (r) { return r.login === lg && r.videoKey === vk && r.method === m; });
+                    h += '<td class="c ' + (done ? 'done' : 'todo') + '">' + (done ? '✅' : (partial ? '△目視未記入' : '—')) + '</td>';
+                });
+                h += '</tr>';
+            });
+        });
+        h += '</table><div class="hint">⚠️ 状態Aと状態Bは別ウィンドウなので、この表には片方しか出ない。</div>';
+        $('coverage').innerHTML = h;
+    }
+
+    function renderTable() {
+        if (!RESULTS.length) { $('tableBox').innerHTML = '<div class="hint">記録なし。</div>'; return; }
+        let h = '<table><tr><th>#</th><th>状態</th><th>動画</th><th>方式</th><th>onError</th><th>onReady</th>'
+            + '<th>state(3s)</th><th>state(10s)</th><th>再生進行</th><th>ct前→後</th><th>title</th><th>video_id</th>'
+            + '<th>author</th><th>duration</th><th>表示文言</th><th>アバター</th><th>PC</th></tr>';
+        RESULTS.forEach(function (r, i) {
+            const pc = (r.videoKey === 'light') ? (r.advanced === true) : pcOf(r.login, r.method);
+            h += '<tr>'
+                + '<td>' + (i + 1) + '</td>'
+                + '<td>' + r.login + '</td>'
+                + '<td>' + r.videoLabel + '</td>'
+                + '<td>' + METHOD_NAME[r.method] + '</td>'
+                + '<td>' + (r.errors.length ? r.errors.map(function (x) { return x.code; }).join(',') : 'なし') + '</td>'
+                + '<td>' + (r.method === 3 ? '（該当なし）' : (r.ready ? r.readyElapsedMs + 'ms' : '未到達')) + '</td>'
+                + '<td>' + stateLabel(r.state3) + '</td>'
+                + '<td>' + stateLabel(r.state10) + '</td>'
+                + '<td class="c ' + (r.advanced === true ? 'yes' : (r.advanced === false ? 'no' : '')) + '">'
+                + (r.advanced === null ? '判定不能' : (r.advanced ? 'YES' : 'NO')) + '</td>'
+                + '<td>' + fmt(r.ctBefore) + ' → ' + fmt(r.ctAfter) + '</td>'
+                + '<td>' + (r.title || '—') + '</td>'
+                + '<td>' + (r.vid || '—') + '</td>'
+                + '<td>' + (r.author || '—') + '</td>'
+                + '<td>' + fmt(r.duration) + '</td>'
+                + '<td>' + (r.displayedText ? (r.displayedText + (r.displayedTextFree ? ' / ' + r.displayedTextFree : '')) : '<span class="miss">未記入</span>') + '</td>'
+                + '<td>' + (r.avatar || '<span class="miss">未記入</span>') + '</td>'
+                + '<td class="c">' + (pc === null ? '—' : (pc ? '⚪' : '❌')) + '</td>'
+                + '</tr>';
+        });
+        h += '</table>';
+        $('tableBox').innerHTML = h;
+    }
+    function fmt(v) {
+        if (v === null || typeof v === 'undefined') return '—';
+        if (typeof v === 'number') return (Math.round(v * 100) / 100).toString();
+        return String(v);
+    }
+    function render() { renderCoverage(); renderTable(); updateButtons(); }
+
+    /* ---------- コピー ---------- */
+    function buildMarkdown() {
+        const L = [];
+        L.push('# スパイク5-A 測定結果（spike_5a.html v' + SPIKE_VERSION + '）');
+        L.push('');
+        L.push('- 出力日時: ' + nowIso());
+        L.push('- オリジン: ' + location.origin + location.pathname);
+        L.push('- UA: ' + navigator.userAgent);
+        L.push('- 画面: ' + window.innerWidth + '×' + window.innerHeight);
+        L.push('- ミュート再生: ' + ($('muteFirst').checked ? 'ON' : 'OFF'));
+        L.push('- VID_LIGHT=' + $('vidLight').value + ' / VID_MEMBERS=' + $('vidMembers').value);
+        L.push('- ⚠️ このウィンドウで測ったぶんのみ（状態Aと状態Bは別ウィンドウのため別々に出力される）');
+        L.push('');
+        L.push('## 事実（自動記録）');
+        L.push('');
+        L.push('| # | 状態 | 動画 | 方式 | onError | onReady | state(3s) | state(10s) | 再生進行 | ct前→後 | title | video_id | author | duration | PC |');
+        L.push('| -: | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |');
+        RESULTS.forEach(function (r, i) {
+            const pc = (r.videoKey === 'light') ? (r.advanced === true) : pcOf(r.login, r.method);
+            L.push('| ' + (i + 1) + ' | ' + r.login + ' | ' + r.videoLabel + ' | ' + METHOD_NAME[r.method]
+                + ' | ' + (r.errors.length ? r.errors.map(function (x) { return x.code; }).join(',') : 'なし')
+                + ' | ' + (r.method === 3 ? '該当なし' : (r.ready ? r.readyElapsedMs + 'ms' : '未到達'))
+                + ' | ' + stateLabel(r.state3) + ' | ' + stateLabel(r.state10)
+                + ' | ' + (r.advanced === null ? '判定不能' : (r.advanced ? 'YES' : 'NO'))
+                + ' | ' + fmt(r.ctBefore) + '→' + fmt(r.ctAfter)
+                + ' | ' + (r.title || '—') + ' | ' + (r.vid || '—') + ' | ' + (r.author || '—')
+                + ' | ' + fmt(r.duration) + ' | ' + (pc === null ? '—' : (pc ? '⚪' : '❌')) + ' |');
+        });
+        L.push('');
+        L.push('## 事実（目視）');
+        L.push('');
+        L.push('| # | 状態 | 動画 | 方式 | 表示された文言 | 自由記入 | アバター |');
+        L.push('| -: | :-- | :-- | :-- | :-- | :-- | :-- |');
+        RESULTS.forEach(function (r, i) {
+            L.push('| ' + (i + 1) + ' | ' + r.login + ' | ' + r.videoLabel + ' | ' + METHOD_NAME[r.method]
+                + ' | ' + (r.displayedText || '未記入') + ' | ' + (r.displayedTextFree || '—')
+                + ' | ' + (r.avatar || '未記入') + ' |');
+        });
+        L.push('');
+        L.push('## 方式③ の postMessage');
+        L.push('');
+        L.push('| # | 状態 | 動画 | 受信件数 | 受信イベント | 最終playerState | 最終currentTime | error |');
+        L.push('| -: | :-- | :-- | -: | :-- | :-- | :-- | :-- |');
+        RESULTS.filter(function (r) { return r.method === 3; }).forEach(function (r, i) {
+            L.push('| ' + (i + 1) + ' | ' + r.login + ' | ' + r.videoLabel + ' | ' + r.pmCount
+                + ' | ' + (Object.keys(r.pmEvents).length ? Object.keys(r.pmEvents).map(function (k) { return k + '×' + r.pmEvents[k]; }).join(', ') : 'なし')
+                + ' | ' + stateLabel(r.pmState) + ' | ' + fmt(r.pmTime)
+                + ' | ' + (r.pmError === null || typeof r.pmError === 'undefined' ? 'なし' : r.pmError) + ' |');
+        });
+        L.push('');
+        L.push('## 4節の判定表への機械的な当てはめ（解釈ではない）');
+        ['A', 'B'].forEach(function (lg) {
+            const rows = RESULTS.filter(function (r) { return r.login === lg && r.videoKey === 'members' && r.method === 1; });
+            if (!rows.length) return;
+            const r = rows[rows.length - 1];
+            const codes = r.errors.map(function (x) { return Number(x.code); });
+            let verdict;
+            if (r.ready && r.advanced === true) verdict = '「onReady に到達し getCurrentTime() が進む」の行に該当';
+            else if (codes.indexOf(101) >= 0 || codes.indexOf(150) >= 0) verdict = '「onError が 101 または 150」の行に該当';
+            else if (codes.indexOf(100) >= 0) verdict = '「onError が 100」の行に該当（判定保留）';
+            else if (codes.indexOf(2) >= 0 || codes.indexOf(5) >= 0) verdict = '「onError が 2 または 5」の行に該当（スパイク側の疑い）';
+            else verdict = 'どの行にも一致しない（表に無い組み合わせ）';
+            const av = (r.avatar || '未記入');
+            L.push('- 状態' + lg + ' / 方式① / VID_MEMBERS: ' + verdict + ' ／ アバター: ' + av);
+        });
+        L.push('');
+        L.push('## 生データ（JSON）');
+        L.push('');
+        L.push('```json');
+        L.push(JSON.stringify(RESULTS.map(function (r) {
+            const o = {}; Object.keys(r).forEach(function (k) { if (k.charAt(0) !== '_') o[k] = r[k]; }); return o;
+        }), null, 1));
+        L.push('```');
+        L.push('');
+        L.push('## ログ');
+        L.push('');
+        L.push('```');
+        L.push($('log').textContent.trim());
+        L.push('```');
+        return L.join('\n');
+    }
+
+    function copyReport() {
+        const md = buildMarkdown();
+        const done = function (ok) {
+            $('copyMsg').textContent = ok ? 'コピーした（' + md.length + '文字）' : 'コピー失敗。下のログを手で選択すること';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(md).then(function () { done(true); }, function () { fallbackCopy(md, done); });
+        } else { fallbackCopy(md, done); }
+    }
+    function fallbackCopy(text, done) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-10000px';
+        ta.style.top = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+        document.body.removeChild(ta);
+        done(ok);
+    }
+
+    /* ---------- 起動 ---------- */
+    $('sv').textContent = SPIKE_VERSION;
+    $('org').textContent = location.origin;
+    load();
+    render();
+    log('spike_5a.html v' + SPIKE_VERSION + ' 起動 / ' + location.href);
+
+    $('btnStep1').addEventListener('click', function () { runStep('light'); });
+    $('btnStep2').addEventListener('click', function () { runStep('members'); });
+    $('btnVisualSave').addEventListener('click', saveVisual);
+    $('btnCopy').addEventListener('click', copyReport);
+    $('btnClear').addEventListener('click', function () {
+        if (!confirm('このウィンドウの記録をすべて消す。よいか？')) return;
+        RESULTS = []; pending = []; $('visualPanel').style.display = 'none';
+        save(); render(); log('記録を消去した');
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=login]'), function (el) {
+        el.addEventListener('change', function () { updateButtons(); log('ログイン状態を ' + currentLogin() + ' にした'); });
+    });
+})();
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+
+</body>
+</html>
