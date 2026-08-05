@@ -80,10 +80,19 @@
         <label><input type="radio" name="login" value="B"> B: メンバーとしてログイン（通常ウィンドウ）</label>
     </div>
     <div class="row">
-        <b>VID_LIGHT</b>（通常の公開アーカイブ / positive control）：
-        <input type="text" id="vidLight" value="zuuZyNH0F1Y" size="16">
-        　<b>VID_MEMBERS</b>（メンバー限定アーカイブ）：
-        <input type="text" id="vidMembers" value="AoaL9zbPAkA" size="16">
+        <b>スロット1</b>（positive control 専用）：
+        ラベル <input type="text" id="labLight" value="VID_LIGHT" size="18">
+        ID <input type="text" id="vidLight" value="zuuZyNH0F1Y" size="16">
+    </div>
+    <div class="row">
+        <b>スロット2</b>（測定対象）：
+        ラベル <input type="text" id="labMembers" value="VID_MEMBERS" size="18">
+        ID <input type="text" id="vidMembers" value="AoaL9zbPAkA" size="16">
+        <span class="hint">🔴 IDを差し替えたらラベルも一緒に変えること。記録表の見出しになる</span>
+    </div>
+    <div class="row">
+        <b>実施メモ</b>（環境・条件。コピー出力の先頭に入る）：
+        <input type="text" id="runNote" value="" size="70" placeholder="例: 拡張機能あり / 強化型トラッキング防止=標準 / ルート直下">
     </div>
     <div class="row">
         <label><input type="checkbox" id="muteFirst" checked> 再生時にミュートする（Firefox の自動再生ブロックを避けるため。既定ON）</label>
@@ -152,7 +161,7 @@
 (function () {
     'use strict';
 
-    const SPIKE_VERSION = '1.0.0';
+    const SPIKE_VERSION = '1.1.0';
     const LS_KEY = 'spike5a_results';
     const READY_TIMEOUT_MS = 12000;
     const STEP_A_MS = 3000;   // onReady から3秒後：state(3s)・videoData・playVideo()
@@ -265,7 +274,12 @@
             if (d.event === 'onStateChange' && typeof d.info === 'number') m3rec.pmState = d.info;
             if (d.event === 'infoDelivery' && d.info && typeof d.info === 'object') {
                 if (typeof d.info.playerState === 'number') m3rec.pmState = d.info.playerState;
-                if (typeof d.info.currentTime === 'number') m3rec.pmTime = d.info.currentTime;
+                if (typeof d.info.currentTime === 'number') {
+                    m3rec.pmTime = d.info.currentTime;
+                    if (m3rec.pmTimes.length < 300) {
+                        m3rec.pmTimes.push({ atMs: Math.round(performance.now() - m3rec._t0), t: d.info.currentTime });
+                    }
+                }
                 if (typeof d.info.duration === 'number') m3rec.pmDuration = d.info.duration;
                 if (d.info.videoData) m3rec.pmVideoData = d.info.videoData;
                 if (typeof d.info.errorCode !== 'undefined' && d.info.errorCode !== null) m3rec.pmError = d.info.errorCode;
@@ -286,7 +300,8 @@
             at: nowIso(),
             login: currentLogin(),
             videoKey: videoKey,
-            videoLabel: (videoKey === 'light' ? 'VID_LIGHT' : 'VID_MEMBERS'),
+            videoLabel: (videoKey === 'light' ? $('labLight').value.trim() : $('labMembers').value.trim())
+                || (videoKey === 'light' ? 'スロット1' : 'スロット2'),
             videoId: videoId,
             method: method,
             muted: $('muteFirst').checked,
@@ -301,6 +316,7 @@
             ctBefore: null, ctAfter: null, advanced: null,
             iframeLoadedMs: null,
             pmCount: 0, pmEvents: {}, pmState: null, pmTime: null,
+            pmTimes: [], pmSampleCount: 0, playAtMs: null, note: $('runNote').value.trim(),
             pmDuration: null, pmVideoData: null, pmError: null,
             displayedText: null, displayedTextFree: '', avatar: null,
             _player: null, _frame: null, _t0: 0
@@ -374,14 +390,27 @@
             await wait(3000);
             rec.basis = 'iframe作成から';
             rec.state3 = rec.pmState;
-            rec.ctBefore = rec.pmTime;
             if (rec.muted) post3(rec, { event: 'command', func: 'mute', args: [] });
+            const playAtMs = Math.round(performance.now() - rec._t0);
+            rec.playAtMs = playAtMs;
             post3(rec, { event: 'command', func: 'playVideo', args: [] });
             log('方式③ playVideo コマンド送信');
             await wait(STEP_B_MS);
-            rec.ctAfter = rec.pmTime;
-            rec.advanced = (typeof rec.ctBefore === 'number' && typeof rec.ctAfter === 'number')
-                ? (rec.ctAfter - rec.ctBefore > 0.5) : null;
+            // 🔴 v1.1.0: 3秒時点では infoDelivery がまだ届いておらず基準値が null になっていた。
+            //    playVideo 以降に届いた currentTime の系列から判定する。
+            const ser = rec.pmTimes.filter(function (x) { return x.atMs >= playAtMs; });
+            if (ser.length >= 2) {
+                rec.ctBefore = ser[0].t;
+                rec.ctAfter = ser[ser.length - 1].t;
+                rec.advanced = (rec.ctAfter - rec.ctBefore > 0.5);
+            } else if (ser.length === 1) {
+                rec.ctBefore = null;
+                rec.ctAfter = ser[0].t;
+                rec.advanced = (ser[0].t > 0.5) ? true : null;
+            } else {
+                rec.ctBefore = null; rec.ctAfter = null; rec.advanced = null;
+            }
+            rec.pmSampleCount = ser.length;
             await wait(STEP_C_MS);
             rec.state10 = rec.pmState;
             rec.title = rec.pmVideoData ? (rec.pmVideoData.title || null) : null;
@@ -610,7 +639,9 @@
         L.push('- UA: ' + navigator.userAgent);
         L.push('- 画面: ' + window.innerWidth + '×' + window.innerHeight);
         L.push('- ミュート再生: ' + ($('muteFirst').checked ? 'ON' : 'OFF'));
-        L.push('- VID_LIGHT=' + $('vidLight').value + ' / VID_MEMBERS=' + $('vidMembers').value);
+        L.push('- スロット1: ' + $('labLight').value + ' = ' + $('vidLight').value
+            + ' / スロット2: ' + $('labMembers').value + ' = ' + $('vidMembers').value);
+        L.push('- 実施メモ: ' + ($('runNote').value.trim() || '（未記入）'));
         L.push('- ⚠️ このウィンドウで測ったぶんのみ（状態Aと状態Bは別ウィンドウのため別々に出力される）');
         L.push('');
         L.push('## 事実（自動記録）');
@@ -641,10 +672,11 @@
         L.push('');
         L.push('## 方式③ の postMessage');
         L.push('');
-        L.push('| # | 状態 | 動画 | 受信件数 | 受信イベント | 最終playerState | 最終currentTime | error |');
-        L.push('| -: | :-- | :-- | -: | :-- | :-- | :-- | :-- |');
+        L.push('| # | 状態 | 動画 | 受信件数 | play後のcurrentTime標本数 | 受信イベント | 最終playerState | 最終currentTime | error |');
+        L.push('| -: | :-- | :-- | -: | -: | :-- | :-- | :-- | :-- |');
         RESULTS.filter(function (r) { return r.method === 3; }).forEach(function (r, i) {
             L.push('| ' + (i + 1) + ' | ' + r.login + ' | ' + r.videoLabel + ' | ' + r.pmCount
+                + ' | ' + (r.pmSampleCount || 0)
                 + ' | ' + (Object.keys(r.pmEvents).length ? Object.keys(r.pmEvents).map(function (k) { return k + '×' + r.pmEvents[k]; }).join(', ') : 'なし')
                 + ' | ' + stateLabel(r.pmState) + ' | ' + fmt(r.pmTime)
                 + ' | ' + (r.pmError === null || typeof r.pmError === 'undefined' ? 'なし' : r.pmError) + ' |');
