@@ -324,6 +324,31 @@
            🔴 pointer-events: none は必須。付け忘れると動画のクリックとシークバーの
               操作をこの層が全部奪う（YouTube は iframe なので操作不能になる）。 */
         .flow-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; display: none; }
+
+        /* ★v2.7.4: 再生が始まらなかったときに枠内へ出す通知。
+           🔴 playerContainer_* の innerHTML は書き換えない（プレイヤーが壊れる）。
+              wrapper_* の直下に置き、position:absolute で重ねる。
+              こうしないと枠の高さを押し出し、グリッドのトラック幅まで動く。
+           🔴 playerContainer_* の中に置いてはいけない。loadSingleYT() が
+              container.innerHTML でプレイヤーを差し込むたびに消えるため。 */
+        .player-notice {
+            position: absolute; top: 8px; left: 8px; z-index: 12;
+            max-width: calc(100% - 16px); box-sizing: border-box;
+            display: none; text-align: left;
+            background: rgba(20, 20, 26, 0.95); border: 1px solid #ff4757; border-radius: 6px;
+            padding: 8px 26px 8px 10px;
+            color: #ffd7db; font-size: calc(0.7rem * var(--ui-scale)); line-height: 1.5;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+            word-break: break-word; overflow-wrap: anywhere;
+        }
+        .player-notice .player-notice-title { display: block; color: #ff4757; font-weight: bold; margin-bottom: 4px; }
+        .player-notice .player-notice-line { display: block; }
+        .player-notice-close {
+            position: absolute; top: 2px; right: 4px; background: transparent; border: none;
+            color: #ff4757; font-size: calc(0.75rem * var(--ui-scale)); cursor: pointer;
+            line-height: 1; padding: 2px 4px;
+        }
+        .player-notice-close:hover { color: #ff6b81; }
         .flow-msg { position: absolute; left: 100%; top: 0; white-space: nowrap; will-change: transform; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000; }
         .flow-msg .chat-emoji { height: 1em; width: auto; vertical-align: -0.15em; }
         .flow-toggle-btn { opacity: 0.45; }
@@ -597,7 +622,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.7.3';
+        const APP_VERSION = '2.7.4';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -715,6 +740,21 @@
            cardVideoKeys と同じ寿命で管理する（記録／破棄の場所も揃える）。
            ------------------------------------------------------------ */
         let cardUrls = {};
+
+        /* ------------------------------------------------------------------
+           ★v2.7.4: 再生可否の確定に使う枠ごとの状態。
+           🔴 onError = 150 は「再生できない」の確定シグナルではない。
+              実測（スパイク 5-A3）では 150 の約6.2秒後に playing(1) へ遷移した。
+              150 を受けた時点で「再生できません」と出すと誤表示になる。
+           判定は onStateChange の発火と getCurrentTime() の進行で行う。
+           getVideoData().title / getDuration() は取れる回と取れない回があり
+           方向も一定しないので、判定にもタイトル表示にも使わない。
+           ------------------------------------------------------------------ */
+        const PLAYER_VERIFY_MS = 10000;   // 🔴 実測 6.2秒に余裕を持たせた値。短くしないこと
+        let playerErrorCode = {};         // cardId → 直近の onError のコード
+        let playerStateSeen = {};         // cardId → その枠で観測した onStateChange の件数
+        let playerVerifyTimer = {};       // cardId → 確定用のタイマーID
+        let playerReadyDone = {};         // cardId → onReady の初期化を済ませたか（onReady は複数回発火しうる）
 
         function buildVideoKey(url) {
             const videoId = getYouTubeId(url, true);
@@ -1175,6 +1215,7 @@
                         generatePlaceholderHTML(cardId) +
                     '</div>' +
                     generateChatPaneHTML(cardId) +
+                    generatePlayerNoticeHTML(cardId) +   /* ★v2.7.4: 枠の寿命と同じ。container の中に置かない */
                 '</div>' +
                 '<div class="local-video-overlay" id="localOverlay_' + cardId + '" style="display:none;">' +
                     '<button onclick="togglePlayLocal(\'' + cardId + '\')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>' +
@@ -1208,6 +1249,90 @@
             }
         }
 
+        /* ==================================================================
+           ★v2.7.4: 再生可否の確定と、失敗したときの枠内表示
+           ================================================================== */
+
+        function generatePlayerNoticeHTML(cardId) {
+            return '<div class="player-notice" id="playerNotice_' + cardId + '">' +
+                '<button class="player-notice-close" onclick="hidePlayerNotice(\'' + cardId + '\')" title="この通知を閉じる">✕</button>' +
+                '<span id="playerNoticeBody_' + cardId + '"></span>' +
+            '</div>';
+        }
+
+        /* プレイヤーを作り直す／枠を捨てるときは必ず通ること。
+           🔴 タイマーが残っていると、次に読み込んだ動画で誤って通知が出る。
+           🔴 playerReadyDone を落とし忘れると、2回目以降の読み込みで
+              onReady の初期化（音量・速度・チャット取得・復元シーク）が丸ごと飛ぶ。 */
+        function resetPlayerDiagnostics(cardId) {
+            if (playerVerifyTimer[cardId]) { clearTimeout(playerVerifyTimer[cardId]); }
+            delete playerVerifyTimer[cardId];
+            delete playerErrorCode[cardId];
+            delete playerStateSeen[cardId];
+            delete playerReadyDone[cardId];
+            hidePlayerNotice(cardId);
+        }
+
+        function handlePlayerError(cardId, code) {
+            playerErrorCode[cardId] = code;
+            /* onError は二重発火しうる（実測: 357ms / 446ms）。
+               先に張ったタイマーを優先し、確定時刻を後ろへずらさない。 */
+            if (playerVerifyTimer[cardId]) return;
+            playerVerifyTimer[cardId] = setTimeout(function () { finalizePlayerVerify(cardId); }, PLAYER_VERIFY_MS);
+        }
+
+        function notePlayerState(cardId, state) {
+            playerStateSeen[cardId] = (playerStateSeen[cardId] || 0) + 1;
+            /* 1=playing / 3=buffering。ここまで来れば再生は始まっている。 */
+            if (state === 1 || state === 3) {
+                if (playerVerifyTimer[cardId]) { clearTimeout(playerVerifyTimer[cardId]); delete playerVerifyTimer[cardId]; }
+                hidePlayerNotice(cardId);
+            }
+        }
+
+        function finalizePlayerVerify(cardId) {
+            delete playerVerifyTimer[cardId];
+            const player = ytPlayers[cardId];
+            if (!player) return;   // 枠が消えている／別の動画に差し替わった
+            let state = -1, cur = 0;
+            try { state = player.getPlayerState(); } catch (e) { }
+            try { cur = player.getCurrentTime() || 0; } catch (e) { }
+            if (state === 1 || state === 3 || cur > 0.5) { hidePlayerNotice(cardId); return; }
+            showPlayerNotice(cardId, playerErrorCode[cardId]);
+        }
+
+        /* 🔴 文面で特定のブラウザ名を断定しないこと。
+              「Floorp では再生できない」は 2026-08-06 に本番コントローラーで覆っている。 */
+        function showPlayerNotice(cardId, code) {
+            const body = document.getElementById('playerNoticeBody_' + cardId);
+            const box = document.getElementById('playerNotice_' + cardId);
+            if (!body || !box) return;
+            const shown = (code === undefined || code === null) ? '不明' : String(code);
+            body.innerHTML = '';
+            const title = document.createElement('span');
+            title.className = 'player-notice-title';
+            title.textContent = '⚠️ 再生が始まりませんでした（エラーコード: ' + shown + '）';
+            body.appendChild(title);
+            const lines = [
+                'メンバー限定などの制限がかかっている可能性があります。',
+                '・アドレスバー左の盾のアイコンから「このサイトでは保護を無効にする」を選び、再読み込みしてください',
+                '・YouTube にそのチャンネルのメンバーとしてログインしていますか',
+                '・別のブラウザで開くと再生できる場合があります'
+            ];
+            lines.forEach(function (t) {
+                const el = document.createElement('span');
+                el.className = 'player-notice-line';
+                el.textContent = t;
+                body.appendChild(el);
+            });
+            box.style.display = 'block';
+        }
+
+        function hidePlayerNotice(cardId) {
+            const box = document.getElementById('playerNotice_' + cardId);
+            if (box) box.style.display = 'none';
+        }
+
         function loadSingleYT(cardId, silent) {
             const urlInput = document.getElementById('urlInput_' + cardId);
             const url = urlInput ? urlInput.value.trim() : (localStorage.getItem('sync_url_' + cardId) || '');
@@ -1231,12 +1356,16 @@
             let playerVarsSetting = { 'playsinline': 1, 'controls': 1, 'rel': 0 };
             if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
 
+            resetPlayerDiagnostics(cardId);   // ★v2.7.4: 前の動画のタイマー・通知・onReady済みフラグを捨てる
             ytPlayers[cardId] = new YT.Player('ytPlayer_' + cardId, {
                 videoId: videoId || undefined, playerVars: playerVarsSetting,
                 events: {
                     'onReady': (event) => {
+                        if (playerReadyDone[cardId]) return;   // ★v2.7.4: onReady は複数回発火しうる
+                        playerReadyDone[cardId] = true;
                         const videoData = event.target.getVideoData();
-                        document.getElementById('title_' + cardId).innerText = videoData ? videoData.title : 'YouTube動画';
+                        /* ★v2.7.4: title が空文字を返す回があるので、空も 'YouTube動画' に倒す */
+                        document.getElementById('title_' + cardId).innerText = (videoData && videoData.title) ? videoData.title : 'YouTube動画';
                         setTimeout(function () { updateChatContent(cardId); }, 200);
                         event.target.setVolume(document.getElementById('masterVolume').value);
                         event.target.setPlaybackRate(currentPlaybackSpeed);
@@ -1244,7 +1373,9 @@
                             document.getElementById('playlistPrev_' + cardId).style.display = 'inline-block';
                             document.getElementById('playlistNext_' + cardId).style.display = 'inline-block';
                         }
-                    }
+                    },
+                    'onError': (event) => { handlePlayerError(cardId, event.data); },
+                    'onStateChange': (event) => { notePlayerState(cardId, event.data); }
                 }
             });
             resaveUrlsBasedOnOrder();
@@ -1386,6 +1517,7 @@
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch (e) {} delete ytPlayers[cardId]; }
             delete cardVideoKeys[cardId]; // ローカル動画に差し替わったのでYouTube側のキーは破棄
             delete cardUrls[cardId];      // ★v2.7.1: URLの情報源も破棄
+            resetPlayerDiagnostics(cardId); // ★v2.7.4: 確定タイマー・通知・onReady済みフラグも道連れ
             closeChat(cardId);            // ローカル動画にチャットは存在しないので畳む
             localStorage.removeItem('sync_url_' + cardId);
             markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
@@ -1573,6 +1705,10 @@
             globalCurrentTime = session.globalTime;
             const grid = document.getElementById('playersGrid');
             grid.innerHTML = ''; activeCardIds = []; ytPlayers = {}; cardVideoKeys = {}; cardUrls = {}; // ★v2.7.1
+            /* ★v2.7.4: 枠ごと作り直すので判定状態も全部捨てる。
+               DOM は grid.innerHTML='' で消えているため、タイマーだけ明示的に止める。 */
+            Object.keys(playerVerifyTimer).forEach(function (k) { clearTimeout(playerVerifyTimer[k]); });
+            playerVerifyTimer = {}; playerErrorCode = {}; playerStateSeen = {}; playerReadyDone = {};
             chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatCursor = {}; chatLastMs = {}; chatFontScale = {};
             session.players.forEach(p => {
                 activeCardIds.push(p.cardId);
@@ -1597,6 +1733,7 @@
                 '<div class="player-container-wrapper" id="wrapper_' + p.cardId + '">' +
                     '<div class="player-container" id="playerContainer_' + p.cardId + '">' + (p.type === 'empty' ? generatePlaceholderHTML(p.cardId) : '') + '</div>' +
                     generateChatPaneHTML(p.cardId) +
+                    generatePlayerNoticeHTML(p.cardId) +   /* ★v2.7.4: 復元経路も忘れない */
                 '</div>' +
                 '<div class="local-video-overlay" id="localOverlay_' + p.cardId + '" style="display:none;">' +
                     '<button onclick="togglePlayLocal(\'' + p.cardId + '\')" style="padding:4px 8px; font-size:0.75rem;">再生/停止</button>' +
@@ -1628,11 +1765,16 @@
                 const playlistId = getPlaylistId(p.url);
                 cardVideoKeys[p.cardId] = playlistId ? ('list:' + playlistId) : getYouTubeId(p.url, true);
                 if (playlistId) { playerVarsSetting.listType = 'playlist'; playerVarsSetting.list = playlistId; }
+                resetPlayerDiagnostics(p.cardId);   // ★v2.7.4: 復元でプレイヤーを作り直すので状態を捨てる
                 ytPlayers[p.cardId] = new YT.Player('ytPlayer_' + p.cardId, {
                     videoId: getYouTubeId(p.url, true) || undefined,
                     playerVars: playerVarsSetting,
                     events: {
+                        /* 🔴 ここが二重発火の実害が最も大きい箇所。
+                           冪等化しないと保存位置への seekTo が2回走る。 */
                         'onReady': (event) => {
+                            if (playerReadyDone[p.cardId]) return;   // ★v2.7.4: onReady は複数回発火しうる
+                            playerReadyDone[p.cardId] = true;
                             document.getElementById('title_' + p.cardId).innerText = p.title;
                             setTimeout(function () { updateChatContent(p.cardId); }, 200);
                             event.target.setVolume(document.getElementById('masterVolume').value);
@@ -1642,7 +1784,9 @@
                                 document.getElementById('playlistPrev_' + p.cardId).style.display = 'inline-block';
                                 document.getElementById('playlistNext_' + p.cardId).style.display = 'inline-block';
                             }
-                        }
+                        },
+                        'onError': (event) => { handlePlayerError(p.cardId, event.data); },
+                        'onStateChange': (event) => { notePlayerState(p.cardId, event.data); }
                     }
                 });
             } else if (p.type === 'local') {
@@ -1766,6 +1910,7 @@
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
             delete cardVideoKeys[cardId];
             delete cardUrls[cardId];      // ★v2.7.1: URLの情報源も枠と一緒に捨てる
+            resetPlayerDiagnostics(cardId); // ★v2.7.4: 枠ごと消えるのでタイマーも捨てる
             delete chatLoadedVideoId[cardId];
             const card = document.getElementById(cardId);
             if (card) card.remove();
@@ -1791,6 +1936,7 @@
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }
             delete cardVideoKeys[cardId]; // 枠を空にしたので重複判定の対象外に戻す
             delete cardUrls[cardId];      // ★v2.7.1: 消さないと再読み込みで復活する
+            resetPlayerDiagnostics(cardId); // ★v2.7.4: 🧹で捨てないと次の動画で誤って通知が出る
             localStorage.removeItem('sync_url_' + cardId); // ★v2.7.1: cardId系のキーも道連れにする
             const lv = document.getElementById('localVideo_' + cardId);
             if (lv) { lv.pause(); lv.src = ""; lv.load(); }
@@ -4181,6 +4327,8 @@
         function clearAllSettings() {
             if (confirm('すべての設定と保存URLをリセットしますか？')) {
                 cardUrls = {};            // ★v2.7.1: localStorage だけ消すとメモリ側から復活する
+                Object.keys(playerVerifyTimer).forEach(function (k) { clearTimeout(playerVerifyTimer[k]); });
+                playerVerifyTimer = {}; playerErrorCode = {}; playerStateSeen = {}; playerReadyDone = {}; // ★v2.7.4
                 localStorage.clear();
                 location.reload();
             }
