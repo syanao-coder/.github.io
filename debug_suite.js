@@ -21,7 +21,7 @@
      ブロック1  有効化判定
      ブロック2  共通ライブラリ（wait / sample / rect / overlap / clickReal / expect / pc）
      ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ）
-     ブロック4  テスト登録（D-V1 / D-M2 / D-M7）
+     ブロック4  テスト登録（D-V1 / D-M2 / D-M7 / D-E1）
    ========================================================================== */
 (function () {
     'use strict';
@@ -30,7 +30,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.0.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.1.0';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -97,6 +97,15 @@
             width: Math.round(r.width), height: Math.round(r.height)
         };
     }
+
+    /* 計算済みスタイルを文字列で読む（★v1.1.0）。
+       style 属性ではなく計算結果を見る。CSS 側の指定漏れを拾うため。 */
+    function cstyle(el, prop) {
+        if (!el) return '(要素なし)';
+        try { return String(window.getComputedStyle(el)[prop]); }
+        catch (e) { return '(取得不可)'; }
+    }
+    function disp(el) { return cstyle(el, 'display'); }
 
     /* 2矩形の重なり面積と、a に対する割合(%)を返す。 */
     function overlap(a, b) {
@@ -327,7 +336,8 @@
         var note = document.createElement('p');
         note.className = 'dbg-note';
         note.textContent = '各テストは「4メニューをすべて閉じた状態」から開始します。'
-            + 'D-M7 は途中でページを再読み込みし、読み込み後に自動で続きを実行します。';
+            + 'D-M7 は途中でページを再読み込みし、読み込み後に自動で続きを実行します。'
+            + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。';
         panel.appendChild(note);
 
         var pre = document.createElement('pre');
@@ -363,7 +373,7 @@
 
     function buildMarkdown() {
         var lines = [];
-        lines.push('### v2.7.3 debug_suite 実行結果');
+        lines.push('### debug_suite 実行結果（APP_VERSION ' + appVersion() + '）');
         lines.push('');
         lines.push('- debug_suite: `' + DEBUG_SUITE_VERSION + '` / APP_VERSION: `' + appVersion() + '`');
         lines.push('- 実行日時: ' + new Date().toISOString());
@@ -514,9 +524,9 @@
         });
         pc('DEBUG_SUITE_VERSION を読めている', function () { return DEBUG_SUITE_VERSION; });
 
-        expect('APP_VERSION', appVersion(), '2.7.3');
+        expect('APP_VERSION', appVersion(), '2.7.4');
         expect('バッジのクラス', badge ? badge.className : '(要素なし)', 'version-badge ok');
-        expect('バッジの表示文字列', badge ? String(badge.textContent).trim() : '(要素なし)', 'v2.7.3');
+        expect('バッジの表示文字列', badge ? String(badge.textContent).trim() : '(要素なし)', 'v2.7.4');
         expect('debug_suite の版数', DEBUG_SUITE_VERSION, DEBUG_SUITE_VERSION);
     }
 
@@ -795,12 +805,145 @@
         if (payload.fromAll) log('=== すべて実行: 完了 ===');
     }
 
+    /* --- D-E1: 再生可否の確定処理と枠内通知（★v1.1.0 / v2.7.4 用） ---------
+
+       保護設定の切り替えを伴う項目（P3 / P4）は人の操作が要るので入れない。
+       ここで測るのは「通知を出す仕掛けと、タイマーの後始末」だけである。
+       🔴 実物の onError を待たず、本体の関数を直接呼んで状態機械を動かす。
+          実物の onError で確かめるのは手順書の P2（存在しない動画ID）が担当する。
+       ------------------------------------------------------------------- */
+
+    async function testE1() {
+        await closeAllMenus();
+        log('  [前提] 4メニューをすべて閉じた状態から開始');
+
+        var cardId = null;
+        try { if (typeof activeCardIds !== 'undefined' && activeCardIds.length) cardId = activeCardIds[0]; }
+        catch (e) { cardId = null; }
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cardId || false; });
+        if (!cardId) {
+            expect('D-E1 の実行', '枠が1つも無い', '枠が1つ以上あること');
+            return;
+        }
+
+        var noticeEl = document.getElementById('playerNotice_' + cardId);
+        var bodyEl = document.getElementById('playerNoticeBody_' + cardId);
+        pc('通知要素を取得できた', function () { return noticeEl ? describe(noticeEl) : false; });
+        pc('本体の関数を4本とも読めている', function () {
+            return (typeof showPlayerNotice === 'function'
+                && typeof hidePlayerNotice === 'function'
+                && typeof handlePlayerError === 'function'
+                && typeof notePlayerState === 'function'
+                && typeof resetPlayerDiagnostics === 'function')
+                ? 'show/hide/handle/note/reset' : false;
+        });
+        if (!noticeEl || !bodyEl || typeof showPlayerNotice !== 'function') {
+            expect('D-E1 の実行', '通知要素または関数が無い', '本体が v2.7.4 であること');
+            return;
+        }
+
+        /* --- 初期状態 ---------------------------------------------------- */
+        resetPlayerDiagnostics(cardId);
+        await wait(50);
+        var before = disp(noticeEl);
+        expect('既定は非表示', before, 'none');
+        expect('position（枠の高さを押し出さないこと）', cstyle(noticeEl, 'position'), 'absolute');
+        expect('z-index（流し層2・ローカル操作バー9より前）', cstyle(noticeEl, 'zIndex'), '12');
+        expect('親要素（playerContainer_* の中に置かないこと）',
+            noticeEl.parentNode ? noticeEl.parentNode.id : '(なし)', 'wrapper_' + cardId);
+
+        var missing = [];
+        try {
+            missing = activeCardIds.filter(function (id) { return !document.getElementById('playerNotice_' + id); });
+        } catch (e) { missing = ['(列挙不可)']; }
+        expect('通知要素が欠けている枠の数（全枠に必要）', missing.length + '件', '0件');
+
+        /* --- 表示できること ---------------------------------------------- */
+        var cardEl = document.getElementById(cardId);
+        var hBefore = cardEl ? Math.round(cardEl.getBoundingClientRect().height) : -1;
+        showPlayerNotice(cardId, 12345);
+        await wait(50);
+        var afterShow = disp(noticeEl);
+        pc('表示と非表示を別の値として読めている', function () {
+            return (before === 'none' && afterShow !== 'none') ? before + ' → ' + afterShow : false;
+        });
+        expect('showPlayerNotice() で表示される', afterShow, 'block');
+        expect('文面にエラーコードが出る', String(bodyEl.textContent).indexOf('12345') >= 0, true);
+        expect('文面にブラウザ名の断定が無い（Floorp / Firefox）',
+            (String(bodyEl.textContent).indexOf('Floorp') < 0
+                && String(bodyEl.textContent).indexOf('Firefox') < 0), true);
+        var hAfter = cardEl ? Math.round(cardEl.getBoundingClientRect().height) : -1;
+        expect('通知が枠の高さを押し出していない（' + hBefore + 'px → ' + hAfter + 'px）', hAfter - hBefore, 0);
+        log('  [文面全文 ここから]\n' + bodyEl.innerText + '\n  [文面全文 ここまで]');
+
+        /* --- 閉じるボタン ------------------------------------------------ */
+        var closeBtn = noticeEl.querySelector('.player-notice-close');
+        pc('当たり判定が効いている（板を被せると covered を返す）', function () {
+            if (!closeBtn) return false;
+            var shield = document.createElement('div');
+            shield.style.cssText = 'position:fixed; left:0; top:0; right:0; bottom:0; z-index:99999;';
+            document.body.appendChild(shield);
+            var r = hitTest(closeBtn);
+            shield.parentNode.removeChild(shield);
+            return (r.blocked && r.reason === 'covered') ? 'blocked / covered' : false;
+        });
+        var clicked = await clickReal(closeBtn);
+        expect('閉じるボタンを実際に押せる（被覆なし）',
+            clicked.blocked ? ('blocked:' + clicked.reason + ' hit=' + clicked.hit) : 'ok', 'ok');
+        await wait(50);
+        expect('閉じるボタンで消える', disp(noticeEl), 'none');
+
+        /* --- 確定タイマー ------------------------------------------------ */
+        handlePlayerError(cardId, 150);
+        var t1 = playerVerifyTimer[cardId];
+        expect('onError で確定タイマーが張られる', t1 !== undefined, true);
+        expect('直近のエラーコードが記録される', playerErrorCode[cardId], 150);
+
+        handlePlayerError(cardId, 150);   /* 二重発火 */
+        expect('onError の二重発火でタイマーを張り直さない', playerVerifyTimer[cardId] === t1, true);
+
+        notePlayerState(cardId, 1);
+        expect('playing(1) で確定タイマーが取り消される', playerVerifyTimer[cardId] === undefined, true);
+        expect('状態遷移の件数を数えている', playerStateSeen[cardId], 1);
+
+        handlePlayerError(cardId, 150);
+        notePlayerState(cardId, 3);
+        expect('buffering(3) でも確定タイマーが取り消される', playerVerifyTimer[cardId] === undefined, true);
+        expect('状態遷移の件数が加算されている', playerStateSeen[cardId], 2);
+
+        notePlayerState(cardId, -1);
+        expect('unstarted(-1) では取り消さない（件数だけ増える）', playerStateSeen[cardId], 3);
+
+        /* --- 後始末 ------------------------------------------------------ */
+        handlePlayerError(cardId, 150);
+        playerReadyDone[cardId] = true;
+        showPlayerNotice(cardId, 150);
+        await wait(50);
+        pc('後始末の直前に4つとも値が入っていた（＝これから確実に消える）', function () {
+            return (playerVerifyTimer[cardId] !== undefined
+                && playerErrorCode[cardId] !== undefined
+                && playerStateSeen[cardId] !== undefined
+                && playerReadyDone[cardId] === true
+                && disp(noticeEl) === 'block')
+                ? 'timer/code/seen/ready/表示 の5つとも設定済み' : false;
+        });
+        resetPlayerDiagnostics(cardId);
+        await wait(50);
+        expect('後始末: 確定タイマーが消える', playerVerifyTimer[cardId] === undefined, true);
+        expect('後始末: エラーコードが消える', playerErrorCode[cardId] === undefined, true);
+        expect('後始末: 状態遷移の件数が消える', playerStateSeen[cardId] === undefined, true);
+        expect('後始末: playerReadyDone が落ちる', playerReadyDone[cardId] === undefined, true);
+        expect('後始末: 通知が消える', disp(noticeEl), 'none');
+    }
+
+
     /* --- 実行制御 --------------------------------------------------------- */
 
     var TESTS = [
         { id: 'D-V1', name: '版数バッジ', run: testV1 },
         { id: 'D-M2', name: 'トップメニューの排他制御（全遷移）', run: testM2 },
-        { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 }
+        { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
+        { id: 'D-E1', name: '再生可否の確定処理と枠内通知', run: testE1 }
     ];
 
     var running = false;
