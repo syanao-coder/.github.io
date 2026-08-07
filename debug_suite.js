@@ -21,7 +21,7 @@
      ブロック1  有効化判定
      ブロック2  共通ライブラリ（wait / sample / rect / overlap / clickReal / expect / pc）
      ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ）
-     ブロック4  テスト登録（D-V1 / D-M2 / D-M7 / D-E1）
+     ブロック4  テスト登録（D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5）
    ========================================================================== */
 (function () {
     'use strict';
@@ -30,7 +30,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.1.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.2.0';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -106,6 +106,16 @@
         catch (e) { return '(取得不可)'; }
     }
     function disp(el) { return cstyle(el, 'display'); }
+
+    /* 枠で観測した onStateChange の値を、来た順に並べて返す（★v1.2.0）。
+       🔴 件数だけでは何が来たのか分からず、2026-08-07 の実測で切り分け不能になった。 */
+    function stateSeq(cardId) {
+        try {
+            var a = (typeof playerStateLog !== 'undefined' && playerStateLog[cardId]) ? playerStateLog[cardId] : null;
+            if (!a) return '(記録なし)';
+            return a.map(function (x) { return x.state; }).join(',');
+        } catch (e) { return '(取得不可)'; }
+    }
 
     /* 2矩形の重なり面積と、a に対する割合(%)を返す。 */
     function overlap(a, b) {
@@ -337,7 +347,9 @@
         note.className = 'dbg-note';
         note.textContent = '各テストは「4メニューをすべて閉じた状態」から開始します。'
             + 'D-M7 は途中でページを再読み込みし、読み込み後に自動で続きを実行します。'
-            + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。';
+            + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。'
+            + 'D-P1〜D-P5 は「すべて実行」では飛ばします。D-P1 を最初に実行し、'
+            + 'D-P3 は盾オン、D-P4・D-P5 は盾オフにしてから個別に押してください（開始時に盾の状態を聞きます）。';
         panel.appendChild(note);
 
         var pre = document.createElement('pre');
@@ -904,36 +916,261 @@
 
         notePlayerState(cardId, 1);
         expect('playing(1) で確定タイマーが取り消される', playerVerifyTimer[cardId] === undefined, true);
-        expect('状態遷移の件数を数えている', playerStateSeen[cardId], 1);
 
         handlePlayerError(cardId, 150);
         notePlayerState(cardId, 3);
-        expect('buffering(3) でも確定タイマーが取り消される', playerVerifyTimer[cardId] === undefined, true);
-        expect('状態遷移の件数が加算されている', playerStateSeen[cardId], 2);
+        /* 🔴 3(buffering) は「再生を試みている」でしかない。メンバー限定で再生できない場合にも来る。
+           ここで取り消すと通知が一度も出なくなる（2026-08-07 に実際に起きた）。 */
+        expect('buffering(3) では取り消さない（成功シグナルは 1 のみ）', playerVerifyTimer[cardId] !== undefined, true);
 
         notePlayerState(cardId, -1);
-        expect('unstarted(-1) では取り消さない（件数だけ増える）', playerStateSeen[cardId], 3);
+        expect('unstarted(-1) でも取り消さない', playerVerifyTimer[cardId] !== undefined, true);
+        expect('状態遷移が値ごと順番に記録されている', stateSeq(cardId), '1,3,-1');
 
         /* --- 後始末 ------------------------------------------------------ */
-        handlePlayerError(cardId, 150);
         playerReadyDone[cardId] = true;
         showPlayerNotice(cardId, 150);
         await wait(50);
-        pc('後始末の直前に4つとも値が入っていた（＝これから確実に消える）', function () {
+        pc('後始末の直前に5つとも値が入っていた（＝これから確実に消える）', function () {
             return (playerVerifyTimer[cardId] !== undefined
                 && playerErrorCode[cardId] !== undefined
-                && playerStateSeen[cardId] !== undefined
+                && playerStateLog[cardId] !== undefined
                 && playerReadyDone[cardId] === true
                 && disp(noticeEl) === 'block')
-                ? 'timer/code/seen/ready/表示 の5つとも設定済み' : false;
+                ? 'timer/code/log[' + stateSeq(cardId) + ']/ready/表示 の5つとも設定済み' : false;
         });
         resetPlayerDiagnostics(cardId);
         await wait(50);
         expect('後始末: 確定タイマーが消える', playerVerifyTimer[cardId] === undefined, true);
         expect('後始末: エラーコードが消える', playerErrorCode[cardId] === undefined, true);
-        expect('後始末: 状態遷移の件数が消える', playerStateSeen[cardId] === undefined, true);
+        expect('後始末: 状態遷移の記録が消える', playerStateLog[cardId] === undefined, true);
         expect('後始末: playerReadyDone が落ちる', playerReadyDone[cardId] === undefined, true);
         expect('後始末: 通知が消える', disp(noticeEl), 'none');
+    }
+
+
+    /* --- D-P1〜D-P5: 実物の動画での再生可否（★v1.2.0） ---------------------
+
+       🔴 固定時間で切らない。確定するまでポーリングして待つ。
+          v2.7.4 の1回目のテストは「読み込みから10.5秒」で打ち切ったため、
+          onError が遅れて来た回を「通知が出なかった」と誤って読んだ。
+       🔴 D-P1 が positive control を兼ねる。通常動画すら再生できない環境なら、
+          D-P2〜D-P5 は「機能が壊れている」ではなく「測れていない」である。
+       ------------------------------------------------------------------- */
+
+    var VID_LIGHT = 'https://www.youtube.com/watch?v=zuuZyNH0F1Y';
+    var VID_MEMBERS = 'https://www.youtube.com/watch?v=AoaL9zbPAkA';
+    var VID_INVALID = 'aaaaaaaaaaa';
+    var PLAY_MAX_WAIT_MS = 30000;   /* 確定するまで待つ上限 */
+
+    var PLAYBACK_PC = { ran: false, ok: false, note: 'D-P1 が未実行' };
+
+    function cardEmptyReady(cid) {
+        return !!document.getElementById('urlInput_' + cid)
+            && !!document.querySelector('#' + cid + ' .placeholder-actions button.primary');
+    }
+
+    /* 枠を「URL入力待ち」に戻す。確認ダイアログは一時的に切る（保存はされない）。 */
+    async function clearCard(cid) {
+        if (cardEmptyReady(cid)) return true;
+        var chk = document.getElementById('confirmReset');
+        var was = chk ? chk.checked : null;
+        if (chk) chk.checked = false;
+        var btn = document.querySelector('#' + cid + ' .player-header button[title="空にする"]');
+        if (btn) { btn.click(); await wait(500); }
+        if (chk && was !== null) chk.checked = was;
+        return cardEmptyReady(cid);
+    }
+
+    async function stopAllIfPlaying() {
+        try {
+            if (typeof isPlayingRequest !== 'undefined' && isPlayingRequest) {
+                var b = document.getElementById('playPauseBtn');
+                if (b) { b.click(); await wait(500); }
+            }
+        } catch (e) { }
+    }
+
+    function notNone(v) { return v !== 'なし'; }
+    notNone.label = 'onError が出ていること';
+
+    /* opt = { need, url, pressPlay, expectNotice, expectPlaying, expectSettled,
+              expectTimerLeft, needPlaybackPc, setPlaybackPc, tailPressPlay } */
+    async function runPlaybackCase(opt) {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+
+        var cid = null;
+        try { if (typeof activeCardIds !== 'undefined' && activeCardIds.length) cid = activeCardIds[0]; }
+        catch (e) { cid = null; }
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+        if (!cid) { expect('この項目の実行', '枠が1つも無い', '枠が1つ以上あること'); return; }
+
+        /* 🔴 条件は順序ではなく観測で担保する。測定の直前に必ず聞く。 */
+        var shield = window.prompt(
+            'アドレスバー左の盾のアイコンを今すぐ見てください。\n'
+            + '強化型トラッキング防止は、このサイトでどちらですか？\n'
+            + 'on / off を入力してください。', '');
+        shield = String(shield === null ? '' : shield).trim().toLowerCase();
+        log('  [条件] 盾 = ' + (shield || '(未入力)') + ' / 配信元 = ' + location.origin);
+
+        /* 🔴 http:// では __Secure-3PSID が iframe へ送られず、メンバー限定は必ず失敗する。 */
+        expect('配信元が https であること（http ではメンバー限定が成立しない）', location.protocol, 'https:');
+
+        if (opt.need) {
+            pc('この測定に必要な盾の状態だった（' + opt.need + '）', function () {
+                return (shield === opt.need) ? ('入力 = ' + shield) : false;
+            });
+        } else {
+            pc('盾の状態を観測して記録できた', function () {
+                return (shield === 'on' || shield === 'off') ? ('入力 = ' + shield) : false;
+            });
+        }
+        if (opt.needPlaybackPc) {
+            pc('この環境で通常動画が再生できる（D-P1 で確認済み）', function () {
+                return PLAYBACK_PC.ok ? PLAYBACK_PC.note : false;
+            });
+        }
+
+        var cleared = await clearCard(cid);
+        pc('枠を「URL入力待ち」にできた', function () { return cleared ? '入力欄と読み込むボタンあり' : false; });
+        if (!cleared) { expect('この項目の実行', '枠を空にできない', '空にできること'); return; }
+
+        var n = document.getElementById('playerNotice_' + cid);
+        pc('計測開始時に通知が消えている', function () { return (n && disp(n) === 'none') ? 'none' : false; });
+        if (!n) { expect('この項目の実行', '通知要素が無い', '本体が v2.7.4 であること'); return; }
+
+        var input = document.getElementById('urlInput_' + cid);
+        var loadBtn = document.querySelector('#' + cid + ' .placeholder-actions button.primary');
+        input.value = opt.url;
+        log('  [操作] 読み込む URL = ' + opt.url);
+        var r1 = await clickReal(loadBtn);
+        expect('「読み込む」を実際に押せた（被覆なし）', r1.blocked ? ('blocked:' + r1.reason) : 'ok', 'ok');
+        await wait(2500);
+
+        var timeBefore = 'ERR';
+        try { timeBefore = ytPlayers[cid].getCurrentTime(); } catch (e) { }
+        log('  [観測] 読み込み2.5秒後の再生位置 = ' + timeBefore);
+
+        if (opt.pressPlay) {
+            var r2 = await clickReal(document.getElementById('playPauseBtn'));
+            expect('「▶ 一括再生」を実際に押せた（被覆なし）', r2.blocked ? ('blocked:' + r2.reason) : 'ok', 'ok');
+        } else {
+            log('  [条件] ▶一括再生 は押さない（確定が延期されるかを見る）');
+        }
+
+        /* 確定するまで待つ。固定時間で切らない。 */
+        var maxWait = opt.maxWaitMs || PLAY_MAX_WAIT_MS;
+        var t0 = Date.now(), settled = '', st = -1, cur = 0;
+        while (Date.now() - t0 < maxWait) {
+            try { st = ytPlayers[cid].getPlayerState(); } catch (e) { st = 'ERR'; }
+            try { cur = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { cur = 0; }
+            if (st === 1 && cur > 0.5) { settled = '再生開始'; break; }
+            if (disp(n) === 'block') { settled = '通知が出た'; break; }
+            await wait(500);
+        }
+        if (!settled) settled = '時間切れ';
+        var elapsed = Math.round((Date.now() - t0) / 1000);
+
+        var code = 'なし';
+        try { if (playerErrorCode[cid] !== undefined) code = playerErrorCode[cid]; } catch (e) { }
+        log('  [観測] 結末=' + settled + '（' + elapsed + '秒） / onError=' + code
+            + ' / 状態遷移=[' + stateSeq(cid) + '] / state=' + st + ' / 位置=' + cur);
+
+        expect('確定の結末', settled, opt.expectSettled);
+        expect('通知の表示', disp(n), opt.expectNotice ? 'block' : 'none');
+        if (opt.expectPlaying) {
+            expect('再生が始まった（state=1 かつ 位置>0.5）', (st === 1 && cur > 0.5), true);
+        }
+        if (opt.expectTimerLeft !== undefined) {
+            expect('確定タイマーの残存', (playerVerifyTimer[cid] === undefined) ? 'なし' : 'あり', opt.expectTimerLeft);
+        }
+        if (opt.expectNotice) {
+            expect('onError のコード', code, notNone);
+            var body = document.getElementById('playerNoticeBody_' + cid);
+            var txt = body ? String(body.textContent) : '';
+            log('  [文面] ' + (body ? body.innerText.replace(/\n/g, ' / ') : '(取得不可)'));
+            expect('文面にエラーコードが出る', txt.indexOf(String(code)) >= 0, true);
+            expect('文面にブラウザ名の断定が無い（Floorp / Firefox）',
+                (txt.indexOf('Floorp') < 0 && txt.indexOf('Firefox') < 0), true);
+        }
+
+        if (opt.setPlaybackPc) {
+            PLAYBACK_PC.ran = true;
+            PLAYBACK_PC.ok = (st === 1 && cur > 0.5);
+            PLAYBACK_PC.note = PLAYBACK_PC.ok
+                ? ('通常動画が state=1 / 位置=' + cur.toFixed(1) + ' まで到達')
+                : '通常動画すら再生されなかった';
+            log('  [記録] 以降のテスト用の positive control: ' + PLAYBACK_PC.note);
+        }
+
+        /* 放置の回だけ、最後に▶を押して救済されるかまで見る。 */
+        if (opt.tailPressPlay) {
+            log('  [操作] ここで ▶一括再生 を押す');
+            await clickReal(document.getElementById('playPauseBtn'));
+            var t1 = Date.now(), st2 = -1, cur2 = 0;
+            while (Date.now() - t1 < 20000) {
+                try { st2 = ytPlayers[cid].getPlayerState(); } catch (e) { st2 = 'ERR'; }
+                try { cur2 = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { cur2 = 0; }
+                if (st2 === 1 && cur2 > 0.5) break;
+                if (disp(n) === 'block') break;
+                await wait(500);
+            }
+            log('  [観測] ▶後: state=' + st2 + ' / 位置=' + cur2 + ' / 通知=' + disp(n));
+            expect('▶を押したあとに再生が始まる', (st2 === 1 && cur2 > 0.5), true);
+            expect('▶を押したあとも通知は出ない', disp(n), 'none');
+        }
+
+        if (disp(n) === 'block') {
+            await stopAllIfPlaying();
+            log('  [後始末] 通知を表示したまま残しました。'
+                + 'スクリーンショットを撮ってから、枠の 🧹 を押してください。');
+        } else {
+            await stopAllIfPlaying();
+            await clearCard(cid);
+        }
+    }
+
+    async function testP1() {
+        await runPlaybackCase({
+            need: null, url: VID_LIGHT, pressPlay: true,
+            expectSettled: '再生開始', expectNotice: false, expectPlaying: true,
+            expectTimerLeft: 'なし', setPlaybackPc: true
+        });
+    }
+
+    async function testP2() {
+        await runPlaybackCase({
+            need: null, url: VID_INVALID, pressPlay: true,
+            expectSettled: '通知が出た', expectNotice: true,
+            expectTimerLeft: 'なし', needPlaybackPc: true
+        });
+    }
+
+    async function testP3() {
+        await runPlaybackCase({
+            need: 'on', url: VID_MEMBERS, pressPlay: true,
+            expectSettled: '通知が出た', expectNotice: true,
+            expectTimerLeft: 'なし', needPlaybackPc: true
+        });
+    }
+
+    async function testP4() {
+        await runPlaybackCase({
+            need: 'off', url: VID_MEMBERS, pressPlay: true,
+            expectSettled: '再生開始', expectNotice: false, expectPlaying: true,
+            expectTimerLeft: 'なし', needPlaybackPc: true
+        });
+    }
+
+    async function testP5() {
+        /* ▶を押さないまま放置しても通知を出さないこと（確定の延期）。
+           タイマーは「あり」のまま残っているのが正しい姿である。 */
+        await runPlaybackCase({
+            need: 'off', url: VID_MEMBERS, pressPlay: false, maxWaitMs: 15000,
+            expectSettled: '時間切れ', expectNotice: false,
+            expectTimerLeft: 'あり', needPlaybackPc: true, tailPressPlay: true
+        });
     }
 
 
@@ -943,7 +1180,12 @@
         { id: 'D-V1', name: '版数バッジ', run: testV1 },
         { id: 'D-M2', name: 'トップメニューの排他制御（全遷移）', run: testM2 },
         { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
-        { id: 'D-E1', name: '再生可否の確定処理と枠内通知', run: testE1 }
+        { id: 'D-E1', name: '再生可否の確定処理と枠内通知', run: testE1 },
+        { id: 'D-P1', name: '通常動画（positive control を兼ねる）', run: testP1, manual: true },
+        { id: 'D-P2', name: '存在しない動画IDで通知が出る', run: testP2, manual: true },
+        { id: 'D-P3', name: 'メンバー限定 / 保護オン → 通知が出る', run: testP3, manual: true },
+        { id: 'D-P4', name: 'メンバー限定 / 保護オフ → 再生できる', run: testP4, manual: true },
+        { id: 'D-P5', name: '再生を押さない間は確定しない', run: testP5, manual: true }
     ];
 
     var running = false;
@@ -981,6 +1223,11 @@
         clearLog();
         log('=== すべて実行 開始（' + TESTS.length + '本） ===');
         for (var i = 0; i < TESTS.length; i++) {
+            /* 盾の切り替えなど人の準備が要るテストは飛ばす。取り違えた条件で測ると害になる。 */
+            if (TESTS[i].manual) {
+                log('— ' + TESTS[i].id + ' は準備が要るので「すべて実行」では飛ばします（個別に実行してください）');
+                continue;
+            }
             await runOne(TESTS[i].id, true);
         }
         running = false; runningAll = false;

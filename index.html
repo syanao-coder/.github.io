@@ -750,10 +750,16 @@
            getVideoData().title / getDuration() は取れる回と取れない回があり
            方向も一定しないので、判定にもタイトル表示にも使わない。
            ------------------------------------------------------------------ */
-        const PLAYER_VERIFY_MS = 10000;   // 🔴 実測 6.2秒に余裕を持たせた値。短くしないこと
+        const PLAYER_VERIFY_MS = 10000;       // 🔴 実測 6.2秒に余裕を持たせた値。短くしないこと
+        const PLAYER_VERIFY_POLL_MS = 1000;   // 再生の指示を待つ間の見直し間隔
+        const PLAYER_VERIFY_WAIT_MAX_MS = 600000;  // 再生が指示されないまま待ち続ける上限（10分）
         let playerErrorCode = {};         // cardId → 直近の onError のコード
-        let playerStateSeen = {};         // cardId → その枠で観測した onStateChange の件数
+        /* 🔴 件数だけでは何が来たか分からない（2026-08-07 の実測で切り分け不能になった）。
+              値と時刻の配列で残すこと。 */
+        let playerStateLog = {};          // cardId → [{ state, at }]
         let playerVerifyTimer = {};       // cardId → 確定用のタイマーID
+        let playerVerifyArmedAt = {};     // cardId → onError を受けた時刻
+        let playerVerifyDeadline = {};    // cardId → 確定予定時刻（再生が指示されてから PLAYER_VERIFY_MS 後）
         let playerReadyDone = {};         // cardId → onReady の初期化を済ませたか（onReady は複数回発火しうる）
 
         function buildVideoKey(url) {
@@ -1267,8 +1273,10 @@
         function resetPlayerDiagnostics(cardId) {
             if (playerVerifyTimer[cardId]) { clearTimeout(playerVerifyTimer[cardId]); }
             delete playerVerifyTimer[cardId];
+            delete playerVerifyArmedAt[cardId];
+            delete playerVerifyDeadline[cardId];
             delete playerErrorCode[cardId];
-            delete playerStateSeen[cardId];
+            delete playerStateLog[cardId];
             delete playerReadyDone[cardId];
             hidePlayerNotice(cardId);
         }
@@ -1278,26 +1286,60 @@
             /* onError は二重発火しうる（実測: 357ms / 446ms）。
                先に張ったタイマーを優先し、確定時刻を後ろへずらさない。 */
             if (playerVerifyTimer[cardId]) return;
-            playerVerifyTimer[cardId] = setTimeout(function () { finalizePlayerVerify(cardId); }, PLAYER_VERIFY_MS);
+            playerVerifyArmedAt[cardId] = Date.now();
+            delete playerVerifyDeadline[cardId];
+            playerVerifyTimer[cardId] = setTimeout(function () { tickPlayerVerify(cardId); }, PLAYER_VERIFY_POLL_MS);
         }
 
         function notePlayerState(cardId, state) {
-            playerStateSeen[cardId] = (playerStateSeen[cardId] || 0) + 1;
-            /* 1=playing / 3=buffering。ここまで来れば再生は始まっている。 */
-            if (state === 1 || state === 3) {
+            if (!playerStateLog[cardId]) playerStateLog[cardId] = [];
+            playerStateLog[cardId].push({ state: state, at: Math.round(performance.now()) });
+            /* 暴走した枠でメモリを食い潰さないための上限。切り分けに要るのは先頭側なので末尾を捨てる。 */
+            if (playerStateLog[cardId].length > 200) playerStateLog[cardId].pop();
+            /* 🔴 成功シグナルは 1(playing) だけ。
+               3(buffering) は「再生を試みている」でしかなく、
+               メンバー限定で再生できない場合にも来る（2026-08-07 実測）。
+               ここに 3 を入れていたため、通知が一度も出なかった。 */
+            if (state === 1) {
                 if (playerVerifyTimer[cardId]) { clearTimeout(playerVerifyTimer[cardId]); delete playerVerifyTimer[cardId]; }
+                delete playerVerifyDeadline[cardId];
                 hidePlayerNotice(cardId);
             }
         }
 
+        /* 🔴 再生が指示されていない間は確定しない。
+           本体は自動再生しないので、▶一括再生 を押す前に「再生できません」と出すのは誤表示になる。
+           isPlayingRequest が立ってから PLAYER_VERIFY_MS 数えて確定する。 */
+        function tickPlayerVerify(cardId) {
+            delete playerVerifyTimer[cardId];
+            if (!ytPlayers[cardId]) { delete playerVerifyDeadline[cardId]; delete playerVerifyArmedAt[cardId]; return; }
+
+            if (!isPlayingRequest) {
+                delete playerVerifyDeadline[cardId];   // 再生が止められたら数え直す
+                const waited = Date.now() - (playerVerifyArmedAt[cardId] || Date.now());
+                if (waited > PLAYER_VERIFY_WAIT_MAX_MS) return;   // 放置されたまま。黙って諦める
+                playerVerifyTimer[cardId] = setTimeout(function () { tickPlayerVerify(cardId); }, PLAYER_VERIFY_POLL_MS);
+                return;
+            }
+
+            if (!playerVerifyDeadline[cardId]) playerVerifyDeadline[cardId] = Date.now() + PLAYER_VERIFY_MS;
+            if (Date.now() < playerVerifyDeadline[cardId]) {
+                playerVerifyTimer[cardId] = setTimeout(function () { tickPlayerVerify(cardId); }, PLAYER_VERIFY_POLL_MS);
+                return;
+            }
+            finalizePlayerVerify(cardId);
+        }
+
         function finalizePlayerVerify(cardId) {
             delete playerVerifyTimer[cardId];
+            delete playerVerifyDeadline[cardId];
             const player = ytPlayers[cardId];
             if (!player) return;   // 枠が消えている／別の動画に差し替わった
             let state = -1, cur = 0;
             try { state = player.getPlayerState(); } catch (e) { }
             try { cur = player.getCurrentTime() || 0; } catch (e) { }
-            if (state === 1 || state === 3 || cur > 0.5) { hidePlayerNotice(cardId); return; }
+            /* 🔴 3(buffering) は成功に数えない。10秒バッファリングし続けているのは失敗である。 */
+            if (state === 1 || cur > 0.5) { hidePlayerNotice(cardId); return; }
             showPlayerNotice(cardId, playerErrorCode[cardId]);
         }
 
@@ -1708,7 +1750,8 @@
             /* ★v2.7.4: 枠ごと作り直すので判定状態も全部捨てる。
                DOM は grid.innerHTML='' で消えているため、タイマーだけ明示的に止める。 */
             Object.keys(playerVerifyTimer).forEach(function (k) { clearTimeout(playerVerifyTimer[k]); });
-            playerVerifyTimer = {}; playerErrorCode = {}; playerStateSeen = {}; playerReadyDone = {};
+            playerVerifyTimer = {}; playerVerifyArmedAt = {}; playerVerifyDeadline = {};
+            playerErrorCode = {}; playerStateLog = {}; playerReadyDone = {};
             chatVisible = {}; chatRatio = {}; chatLoadedVideoId = {}; chatCursor = {}; chatLastMs = {}; chatFontScale = {};
             session.players.forEach(p => {
                 activeCardIds.push(p.cardId);
@@ -4328,7 +4371,8 @@
             if (confirm('すべての設定と保存URLをリセットしますか？')) {
                 cardUrls = {};            // ★v2.7.1: localStorage だけ消すとメモリ側から復活する
                 Object.keys(playerVerifyTimer).forEach(function (k) { clearTimeout(playerVerifyTimer[k]); });
-                playerVerifyTimer = {}; playerErrorCode = {}; playerStateSeen = {}; playerReadyDone = {}; // ★v2.7.4
+                playerVerifyTimer = {}; playerVerifyArmedAt = {}; playerVerifyDeadline = {};
+                playerErrorCode = {}; playerStateLog = {}; playerReadyDone = {}; // ★v2.7.4
                 localStorage.clear();
                 location.reload();
             }
