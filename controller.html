@@ -1256,6 +1256,40 @@
         }
 
         /* ==================================================================
+           ★v2.7.4: 画面のスクロール位置を 0 に保つ見張り
+
+           🔴 この画面は body{overflow:hidden; height:100vh} で、本来スクロールしない。
+              ところが再生開始時にプレイヤーの iframe がフォーカスを取ると、
+              ブラウザが「フォーカス要素を見せる」ために文書をスクロールさせることがある。
+              スクロールバーが無いので手では戻せず、トップバーが画面外へ消えたままになる。
+              通常の再読み込みはスクロール位置を復元してしまうので直らず、
+              Ctrl+Shift+R でしか戻らない（2026-08-07 実測）。
+           🔴 これは v2.7.4 で作り込んだ不具合ではなく、元からあった脆さである。
+              チャット欄など個別の要素のスクロールには触らないこと。
+              ここで戻すのは「文書全体」だけに限る。
+           ================================================================== */
+        let viewportScrollFixCount = 0;   // 何回戻したか（debug_suite が読む）
+
+        function guardViewportScroll() {
+            const targets = [document.scrollingElement, document.documentElement, document.body];
+            let fixed = false;
+            targets.forEach(function (el) {
+                if (!el) return;
+                if (el.scrollTop) { el.scrollTop = 0; fixed = true; }
+                if (el.scrollLeft) { el.scrollLeft = 0; fixed = true; }
+            });
+            if (fixed) {
+                viewportScrollFixCount++;
+                console.warn('【コントローラー】画面がスクロールしていたので戻しました（' + viewportScrollFixCount + '回目）。');
+            }
+        }
+        /* scroll は文書がスクロールしたときだけ window に来る（要素のスクロールは来ない）。 */
+        window.addEventListener('scroll', guardViewportScroll, { passive: true });
+        /* iframe へフォーカスが移った直後にスクロールされる経路をふさぐ。 */
+        window.addEventListener('focusin', guardViewportScroll);
+        window.addEventListener('resize', guardViewportScroll);
+
+        /* ==================================================================
            ★v2.7.4: 再生可否の確定と、失敗したときの枠内表示
            ================================================================== */
 

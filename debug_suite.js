@@ -30,7 +30,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.2.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.2.2';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -115,6 +115,27 @@
     }
     function disp(el) { return cstyle(el, 'display'); }
 
+    /* 画面のスクロール位置とトップバーの位置を読む（★v1.2.2）。
+       🔴 body{overflow:hidden} なので、ずれると手では戻せずトップバーが消える。 */
+    function scrollState() {
+        var se = document.scrollingElement || document.documentElement;
+        var tb = document.querySelector('.top-bar');
+        return {
+            top: se ? se.scrollTop : -1,
+            left: se ? se.scrollLeft : -1,
+            bodyTop: document.body ? document.body.scrollTop : -1,
+            barTop: tb ? Math.round(tb.getBoundingClientRect().top) : 'top-barなし',
+            fixCount: (typeof viewportScrollFixCount !== 'undefined') ? viewportScrollFixCount : '(本体が未対応)'
+        };
+    }
+
+    function scrollBackToTop() {
+        [document.scrollingElement, document.documentElement, document.body].forEach(function (el) {
+            if (!el) return;
+            try { el.scrollTop = 0; el.scrollLeft = 0; } catch (e) { }
+        });
+    }
+
     /* 枠で観測した onStateChange の値を、来た順に並べて返す（★v1.2.0）。
        🔴 件数だけでは何が来たのか分からず、2026-08-07 の実測で切り分け不能になった。 */
     function stateSeq(cardId) {
@@ -173,7 +194,14 @@
        「関数は動くが実際には押せない」を捕まえるための唯一の仕掛け。 */
     async function clickReal(el) {
         if (!el) return { blocked: true, reason: 'element-null', hit: '(null)', clicked: false, rect: null };
-        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { }
+        /* ★v1.2.2: すでに画面内にある要素は動かさない。
+           body{overflow:hidden} の画面で一度スクロールすると手では戻せないため。 */
+        try {
+            var r0 = el.getBoundingClientRect();
+            var inView = (r0.top >= 0 && r0.left >= 0
+                && r0.bottom <= (window.innerHeight || 0) && r0.right <= (window.innerWidth || 0));
+            if (!inView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        } catch (e) { }
         var res = hitTest(el);
         res.clicked = false;
         /* blocked でも click は実行する（後続の状態遷移は進め、判定だけ不合格にする）。 */
@@ -1121,6 +1149,13 @@
         log('  [観測] 結末=' + settled + '（' + elapsed + '秒） / onError=' + code
             + ' / 状態遷移=[' + stateSeq(cid) + '] / state=' + st + ' / 位置=' + cur);
 
+        /* 🔴 再生開始時に文書がスクロールしてトップバーが画面外へ消える現象があった
+           （2026-08-07 実測）。毎回測る。 */
+        var sc = scrollState();
+        log('  [観測] スクロール: scrollTop=' + sc.top + ' / body.scrollTop=' + sc.bodyTop
+            + ' / トップバー上端=' + sc.barTop + ' / 本体が戻した回数=' + sc.fixCount);
+        expect('トップバーが画面内にある（上端の座標）', sc.barTop, 0);
+
         expect('確定の結末', settled, opt.expectSettled);
         expect('通知の表示', disp(n), opt.expectNotice ? 'block' : 'none');
         if (opt.expectPlaying) {
@@ -1172,6 +1207,7 @@
            目視で確かめる時間が無くなる（2026-08-07 の検証で実際に起きた）。
            次のテストの冒頭で clearCard() が走るので、空にしないままで支障はない。 */
         await stopAllIfPlaying();
+        scrollBackToTop();   /* ★v1.2.2: 万一ずれていても、次の操作ができる状態へ戻す */
         log('  [後始末] 再生だけ止めました。枠はそのまま残しています。'
             + '目視・スクリーンショットが済んだら、枠の 🧹 を押してください。');
     }
