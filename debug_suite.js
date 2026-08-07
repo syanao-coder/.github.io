@@ -30,17 +30,25 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.2.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.2.1';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
+    /* 🔴 D-P1 の結果は「盾の切り替え → 再読み込み」をまたいで生き残る必要がある。
+       メモリに置いていたため、2026-08-07 の検証で D-P3/P4/P5 が全部「判定不能」になった。 */
+    var LS_PLAYBACK_PC = 'sync_debug_playback_pc';
+    var PLAYBACK_PC_TTL_MS = 30 * 60 * 1000;
 
     var query = null;
     try { query = new URLSearchParams(location.search).get('debug'); } catch (e) { query = null; }
 
     if (query === '0') {
         /* 明示的な無効化。キーを削除して、何も作らずに抜ける（ログも出さない）。 */
-        try { localStorage.removeItem(LS_ENABLE); localStorage.removeItem(LS_RESUME); } catch (e) { }
+        try {
+            localStorage.removeItem(LS_ENABLE);
+            localStorage.removeItem(LS_RESUME);
+            localStorage.removeItem(LS_PLAYBACK_PC);   /* ★v1.2.1: 置き土産を残さない */
+        } catch (e) { }
         return;
     }
     if (query === '1') {
@@ -348,8 +356,10 @@
         note.textContent = '各テストは「4メニューをすべて閉じた状態」から開始します。'
             + 'D-M7 は途中でページを再読み込みし、読み込み後に自動で続きを実行します。'
             + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。'
-            + 'D-P1〜D-P5 は「すべて実行」では飛ばします。D-P1 を最初に実行し、'
-            + 'D-P3 は盾オン、D-P4・D-P5 は盾オフにしてから個別に押してください（開始時に盾の状態を聞きます）。';
+            + 'D-P1〜D-P5 は「すべて実行」では飛ばします。D-P1 を最初に実行し（結果は30分保存され、'
+            + '再読み込みをまたいで以降のテストの positive control になります）、'
+            + 'D-P3 は盾オン、D-P4 は盾オフにしてから個別に押してください（開始時に盾の状態を聞きます）。'
+            + 'D-P は終了時に枠を空にしません。目視が済んだら 🧹 を押してください。';
         panel.appendChild(note);
 
         var pre = document.createElement('pre');
@@ -963,7 +973,25 @@
     var VID_INVALID = 'aaaaaaaaaaa';
     var PLAY_MAX_WAIT_MS = 30000;   /* 確定するまで待つ上限 */
 
-    var PLAYBACK_PC = { ran: false, ok: false, note: 'D-P1 が未実行' };
+    /* D-P1 の結果を読み書きする。再読み込みをまたぐので localStorage に置く。 */
+    function readPlaybackPc() {
+        var raw = null;
+        try { raw = localStorage.getItem(LS_PLAYBACK_PC); } catch (e) { return null; }
+        if (!raw) return null;
+        var p = null;
+        try { p = JSON.parse(raw); } catch (e) { return null; }
+        if (!p || p.v !== DEBUG_SUITE_VERSION) return null;
+        if (Date.now() - Number(p.at || 0) > PLAYBACK_PC_TTL_MS) return null;
+        return p;
+    }
+
+    function writePlaybackPc(ok, note) {
+        try {
+            localStorage.setItem(LS_PLAYBACK_PC, JSON.stringify({
+                v: DEBUG_SUITE_VERSION, at: Date.now(), ok: !!ok, note: String(note)
+            }));
+        } catch (e) { }
+    }
 
     function cardEmptyReady(cid) {
         return !!document.getElementById('urlInput_' + cid)
@@ -1028,7 +1056,9 @@
         }
         if (opt.needPlaybackPc) {
             pc('この環境で通常動画が再生できる（D-P1 で確認済み）', function () {
-                return PLAYBACK_PC.ok ? PLAYBACK_PC.note : false;
+                var p = readPlaybackPc();
+                if (!p) return false;              /* 未実行・別の版・30分超過 */
+                return p.ok ? p.note : false;
             });
         }
 
@@ -1050,7 +1080,21 @@
 
         var timeBefore = 'ERR';
         try { timeBefore = ytPlayers[cid].getCurrentTime(); } catch (e) { }
-        log('  [観測] 読み込み2.5秒後の再生位置 = ' + timeBefore);
+        var autoPlayed = (typeof timeBefore === 'number' && timeBefore > 0.5);
+        log('  [観測] 読み込み2.5秒後の再生位置 = ' + timeBefore
+            + '（▶を押していないのに進んでいれば自動再生）');
+        /* 🔴 埋め込みが勝手に再生を始めるかどうかは動画によって違う（2026-08-07 実測）。
+           毎回記録する。opt.expectAutoPlay が指定された回は判定にもする。 */
+        if (opt.expectAutoPlay !== undefined) {
+            expect('読み込みだけで再生が始まったか（自動再生）', autoPlayed, opt.expectAutoPlay);
+        } else {
+            log('  [記録] 自動再生 = ' + (autoPlayed ? 'あり' : 'なし'));
+        }
+        if (opt.requireNoAutoPlay) {
+            pc('▶を押す前に再生が始まっていない（この項目の前提）', function () {
+                return autoPlayed ? false : ('読み込み2.5秒後の位置 = ' + timeBefore);
+            });
+        }
 
         if (opt.pressPlay) {
             var r2 = await clickReal(document.getElementById('playPauseBtn'));
@@ -1096,39 +1140,40 @@
         }
 
         if (opt.setPlaybackPc) {
-            PLAYBACK_PC.ran = true;
-            PLAYBACK_PC.ok = (st === 1 && cur > 0.5);
-            PLAYBACK_PC.note = PLAYBACK_PC.ok
-                ? ('通常動画が state=1 / 位置=' + cur.toFixed(1) + ' まで到達')
+            var pcOk = (st === 1 && cur > 0.5);
+            var pcNote = pcOk
+                ? ('通常動画が state=1 / 位置=' + Number(cur).toFixed(1) + ' まで到達（' + new Date().toLocaleTimeString() + '）')
                 : '通常動画すら再生されなかった';
-            log('  [記録] 以降のテスト用の positive control: ' + PLAYBACK_PC.note);
+            writePlaybackPc(pcOk, pcNote);
+            log('  [記録] 以降のテスト用の positive control（30分有効・再読み込みをまたぐ）: ' + pcNote);
         }
 
-        /* 放置の回だけ、最後に▶を押して救済されるかまで見る。 */
+        /* 放置の回だけ、最後に▶を押して確定が動き出すかまで見る。 */
         if (opt.tailPressPlay) {
-            log('  [操作] ここで ▶一括再生 を押す');
+            log('  [操作] ここで ▶一括再生 を押す（確定が動き出すかを見る）');
             await clickReal(document.getElementById('playPauseBtn'));
-            var t1 = Date.now(), st2 = -1, cur2 = 0;
-            while (Date.now() - t1 < 20000) {
+            var t1 = Date.now(), st2 = -1, cur2 = 0, tailSettled = '';
+            while (Date.now() - t1 < (opt.tailMaxWaitMs || 20000)) {
                 try { st2 = ytPlayers[cid].getPlayerState(); } catch (e) { st2 = 'ERR'; }
                 try { cur2 = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { cur2 = 0; }
-                if (st2 === 1 && cur2 > 0.5) break;
-                if (disp(n) === 'block') break;
+                if (st2 === 1 && cur2 > 0.5) { tailSettled = '再生開始'; break; }
+                if (disp(n) === 'block') { tailSettled = '通知が出た'; break; }
                 await wait(500);
             }
-            log('  [観測] ▶後: state=' + st2 + ' / 位置=' + cur2 + ' / 通知=' + disp(n));
-            expect('▶を押したあとに再生が始まる', (st2 === 1 && cur2 > 0.5), true);
-            expect('▶を押したあとも通知は出ない', disp(n), 'none');
+            if (!tailSettled) tailSettled = '時間切れ';
+            log('  [観測] ▶後: 結末=' + tailSettled + '（' + Math.round((Date.now() - t1) / 1000)
+                + '秒） / state=' + st2 + ' / 位置=' + cur2 + ' / 通知=' + disp(n));
+            expect('▶を押したあとの結末', tailSettled, opt.tailExpectSettled);
+            expect('▶を押したあとの通知の表示', disp(n), opt.tailExpectNotice ? 'block' : 'none');
         }
 
-        if (disp(n) === 'block') {
-            await stopAllIfPlaying();
-            log('  [後始末] 通知を表示したまま残しました。'
-                + 'スクリーンショットを撮ってから、枠の 🧹 を押してください。');
-        } else {
-            await stopAllIfPlaying();
-            await clearCard(cid);
-        }
+        /* 🔴 後始末で枠を空にしない。
+           テストが自分で 🧹 を押すと「一瞬映ってすぐ空になった」ように見え、
+           目視で確かめる時間が無くなる（2026-08-07 の検証で実際に起きた）。
+           次のテストの冒頭で clearCard() が走るので、空にしないままで支障はない。 */
+        await stopAllIfPlaying();
+        log('  [後始末] 再生だけ止めました。枠はそのまま残しています。'
+            + '目視・スクリーンショットが済んだら、枠の 🧹 を押してください。');
     }
 
     async function testP1() {
@@ -1165,11 +1210,18 @@
 
     async function testP5() {
         /* ▶を押さないまま放置しても通知を出さないこと（確定の延期）。
-           タイマーは「あり」のまま残っているのが正しい姿である。 */
+           🔴 メンバー限定の動画は読み込んだだけで再生が始まってしまい（2026-08-07 実測）、
+              「▶を押していない状態」を作れなかった。存在しない動画IDなら再生は絶対に
+              始まらないので、条件が確実に成立する。
+           手順: 読み込む → 15秒放置（通知は出ないはず・タイマーは残るはず）
+                 → ▶を押す → 10秒後に通知が出る */
         await runPlaybackCase({
-            need: 'off', url: VID_MEMBERS, pressPlay: false, maxWaitMs: 15000,
+            need: null, url: VID_INVALID, pressPlay: false, maxWaitMs: 15000,
+            requireNoAutoPlay: true, expectAutoPlay: false,
             expectSettled: '時間切れ', expectNotice: false,
-            expectTimerLeft: 'あり', needPlaybackPc: true, tailPressPlay: true
+            expectTimerLeft: 'あり', needPlaybackPc: true,
+            tailPressPlay: true, tailMaxWaitMs: 20000,
+            tailExpectSettled: '通知が出た', tailExpectNotice: true
         });
     }
 
@@ -1185,7 +1237,7 @@
         { id: 'D-P2', name: '存在しない動画IDで通知が出る', run: testP2, manual: true },
         { id: 'D-P3', name: 'メンバー限定 / 保護オン → 通知が出る', run: testP3, manual: true },
         { id: 'D-P4', name: 'メンバー限定 / 保護オフ → 再生できる', run: testP4, manual: true },
-        { id: 'D-P5', name: '再生を押さない間は確定しない', run: testP5, manual: true }
+        { id: 'D-P5', name: '再生を押さない間は確定しない（存在しない動画ID）', run: testP5, manual: true }
     ];
 
     var running = false;
