@@ -19,9 +19,10 @@
 
    構造:
      ブロック1  有効化判定
-     ブロック2  共通ライブラリ（wait / sample / rect / overlap / clickReal / expect / pc）
-     ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ）
-     ブロック4  テスト登録（D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5）
+     ブロック2  共通ライブラリ（wait / waitFor / sample / rect / overlap / clickReal /
+                hasAdvanced / breakdownOf / normalizeChoices / expect / pc / note）
+     ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ・ask / メモ）
+     ブロック4  テスト登録（D-X1 / D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5）
    ========================================================================== */
 (function () {
     'use strict';
@@ -30,7 +31,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.2.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.3.0';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -38,6 +39,11 @@
        メモリに置いていたため、2026-08-07 の検証で D-P3/P4/P5 が全部「判定不能」になった。 */
     var LS_PLAYBACK_PC = 'sync_debug_playback_pc';
     var PLAYBACK_PC_TTL_MS = 30 * 60 * 1000;
+    /* 🔴 ★v1.3.0: 実施メモとラベル。盾の切り替えは再読み込みを伴うので、
+       メモリに置くと消える（LS_PLAYBACK_PC と同じ理由）。localStorage に置く。
+       ⚠️ これで ?debug=0 が削除するキーは 3本 → 4本になった。 */
+    var LS_META = 'sync_debug_meta';
+    var META_TTL_MS = 12 * 60 * 60 * 1000;
 
     var query = null;
     try { query = new URLSearchParams(location.search).get('debug'); } catch (e) { query = null; }
@@ -48,6 +54,7 @@
             localStorage.removeItem(LS_ENABLE);
             localStorage.removeItem(LS_RESUME);
             localStorage.removeItem(LS_PLAYBACK_PC);   /* ★v1.2.1: 置き土産を残さない */
+            localStorage.removeItem(LS_META);          /* ★v1.3.0 */
         } catch (e) { }
         return;
     }
@@ -71,6 +78,40 @@
     /* 単なる待機。待ち時間を明示的に書かせるために用意する。 */
     function wait(ms) {
         return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    /* 🔴 ★v1.3.0: 値が届くまで待ってから基準値を取る。
+       sample() は「間隔×回数」でしか取れないため、非同期に届く値の基準を
+       値が入る前に掴んでしまっていた（スパイク 5-A で方式③の4セルが判定不能）。
+
+       gotValue() が false を返す間だけ待つ。
+         null / undefined / false / 空文字 / 有限でない数値（NaN・Infinity）＝「まだ届いていない」
+       戻り値: { ok, value, waitedMs, tries }
+         ok        … 値が届いたか（時間切れなら false）
+         value     … 最後に読んだ値（時間切れのときも最後の値を返す）
+         waitedMs  … 実際に待った時間
+         tries     … fn() を呼んだ回数（1回目は待たずに呼ぶ） */
+    function gotValue(v) {
+        if (v === null || v === undefined || v === false || v === '') return false;
+        if (typeof v === 'number' && !isFinite(v)) return false;
+        return true;
+    }
+
+    async function waitFor(fn, timeoutMs, intervalMs) {
+        var iv = Number(intervalMs) > 0 ? Number(intervalMs) : 100;
+        var limit = Number(timeoutMs) > 0 ? Number(timeoutMs) : 5000;
+        var t0 = Date.now(), tries = 0, value = null;
+        for (;;) {
+            tries++;
+            try { value = fn(); } catch (e) { value = null; }
+            if (gotValue(value)) {
+                return { ok: true, value: value, waitedMs: Date.now() - t0, tries: tries };
+            }
+            if (Date.now() - t0 >= limit) {
+                return { ok: false, value: value, waitedMs: Date.now() - t0, tries: tries };
+            }
+            await wait(iv);
+        }
     }
 
     /* fn() を count 回サンプリングし、最小・最大・平均・0になった回数を集計する。 */
@@ -146,6 +187,64 @@
         } catch (e) { return '(取得不可)'; }
     }
 
+    /* 🔴 ★v1.3.0: 「再生が進んだか」の判定。
+       v1.2.2 は絶対値 `位置 > 0.5` で判定していたが、実測が ちょうど 0.5 だった回に
+       落ちた。閾値を下げるだけでは同じことが起きるので、判定の考え方そのものを
+       「基準位置から進んだか」へ変えた。基準位置は▶を押した直後に取る。
+
+       state=1(playing) を必須にするのは /get-ui-spec 2-4節の確定事項による。
+       3(buffering) は再生できない場合にも来るので成功シグナルにしてはいけない。 */
+    var PLAY_ADVANCE_MIN = 0.15;   /* 基準位置からこれだけ進めば「進んだ」 */
+    var AUTOPLAY_POS_MIN = 0.2;    /* 読み込みだけで動き出したとみなす位置（基準は必ず0） */
+
+    function hasAdvanced(startPos, cur, state) {
+        if (Number(state) !== 1) return false;
+        var s = Number(startPos), c = Number(cur);
+        if (!isFinite(s) || !isFinite(c)) return false;
+        return (c - s) >= PLAY_ADVANCE_MIN;
+    }
+
+    /* 🔴 ★v1.3.0: 状態遷移を「件数」ではなく「内訳」で出す。
+       件数だけでは再生可否を分けられない（5-A4・5-A5 で最も明確に分けた値なのに
+       画面に出ず、JSON を読む必要があった）。
+       純関数にしてあるのは D-X1 で自己診断するため。 */
+    function breakdownOf(list) {
+        if (!list || !list.length) return '(記録なし)';
+        var order = [], cnt = {};
+        for (var i = 0; i < list.length; i++) {
+            var v = list[i];
+            var k = String((v && typeof v === 'object') ? v.state : v);
+            if (cnt[k] === undefined) { cnt[k] = 0; order.push(k); }
+            cnt[k]++;
+        }
+        var parts = [];
+        for (var j = 0; j < order.length; j++) parts.push(order[j] + '×' + cnt[order[j]]);
+        return parts.join(' / ') + '（計' + list.length + '件）';
+    }
+
+    function stateBreakdown(cardId) {
+        try {
+            var a = (typeof playerStateLog !== 'undefined' && playerStateLog[cardId]) ? playerStateLog[cardId] : null;
+            return breakdownOf(a);
+        } catch (e) { return '(取得不可)'; }
+    }
+
+    /* 🔴 ★v1.3.0: ask() の選択肢を正規化する。
+       当てはまる選択肢が無い回に無関係な選択肢が選ばれ、自由記入・自動記録と
+       矛盾する記録が残った（5-A2）。「該当なし」「測れなかった」「未実施」は必ず足す。
+       重複は作らない。純関数にしてあるのは D-X1 で自己診断するため。 */
+    var ASK_EXTRA = ['該当なし', '測れなかった（理由を自由記入へ）', '未実施'];
+
+    function normalizeChoices(choices) {
+        var out = [];
+        (choices || []).forEach(function (c) {
+            var s = String(c).trim();
+            if (s && out.indexOf(s) < 0) out.push(s);
+        });
+        ASK_EXTRA.forEach(function (s) { if (out.indexOf(s) < 0) out.push(s); });
+        return out;
+    }
+
     /* 2矩形の重なり面積と、a に対する割合(%)を返す。 */
     function overlap(a, b) {
         if (!a || !b) return { area: 0, ratio: 0 };
@@ -212,8 +311,23 @@
 
     /* --- 判定の記録 ------------------------------------------------------ */
 
-    var current = null;   /* 実行中のテスト。{ id, name, results[], pcs[] } */
+    /* ★v1.3.0: レコードに notes（観測）と asks（目視の記録）を足した。
+       どちらも合否には数えない。数えると既存テストの判定数が変わってしまう。 */
+    var current = null;   /* 実行中のテスト。{ id, name, results[], pcs[], notes[], asks[] } */
     var report = [];      /* 全テストの記録 */
+
+    function mkRecord(id, name) {
+        return { id: id, name: name, results: [], pcs: [], notes: [], asks: [] };
+    }
+    /* 古い引き継ぎデータ由来のレコードにも欄を用意する。 */
+    function fixRecord(t) {
+        if (!t) return t;
+        if (!Array.isArray(t.results)) t.results = [];
+        if (!Array.isArray(t.pcs)) t.pcs = [];
+        if (!Array.isArray(t.notes)) t.notes = [];
+        if (!Array.isArray(t.asks)) t.asks = [];
+        return t;
+    }
 
     function fmt(v) {
         if (v === null) return 'null';
@@ -237,6 +351,16 @@
         if (current) current.results.push(rec);
         log('  ' + (ok ? '[⚪]' : '[❌]') + ' ' + name + ' … 実測=' + rec.actual + ' / 期待=' + rec.expected);
         return ok;
+    }
+
+    /* 🔴 ★v1.3.0: 合否を付けない観測記録。
+       「状態遷移の内訳」のように、結果表には必ず出したいが期待値を置けない値を入れる。
+       expect() で足すと既存テストの判定数が変わり、版をまたいだ比較ができなくなる。 */
+    function note(name, value) {
+        var rec = { name: name, value: fmt(value) };
+        if (current) { fixRecord(current); current.notes.push(rec); }
+        log('  [観測] ' + name + ' … ' + rec.value);
+        return rec.value;
     }
 
     /* positive control。通常の判定とは別枠で記録する。
@@ -282,12 +406,191 @@
             '#debugMenu .dbg-note { font-size:0.72rem; color:#888; margin:0 0 8px 0; }',
             '#debugLog { margin:0; padding:8px; background:#07070a; border:1px solid #333; border-radius:4px;',
             '  font-family:monospace; font-size:0.72rem; line-height:1.35; color:#ddd;',
-            '  max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-all; }'
+            '  max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-all; }',
+            /* ★v1.3.0: ask() / 実施メモ の入力パネル。z-index はドロップダウン(120)より上。 */
+            '#dbgModal { position:fixed; inset:0; z-index:9000; background:rgba(0,0,0,0.6);',
+            '  display:flex; align-items:center; justify-content:center; }',
+            '#dbgModal .dbg-box { width:min(520px, calc(100vw - 40px)); box-sizing:border-box;',
+            '  max-height:80vh; overflow:auto; background:#12121a; border:1px solid #c56cf0;',
+            '  border-radius:6px; padding:14px; color:#ddd; font-size:0.82rem; }',
+            '#dbgModal h4 { margin:0 0 10px 0; color:#c56cf0; font-size:0.9rem; }',
+            '#dbgModal label.dbg-choice { display:block; padding:4px 2px; cursor:pointer; }',
+            '#dbgModal .dbg-choices { border:1px solid #333; border-radius:4px; padding:6px; margin-bottom:8px; }',
+            '#dbgModal .dbg-choices.dbg-blank { border-color:#ff5555; background:rgba(255,85,85,0.08); }',
+            '#dbgModal .dbg-warn { color:#ff5555; margin:0 0 8px 0; font-size:0.78rem; display:none; }',
+            '#dbgModal .dbg-warn.on { display:block; }',
+            '#dbgModal input[type=text], #dbgModal textarea { width:100%; box-sizing:border-box;',
+            '  background:#07070a; color:#ddd; border:1px solid #333; border-radius:4px; padding:6px;',
+            '  font-family:inherit; font-size:0.8rem; margin-bottom:8px; }',
+            '#dbgModal textarea { height:80px; resize:vertical; }',
+            '#dbgModal .dbg-actions { text-align:right; }',
+            '#dbgModal .dbg-actions button { font-size:0.82rem; padding:5px 14px; cursor:pointer; }',
+            '#dbgModal .dbg-hint { color:#888; font-size:0.74rem; margin:0 0 8px 0; }'
         ].join('\n');
         var st = document.createElement('style');
         st.id = 'debugSuiteStyle';
         st.textContent = css;
         document.head.appendChild(st);
+    }
+
+    /* --- ★v1.3.0: 実施メモとラベル -----------------------------------------
+       環境条件（拡張機能の有無・保護設定・ブラウザの実体）をレコードへ埋め込む。
+       人が別途書き写さずに済む。IDだけ差し替えて見出しが古いまま残る事故も防ぐ。
+       🔴 盾の切り替えは再読み込みを伴うので localStorage に置く。 */
+
+    var runLabel = '';
+    var runMemo = '';
+
+    function loadMeta() {
+        var raw = null;
+        try { raw = localStorage.getItem(LS_META); } catch (e) { return; }
+        if (!raw) return;
+        var m = null;
+        try { m = JSON.parse(raw); } catch (e) { return; }
+        if (!m) return;
+        if (Date.now() - Number(m.at || 0) > META_TTL_MS) {
+            try { localStorage.removeItem(LS_META); } catch (e) { }
+            return;
+        }
+        runLabel = String(m.label || '');
+        runMemo = String(m.memo || '');
+    }
+
+    function saveMeta() {
+        try {
+            localStorage.setItem(LS_META, JSON.stringify({
+                v: DEBUG_SUITE_VERSION, at: Date.now(), label: runLabel, memo: runMemo
+            }));
+        } catch (e) { }
+    }
+
+    /* --- ★v1.3.0: 入力パネルの土台 ---------------------------------------- */
+
+    function openModal(build) {
+        var ov = document.getElementById('dbgModal');
+        if (ov) ov.parentNode.removeChild(ov);
+        ov = document.createElement('div');
+        ov.id = 'dbgModal';
+        var box = document.createElement('div');
+        box.className = 'dbg-box';
+        ov.appendChild(box);
+        document.body.appendChild(ov);
+        build(box, function () { if (ov.parentNode) ov.parentNode.removeChild(ov); });
+        return ov;
+    }
+
+    /* 🔴 目視項目を計測直後に聞く。選択肢は normalizeChoices() で正規化する。
+       確定ボタンを押すまで閉じない（未記入のままページを離れられた事故の対策）。
+       戻り値: Promise<{ name, choice, note }> */
+    function ask(name, choices) {
+        var list = normalizeChoices(choices);
+        return new Promise(function (resolve) {
+            openModal(function (box, close) {
+                var h = document.createElement('h4');
+                h.textContent = '🐞 目視の記録';
+                box.appendChild(h);
+
+                var q = document.createElement('p');
+                q.className = 'dbg-hint';
+                q.textContent = name;
+                box.appendChild(q);
+
+                var wrap = document.createElement('div');
+                wrap.className = 'dbg-choices';
+                var gname = 'dbgAsk_' + Date.now();
+                list.forEach(function (c) {
+                    var lab = document.createElement('label');
+                    lab.className = 'dbg-choice';
+                    var r = document.createElement('input');
+                    r.type = 'radio'; r.name = gname; r.value = c;
+                    lab.appendChild(r);
+                    lab.appendChild(document.createTextNode(' ' + c));
+                    wrap.appendChild(lab);
+                });
+                box.appendChild(wrap);
+
+                var warn = document.createElement('p');
+                warn.className = 'dbg-warn';
+                warn.textContent = '未選択です。当てはまるものが無ければ「該当なし」を選んでください。';
+                box.appendChild(warn);
+
+                var ta = document.createElement('textarea');
+                ta.placeholder = '自由記入（選択肢に収まらない観察はここへ。空でも可）';
+                box.appendChild(ta);
+
+                var act = document.createElement('div');
+                act.className = 'dbg-actions';
+                var ok = document.createElement('button');
+                ok.type = 'button';
+                ok.textContent = '確定';
+                act.appendChild(ok);
+                box.appendChild(act);
+
+                ok.addEventListener('click', function () {
+                    var sel = wrap.querySelector('input[type=radio]:checked');
+                    if (!sel) {
+                        wrap.classList.add('dbg-blank');
+                        warn.classList.add('on');
+                        return;
+                    }
+                    var rec = { name: name, choice: sel.value, note: String(ta.value || '').trim() };
+                    if (!current) { current = mkRecord('D-ASK', '単独の目視記録'); report.push(current); }
+                    fixRecord(current);
+                    current.asks.push(rec);
+                    log('  [目視] ' + name + ' … ' + rec.choice
+                        + (rec.note ? ' / 自由記入: ' + rec.note.replace(/\n/g, ' ') : ''));
+                    close();
+                    resolve(rec);
+                });
+            });
+        });
+    }
+
+    function openMetaDialog() {
+        openModal(function (box, close) {
+            var h = document.createElement('h4');
+            h.textContent = '📝 実施メモ / ラベル';
+            box.appendChild(h);
+
+            var hint = document.createElement('p');
+            hint.className = 'dbg-hint';
+            hint.textContent = 'ここに書いた内容は報告書用のコピーの「事実」節へそのまま入ります。'
+                + '12時間保存され、再読み込みをまたいでも残ります。';
+            box.appendChild(hint);
+
+            var l1 = document.createElement('p');
+            l1.className = 'dbg-hint';
+            l1.textContent = 'ラベル（この計測回の見出し。例: 5-C 事前計測 / 盾オフ / 2回目）';
+            box.appendChild(l1);
+            var i1 = document.createElement('input');
+            i1.type = 'text'; i1.value = runLabel;
+            box.appendChild(i1);
+
+            var l2 = document.createElement('p');
+            l2.className = 'dbg-hint';
+            l2.textContent = '実施メモ（ブラウザの実体・拡張機能の有無・保護設定・配信元など）';
+            box.appendChild(l2);
+            var i2 = document.createElement('textarea');
+            i2.value = runMemo;
+            box.appendChild(i2);
+
+            var act = document.createElement('div');
+            act.className = 'dbg-actions';
+            var ok = document.createElement('button');
+            ok.type = 'button';
+            ok.textContent = '保存';
+            act.appendChild(ok);
+            box.appendChild(act);
+
+            ok.addEventListener('click', function () {
+                runLabel = String(i1.value || '').trim();
+                runMemo = String(i2.value || '').trim();
+                saveMeta();
+                log('📝 実施メモを保存しました。ラベル=' + (runLabel || '(未記入)')
+                    + ' / メモ=' + (runMemo ? runMemo.replace(/\n/g, ' ') : '(未記入)'));
+                close();
+            });
+        });
     }
 
     /* 排他制御は本体の仕組みに参加する（本体側に分岐を書き足さない）。 */
@@ -369,7 +672,11 @@
         row1.className = 'dbg-row';
         row1.appendChild(mkBtn('▶ すべて実行', '登録された全テストを順に実行する', function () { runAll(); }));
         row1.appendChild(mkBtn('🗑 ログを消す', 'ログ表示と記録を初期化する', function () { clearLog(); }));
-        row1.appendChild(mkBtn('📋 報告書用にコピー', 'Markdown 表としてクリップボードへコピーする', function () { copyReport(); }));
+        row1.appendChild(mkBtn('📋 報告書用にコピー', '「事実 / 解釈 / 生データJSON」の3節に分けた Markdown をクリップボードへコピーする', function () { copyReport(); }));
+        row1.appendChild(mkBtn('📝 メモ/ラベル', 'この計測回のラベルと実施メモを入力する（12時間保存・報告書へ入る）', function () { openMetaDialog(); }));
+        row1.appendChild(mkBtn('❓ ask() 確認', '目視の記録パネルを1回開く（動作確認用）', function () {
+            ask('（動作確認）この記録パネルの選択肢は読めていますか', ['読める', '読めない']);
+        }));
         panel.appendChild(row1);
 
         var row2 = document.createElement('div');
@@ -379,16 +686,17 @@
         });
         panel.appendChild(row2);
 
-        var note = document.createElement('p');
-        note.className = 'dbg-note';
-        note.textContent = '各テストは「4メニューをすべて閉じた状態」から開始します。'
+        var noteEl = document.createElement('p');
+        noteEl.className = 'dbg-note';
+        noteEl.textContent = '各テストは「4メニューをすべて閉じた状態」から開始します。'
+            + 'D-X1 は実機の条件を使わない基盤の自己診断で、いつ押しても構いません。'
             + 'D-M7 は途中でページを再読み込みし、読み込み後に自動で続きを実行します。'
             + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。'
             + 'D-P1〜D-P5 は「すべて実行」では飛ばします。D-P1 を最初に実行し（結果は30分保存され、'
             + '再読み込みをまたいで以降のテストの positive control になります）、'
             + 'D-P3 は盾オン、D-P4 は盾オフにしてから個別に押してください（開始時に盾の状態を聞きます）。'
             + 'D-P は終了時に枠を空にしません。目視が済んだら 🧹 を押してください。';
-        panel.appendChild(note);
+        panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
         pre.id = 'debugLog';
@@ -417,22 +725,35 @@
         log('=== debug_suite ' + DEBUG_SUITE_VERSION + ' / APP_VERSION ' + appVersion() + ' ===');
         log('日時: ' + new Date().toISOString() + ' / 画面: ' + window.innerWidth + 'x' + window.innerHeight);
         log('排他制御への参加: ' + (hasExclusive ? 'TOP_MENUS.push() 済み' : '失敗（単独動作）'));
+        log('ラベル: ' + (runLabel || '(未記入 ─ 📝 から入力できます)'));
+        log('実施メモ: ' + (runMemo ? runMemo.replace(/\n/g, ' / ') : '(未記入 ─ 📝 から入力できます)'));
     }
 
     /* --- 報告書用の Markdown ---------------------------------------------- */
 
+    /* 🔴 ★v1.3.0: 「事実 / 解釈 / 生データJSON」の3節に分ける。
+       事実と解釈を分けて書く規約（/get-dev-workflow 1-4節）をコード側で強制する。
+       回答フォーム（answer_form.html）の出力とも構成を揃えてある。 */
     function buildMarkdown() {
         var lines = [];
         lines.push('### debug_suite 実行結果（APP_VERSION ' + appVersion() + '）');
         lines.push('');
+
+        /* ------------------------- 1. 事実 ------------------------- */
+        lines.push('## 1. 事実');
+        lines.push('');
         lines.push('- debug_suite: `' + DEBUG_SUITE_VERSION + '` / APP_VERSION: `' + appVersion() + '`');
         lines.push('- 実行日時: ' + new Date().toISOString());
         lines.push('- 画面: ' + window.innerWidth + ' x ' + window.innerHeight);
+        lines.push('- 配信元: ' + location.origin);
         lines.push('- 排他制御への参加: ' + (hasExclusive ? 'TOP_MENUS.push() 成功' : '失敗（単独動作）'));
+        lines.push('- ラベル: ' + (runLabel || '（未記入）'));
+        lines.push('- 実施メモ: ' + (runMemo ? runMemo.replace(/\n/g, ' / ') : '（未記入）'));
         lines.push('');
         lines.push('| テスト | 判定 | 合格/項目数 | PC |');
         lines.push('| :--- | :--: | ---: | :--- |');
         report.forEach(function (t) {
+            fixRecord(t);
             var okCount = t.results.filter(function (r) { return r.ok; }).length;
             var pcNg = t.pcs.filter(function (p) { return !p.ok; }).length;
             lines.push('| ' + t.id + ' ' + t.name + ' | ' + verdictMark(t) + ' | '
@@ -441,7 +762,8 @@
         });
         lines.push('');
         report.forEach(function (t) {
-            lines.push('#### ' + t.id + ' ' + t.name + ' ─ ' + verdictText(t));
+            fixRecord(t);
+            lines.push('#### ' + t.id + ' ' + t.name);
             lines.push('');
             lines.push('| 種別 | 項目 | 実測 | 期待 | 判定 |');
             lines.push('| :--- | :--- | :--- | :--- | :--: |');
@@ -451,8 +773,72 @@
             t.results.forEach(function (r) {
                 lines.push('| 判定 | ' + mdEsc(r.name) + ' | ' + mdEsc(r.actual) + ' | ' + mdEsc(r.expected) + ' | ' + (r.ok ? '⚪' : '❌') + ' |');
             });
+            /* 合否を付けない観測。期待値を置けない値はここに出る。 */
+            t.notes.forEach(function (n) {
+                lines.push('| 観測 | ' + mdEsc(n.name) + ' | ' + mdEsc(n.value) + ' | （期待値なし） | ─ |');
+            });
+            t.asks.forEach(function (a) {
+                lines.push('| 目視 | ' + mdEsc(a.name) + ' | ' + mdEsc(a.choice)
+                    + (a.note ? '（自由記入: ' + mdEsc(a.note) + '）' : '') + ' | （回答） | ─ |');
+            });
             lines.push('');
         });
+
+        /* ------------------------- 2. 解釈 ------------------------- */
+        lines.push('## 2. 解釈');
+        lines.push('');
+        if (report.length === 0) {
+            lines.push('- 実行されたテストがありません。');
+        }
+        var ng = 0, undet = 0;
+        report.forEach(function (t) {
+            fixRecord(t);
+            lines.push('- **' + t.id + ' ' + t.name + '**: ' + verdictText(t));
+            if (t.pcs.some(function (p) { return !p.ok; })) {
+                undet++;
+                t.pcs.filter(function (p) { return !p.ok; }).forEach(function (p) {
+                    lines.push('    - 不成立の positive control: ' + p.name + '（実測: ' + p.value + '）');
+                });
+            } else if (!t.results.every(function (r) { return r.ok; })) {
+                ng++;
+                t.results.filter(function (r) { return !r.ok; }).forEach(function (r) {
+                    lines.push('    - 不合格: ' + r.name + '（実測: ' + r.actual + ' / 期待: ' + r.expected + '）');
+                });
+            }
+        });
+        lines.push('');
+        lines.push('- 不合格のテスト: ' + ng + '本 / 判定不能のテスト: ' + undet + '本');
+        if (undet > 0) {
+            lines.push('- ⚠️ **判定不能は「機能が壊れている」ではなく「測れていない」。**'
+                + ' 基盤側の疑いとして扱い、本体の不合格に数えないこと。');
+        }
+        if (!runLabel || !runMemo) {
+            lines.push('- ⚠️ ラベルまたは実施メモが未記入。'
+                + '測定ブラウザの実体・保護設定が記録に残っていない可能性がある。');
+        }
+        lines.push('');
+
+        /* --------------------- 3. 生データJSON --------------------- */
+        lines.push('## 3. 生データJSON');
+        lines.push('');
+        lines.push('```json');
+        var raw = '{}';
+        try {
+            raw = JSON.stringify({
+                suite: DEBUG_SUITE_VERSION,
+                app: appVersion(),
+                at: new Date().toISOString(),
+                origin: location.origin,
+                screen: { w: window.innerWidth, h: window.innerHeight },
+                label: runLabel,
+                memo: runMemo,
+                exclusive: hasExclusive,
+                report: report
+            }, null, 1);
+        } catch (e) { raw = '{ "error": "JSON化に失敗: ' + String(e && e.message) + '" }'; }
+        lines.push(raw);
+        lines.push('```');
+        lines.push('');
         return lines.join('\n');
     }
 
@@ -460,10 +846,13 @@
 
     function verdictMark(t) {
         if (t.pcs.some(function (p) { return !p.ok; })) return '⚠ 判定不能';
+        /* ★v1.3.0: 判定が1件も無いレコード（目視の記録だけ）を「合格」と見せない。 */
+        if (!t.results || t.results.length === 0) return '─ 記録のみ';
         return t.results.every(function (r) { return r.ok; }) ? '⚪ 合格' : '❌ 不合格';
     }
     function verdictText(t) {
         if (t.pcs.some(function (p) { return !p.ok; })) return '判定不能（positive control が不成立。基盤側の疑い）';
+        if (!t.results || t.results.length === 0) return '記録のみ（合否の判定を含まない）';
         return t.results.every(function (r) { return r.ok; }) ? '合格' : '不合格';
     }
 
@@ -548,6 +937,91 @@
         if (!id) return;
         await clickReal(document.getElementById(menuOf(id).btn));
     }
+
+    /* --- D-X1: 基盤の自己診断（★v1.3.0） -----------------------------------
+
+       実機の条件（動画・盾・枠）をいっさい使わず、共通ライブラリの純関数だけを判定する。
+       🔴 これがあると、閾値の修正・待機ライブラリ・3節分割・内訳表示を
+          「押すだけ」で確かめられる。基盤の改修で既存テストが壊れたとき、
+          基盤が悪いのかテストが悪いのかを最初に切り分けられる。
+       ------------------------------------------------------------------- */
+
+    async function testX1() {
+        log('  [前提] 実機の条件を使わない。共通ライブラリの純関数だけを判定する');
+
+        /* --- positive control: 判定器が常に true を返していないことを示す --- */
+        pc('進行判定が「進んでいない」を落とす（0.5 → 0.5 / state=1）', function () {
+            return hasAdvanced(0.5, 0.5, 1) === false ? 'false を返した' : false;
+        });
+        pc('進行判定が state=1 以外を落とす（0 → 5.0 / state=3 buffering）', function () {
+            return hasAdvanced(0, 5.0, 3) === false ? 'false を返した' : false;
+        });
+        pc('内訳の集計器が「記録なし」と実データを区別する', function () {
+            var empty = breakdownOf([]);
+            var one = breakdownOf([1]);
+            return (empty === '(記録なし)' && one !== '(記録なし)') ? (empty + ' / ' + one) : false;
+        });
+        pc('報告書用の Markdown を生成できる', function () {
+            var md = buildMarkdown();
+            return (md && md.length > 100) ? (md.length + '文字') : false;
+        });
+
+        /* --- 1. 進行判定（D-P1 の閾値の修正） --- */
+        expect('旧実装で落ちた条件を通す（基準0 → 0.5 / state=1）', hasAdvanced(0, 0.5, 1), true);
+        expect('進んでいない量は通さない（基準0 → 0.14 / state=1）', hasAdvanced(0, 0.14, 1), false);
+        expect('基準位置が0でなくても進行を拾う（1.2 → 1.4 / state=1）', hasAdvanced(1.2, 1.4, 1), true);
+
+        /* --- 2. waitFor（値が届くまで待つ） --- */
+        var t = Date.now();
+        var w1 = await waitFor(function () { return (Date.now() - t >= 300) ? '届いた' : null; }, 3000, 50);
+        expect('waitFor: 遅れて届く値を掴める', w1.ok, true);
+        expect('waitFor: 届くまで待ってから返す（250ms以上）', w1.waitedMs >= 250, true);
+        expect('waitFor: 届いた値をそのまま返す', w1.value, '届いた');
+
+        var w2 = await waitFor(function () { return null; }, 300, 50);
+        expect('waitFor: 時間切れは ok=false', w2.ok, false);
+        expect('waitFor: 時間切れでも最後の値を返す', w2.value, 'null');
+
+        var w3 = await waitFor(function () { return ''; }, 200, 50);
+        expect('waitFor: 空文字は「まだ届いていない」とみなす', w3.ok, false);
+
+        /* --- 3. ask() の選択肢の正規化 --- */
+        var c1 = normalizeChoices(['できた', 'できなかった']);
+        expect('選択肢の末尾3件が固定で足される',
+            c1.slice(-3).join(','), '該当なし,測れなかった（理由を自由記入へ）,未実施');
+        expect('空の選択肢でも3件は用意される', normalizeChoices([]).length, 3);
+        var c2 = normalizeChoices(['未実施', '未実施', '読める']);
+        expect('同じ選択肢を重複させない（「未実施」の数）',
+            c2.filter(function (x) { return x === '未実施'; }).length, 1);
+
+        /* --- 4. 状態遷移の内訳 --- */
+        expect('状態遷移を内訳で書ける',
+            breakdownOf([{ state: 3 }, { state: 1 }, { state: 3 }, { state: -1 }]),
+            '3×2 / 1×1 / -1×1（計4件）');
+        expect('記録が無いときは「(記録なし)」', breakdownOf([]), '(記録なし)');
+
+        /* --- 5. コピー出力の3節分割 --- */
+        var md = buildMarkdown();
+        expect('出力に「事実」の節がある', md.indexOf('## 1. 事実') >= 0, true);
+        expect('出力に「解釈」の節がある', md.indexOf('## 2. 解釈') >= 0, true);
+        expect('出力に「生データJSON」の節がある', md.indexOf('## 3. 生データJSON') >= 0, true);
+
+        var jsonOk = false, jsonErr = '';
+        try {
+            var parts = md.split('```json');
+            if (parts.length >= 2) {
+                JSON.parse(parts[1].split('```')[0]);
+                jsonOk = true;
+            } else { jsonErr = 'json のフェンスが無い'; }
+        } catch (e) { jsonErr = String(e && e.message || e); }
+        expect('生データJSONの節が JSON として読み直せる', jsonOk ? true : ('失敗: ' + jsonErr), true);
+
+        /* --- 6. 記録の受け皿（合否には数えない） --- */
+        note('この節の観測記録の書式確認', 'note() は合否に数えない。期待値の欄は「（期待値なし）」になる');
+        note('ラベル', runLabel || '（未記入）');
+        note('実施メモ', runMemo || '（未記入）');
+    }
+
 
     /* --- D-V1: 版数バッジ ------------------------------------------------- */
 
@@ -815,10 +1289,11 @@
         /* 退避しておいた全テストの判定記録をそのまま引き継ぐ。
            最後の1本が D-M7（前半まで記録済み）なので、それを current にして続きを書き足す。 */
         report = Array.isArray(payload.report) ? payload.report : [];
+        report.forEach(fixRecord);
         if (report.length === 0) {
-            report.push({ id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', results: [], pcs: [] });
+            report.push(mkRecord('D-M7', 'コメント流し設定の永続化（4系統一致）'));
         }
-        current = report[report.length - 1];
+        current = fixRecord(report[report.length - 1]);
         logLines = (payload.logLines || []).slice();
         if (logEl) logEl.textContent = logLines.join('\n');
         log('  === 再読み込み後（自動継続） ===');
@@ -1108,7 +1583,8 @@
 
         var timeBefore = 'ERR';
         try { timeBefore = ytPlayers[cid].getCurrentTime(); } catch (e) { }
-        var autoPlayed = (typeof timeBefore === 'number' && timeBefore > 0.5);
+        /* 読み込み直後の基準位置は必ず 0 なので、ここだけは絶対値で見てよい（★v1.3.0）。 */
+        var autoPlayed = (typeof timeBefore === 'number' && timeBefore > AUTOPLAY_POS_MIN);
         log('  [観測] 読み込み2.5秒後の再生位置 = ' + timeBefore
             + '（▶を押していないのに進んでいれば自動再生）');
         /* 🔴 埋め込みが勝手に再生を始めるかどうかは動画によって違う（2026-08-07 実測）。
@@ -1131,13 +1607,22 @@
             log('  [条件] ▶一括再生 は押さない（確定が延期されるかを見る）');
         }
 
-        /* 確定するまで待つ。固定時間で切らない。 */
+        /* 確定するまで待つ。固定時間で切らない。
+           🔴 ★v1.3.0: 成功の判定を「位置 > 0.5」という絶対値から
+              「基準位置から進んだか」へ変えた。基準位置はここで取る。
+              絶対値のままだと、実測が ちょうど 0.5 だった回に落ち、
+              D-P1 が落ちることで D-P2〜D-P5 が全部「判定不能」になる。 */
+        var startPos = 0;
+        try { startPos = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { startPos = 0; }
+        log('  [基準] 進行判定の基準位置 = ' + startPos
+            + '（ここから ' + PLAY_ADVANCE_MIN + ' 秒以上進み、かつ state=1 なら「再生開始」）');
+
         var maxWait = opt.maxWaitMs || PLAY_MAX_WAIT_MS;
         var t0 = Date.now(), settled = '', st = -1, cur = 0;
         while (Date.now() - t0 < maxWait) {
             try { st = ytPlayers[cid].getPlayerState(); } catch (e) { st = 'ERR'; }
             try { cur = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { cur = 0; }
-            if (st === 1 && cur > 0.5) { settled = '再生開始'; break; }
+            if (hasAdvanced(startPos, cur, st)) { settled = '再生開始'; break; }
             if (disp(n) === 'block') { settled = '通知が出た'; break; }
             await wait(500);
         }
@@ -1148,6 +1633,13 @@
         try { if (playerErrorCode[cid] !== undefined) code = playerErrorCode[cid]; } catch (e) { }
         log('  [観測] 結末=' + settled + '（' + elapsed + '秒） / onError=' + code
             + ' / 状態遷移=[' + stateSeq(cid) + '] / state=' + st + ' / 位置=' + cur);
+        /* 🔴 ★v1.3.0: 再生可否を最も明確に分けた値を、結果表そのものへ出す。
+           合否を付けない観測なので、既存テストの判定数は変わらない。 */
+        note('状態遷移の内訳', stateBreakdown(cid));
+        note('状態遷移の順', stateSeq(cid));
+        note('進行判定（基準位置 → 最終位置 / state）',
+            startPos + ' → ' + cur + ' / ' + st + '（差 ' + (Number(cur) - Number(startPos)).toFixed(2) + '秒）');
+        note('onError のコード', code);
 
         /* 🔴 再生開始時に文書がスクロールしてトップバーが画面外へ消える現象があった
            （2026-08-07 実測）。毎回測る。 */
@@ -1159,7 +1651,8 @@
         expect('確定の結末', settled, opt.expectSettled);
         expect('通知の表示', disp(n), opt.expectNotice ? 'block' : 'none');
         if (opt.expectPlaying) {
-            expect('再生が始まった（state=1 かつ 位置>0.5）', (st === 1 && cur > 0.5), true);
+            expect('再生が始まった（state=1 かつ 基準位置から ' + PLAY_ADVANCE_MIN + ' 秒以上進んだ）',
+                hasAdvanced(startPos, cur, st), true);
         }
         if (opt.expectTimerLeft !== undefined) {
             expect('確定タイマーの残存', (playerVerifyTimer[cid] === undefined) ? 'なし' : 'あり', opt.expectTimerLeft);
@@ -1175,9 +1668,10 @@
         }
 
         if (opt.setPlaybackPc) {
-            var pcOk = (st === 1 && cur > 0.5);
+            var pcOk = hasAdvanced(startPos, cur, st);
             var pcNote = pcOk
-                ? ('通常動画が state=1 / 位置=' + Number(cur).toFixed(1) + ' まで到達（' + new Date().toLocaleTimeString() + '）')
+                ? ('通常動画が state=1 / 位置 ' + Number(startPos).toFixed(2) + ' → '
+                    + Number(cur).toFixed(2) + ' へ進行（' + new Date().toLocaleTimeString() + '）')
                 : '通常動画すら再生されなかった';
             writePlaybackPc(pcOk, pcNote);
             log('  [記録] 以降のテスト用の positive control（30分有効・再読み込みをまたぐ）: ' + pcNote);
@@ -1187,17 +1681,20 @@
         if (opt.tailPressPlay) {
             log('  [操作] ここで ▶一括再生 を押す（確定が動き出すかを見る）');
             await clickReal(document.getElementById('playPauseBtn'));
+            var startPos2 = 0;
+            try { startPos2 = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { startPos2 = 0; }
             var t1 = Date.now(), st2 = -1, cur2 = 0, tailSettled = '';
             while (Date.now() - t1 < (opt.tailMaxWaitMs || 20000)) {
                 try { st2 = ytPlayers[cid].getPlayerState(); } catch (e) { st2 = 'ERR'; }
                 try { cur2 = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { cur2 = 0; }
-                if (st2 === 1 && cur2 > 0.5) { tailSettled = '再生開始'; break; }
+                if (hasAdvanced(startPos2, cur2, st2)) { tailSettled = '再生開始'; break; }
                 if (disp(n) === 'block') { tailSettled = '通知が出た'; break; }
                 await wait(500);
             }
             if (!tailSettled) tailSettled = '時間切れ';
             log('  [観測] ▶後: 結末=' + tailSettled + '（' + Math.round((Date.now() - t1) / 1000)
                 + '秒） / state=' + st2 + ' / 位置=' + cur2 + ' / 通知=' + disp(n));
+            note('▶後の状態遷移の内訳', stateBreakdown(cid));
             expect('▶を押したあとの結末', tailSettled, opt.tailExpectSettled);
             expect('▶を押したあとの通知の表示', disp(n), opt.tailExpectNotice ? 'block' : 'none');
         }
@@ -1265,6 +1762,7 @@
     /* --- 実行制御 --------------------------------------------------------- */
 
     var TESTS = [
+        { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-V1', name: '版数バッジ', run: testV1 },
         { id: 'D-M2', name: 'トップメニューの排他制御（全遷移）', run: testM2 },
         { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
@@ -1291,7 +1789,7 @@
         TESTS.forEach(function (t) { if (t.id === id) def = t; });
         if (!def) { log('⚠ 未登録のテスト: ' + id); return; }
         running = true;
-        current = { id: def.id, name: def.name, results: [], pcs: [] };
+        current = mkRecord(def.id, def.name);
         report.push(current);
         log('=== ' + def.id + ' ' + def.name + ' 開始 ===');
         var t = current;
@@ -1331,6 +1829,7 @@
             return;
         }
         injectStyle();
+        loadMeta();      /* ★v1.3.0: ラベル・実施メモを再読み込みをまたいで復元する */
         joinTopMenus();
         if (!buildUI()) return;
         header();
