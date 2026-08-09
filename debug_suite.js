@@ -22,7 +22,13 @@
      ブロック2  共通ライブラリ（wait / waitFor / sample / rect / overlap / clickReal /
                 hasAdvanced / breakdownOf / normalizeChoices / expect / pc / note）
      ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ・ask / メモ）
-     ブロック4  テスト登録（D-X1 / D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5）
+     ブロック4  テスト登録（D-X1 / D-X2 / D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5）
+
+   ★v1.4.0 の方針
+     🔴 人に「ログのどこを読め」と言わせない。判定はすべてコードが出し、
+        利用者は結果を1回コピーして貼るだけにする。
+     🔴 盾の切り替えをまたいで記録を保つ（LS_RESUME の phase='carry'）。
+        これにより D-P1〜D-P5 の貼り付けが1回で済む。
    ========================================================================== */
 (function () {
     'use strict';
@@ -31,7 +37,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.3.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.4.0';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -497,6 +503,7 @@
 
                 var wrap = document.createElement('div');
                 wrap.className = 'dbg-choices';
+                wrap.id = 'dbgAskChoices';
                 var gname = 'dbgAsk_' + Date.now();
                 list.forEach(function (c) {
                     var lab = document.createElement('label');
@@ -511,10 +518,12 @@
 
                 var warn = document.createElement('p');
                 warn.className = 'dbg-warn';
+                warn.id = 'dbgAskWarn';
                 warn.textContent = '未選択です。当てはまるものが無ければ「該当なし」を選んでください。';
                 box.appendChild(warn);
 
                 var ta = document.createElement('textarea');
+                ta.id = 'dbgAskNote';
                 ta.placeholder = '自由記入（選択肢に収まらない観察はここへ。空でも可）';
                 box.appendChild(ta);
 
@@ -522,6 +531,7 @@
                 act.className = 'dbg-actions';
                 var ok = document.createElement('button');
                 ok.type = 'button';
+                ok.id = 'dbgAskOk';
                 ok.textContent = '確定';
                 act.appendChild(ok);
                 box.appendChild(act);
@@ -564,6 +574,7 @@
             box.appendChild(l1);
             var i1 = document.createElement('input');
             i1.type = 'text'; i1.value = runLabel;
+            i1.id = 'dbgMetaLabel';
             box.appendChild(i1);
 
             var l2 = document.createElement('p');
@@ -572,12 +583,14 @@
             box.appendChild(l2);
             var i2 = document.createElement('textarea');
             i2.value = runMemo;
+            i2.id = 'dbgMetaMemo';
             box.appendChild(i2);
 
             var act = document.createElement('div');
             act.className = 'dbg-actions';
             var ok = document.createElement('button');
             ok.type = 'button';
+            ok.id = 'dbgMetaOk';
             ok.textContent = '保存';
             act.appendChild(ok);
             box.appendChild(act);
@@ -686,16 +699,36 @@
         });
         panel.appendChild(row2);
 
+        /* ★v1.4.0: D-P の一括実行。盾を1回だけ聞き、記録は再読み込みをまたいで残す。
+           これで D-P1〜D-P5 の貼り付けが1回で済む。 */
+        var row3 = document.createElement('div');
+        row3.className = 'dbg-row';
+        row3.appendChild(mkBtn('🛡 D-P 盾オン一括（P1→P2→P3）',
+            '盾オンのまま D-P1 / D-P2 / D-P3 を続けて実行します。終わったら盾をオフにして再読み込みしてください',
+            function () {
+                runPlaybackGroup('🛡 D-P 盾オン一括（P1 → P2 → P3）', ['D-P1', 'D-P2', 'D-P3'],
+                    'このあと D-P1 / D-P2 / D-P3 を続けて実行します（3〜5分）。'
+                    + '盾は「オン」のまま最後まで触らないでください。');
+            }));
+        row3.appendChild(mkBtn('🛡 D-P 盾オフ一括（P4→P5）',
+            '盾オフで D-P4 / D-P5 を続けて実行します。前半の記録に追記されます',
+            function () {
+                runPlaybackGroup('🛡 D-P 盾オフ一括（P4 → P5）', ['D-P4', 'D-P5'],
+                    'このあと D-P4 / D-P5 を続けて実行します（2〜3分）。'
+                    + '盾は「オフ」のまま最後まで触らないでください。');
+            }));
+        panel.appendChild(row3);
+
         var noteEl = document.createElement('p');
         noteEl.className = 'dbg-note';
-        noteEl.textContent = '各テストは「4メニューをすべて閉じた状態」から開始します。'
-            + 'D-X1 は実機の条件を使わない基盤の自己診断で、いつ押しても構いません。'
-            + 'D-M7 は途中でページを再読み込みし、読み込み後に自動で続きを実行します。'
+        noteEl.textContent = '押す順番は「▶ すべて実行」→「🛡 盾オン一括」→（盾をオフに切り替え）→'
+            + '「🛡 盾オフ一括」→「📋 報告書用にコピー」です。'
+            + '判定はすべて自動で出ます。ログを読んで良し悪しを判断する必要はありません。'
+            + 'D-M7 は途中でページを自動で再読み込みし、そのまま続きを実行します。'
             + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。'
-            + 'D-P1〜D-P5 は「すべて実行」では飛ばします。D-P1 を最初に実行し（結果は30分保存され、'
-            + '再読み込みをまたいで以降のテストの positive control になります）、'
-            + 'D-P3 は盾オン、D-P4 は盾オフにしてから個別に押してください（開始時に盾の状態を聞きます）。'
-            + 'D-P は終了時に枠を空にしません。目視が済んだら 🧹 を押してください。';
+            + 'D-P1〜D-P5 は「すべて実行」では飛ばします（盾の操作が要るため）。'
+            + '一括実行の記録は再読み込みをまたいで残るので、コピーは最後に1回でかまいません。'
+            + 'D-P は終了時に枠を空にしません。確認が済んだら 🧹 を押してください。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1023,6 +1056,114 @@
     }
 
 
+    /* --- D-X2: 記録UIの自動検証（★v1.4.0） --------------------------------
+
+       ask() と 📝 メモ/ラベル を、人の手を借りずに動かして判定する。
+       🔴 v1.3.0 では「パネルを開いて目で見る」手順を人に頼んでいたが、
+          目視できるものはコードでも観測できる。人には結果を貼ってもらうだけにする。
+       ------------------------------------------------------------------- */
+
+    async function testX2() {
+        var opened = null;
+        try {
+            pc('開始時に記録パネルが残っていない', function () {
+                return document.getElementById('dbgModal') ? false : 'なし';
+            });
+
+            /* --- ask() を開く（応答は待たずに、後で確定させる） --- */
+            var asked = ask('（自動検証）記録パネルの選択肢と未選択時の挙動', ['はい', 'いいえ']);
+            await wait(150);
+            opened = document.getElementById('dbgModal');
+
+            pc('記録パネルを開けた', function () {
+                return opened ? 'あり' : false;
+            });
+            var choices = document.getElementById('dbgAskChoices');
+            pc('選択肢の欄がある', function () {
+                return choices ? 'あり' : false;
+            });
+            var okBtn = document.getElementById('dbgAskOk');
+            pc('確定ボタンがある', function () {
+                return okBtn ? 'あり' : false;
+            });
+            if (!opened || !choices || !okBtn) {
+                expect('記録パネルの構造', '取得できない', '取得できること');
+                return;
+            }
+
+            var vals = Array.prototype.map.call(
+                choices.querySelectorAll('input[type=radio]'), function (r) { return r.value; });
+            expect('選択肢の並び（渡した2件＋自動で足す3件）',
+                vals.join(','), 'はい,いいえ,該当なし,測れなかった（理由を自由記入へ）,未実施');
+
+            /* --- 未選択のまま確定を押す --- */
+            var c1 = await clickReal(okBtn);
+            expect('確定ボタンを実際に押せた（1回目・未選択）', !c1.blocked, true);
+            await wait(80);
+            expect('未選択で確定してもパネルが閉じない',
+                !!document.getElementById('dbgModal'), true);
+            expect('未選択の選択肢欄が赤枠になる',
+                String(choices.className).indexOf('dbg-blank') >= 0, true);
+            var warnEl = document.getElementById('dbgAskWarn');
+            expect('未選択の警告が表示される',
+                !!warnEl && String(warnEl.className).indexOf('on') >= 0, true);
+
+            /* --- 選んで確定する --- */
+            var first = choices.querySelector('input[type=radio]');
+            first.checked = true;
+            document.getElementById('dbgAskNote').value = '自動検証';
+            var c2 = await clickReal(document.getElementById('dbgAskOk'));
+            expect('確定ボタンを実際に押せた（2回目・選択後）', !c2.blocked, true);
+
+            var rec = await asked;
+            expect('選んだ値が記録される', rec.choice, 'はい');
+            expect('自由記入が記録される', rec.note, '自動検証');
+            await wait(80);
+            expect('選択後にパネルが閉じる',
+                !document.getElementById('dbgModal'), true);
+            expect('目視の記録がこのテストのレコードへ入る',
+                current.asks.length >= 1, true);
+
+            /* --- 📝 メモ/ラベル --- */
+            var mark = '自動検証 ' + new Date().toLocaleTimeString();
+            var keepMemo = runMemo;
+            openMetaDialog();
+            await wait(150);
+            pc('メモのパネルを開けた', function () {
+                return document.getElementById('dbgMetaLabel') ? 'あり' : false;
+            });
+            var li = document.getElementById('dbgMetaLabel');
+            var mi = document.getElementById('dbgMetaMemo');
+            if (li && mi) {
+                li.value = (runLabel ? runLabel + ' / ' : '') + mark;
+                mi.value = keepMemo || '（自動検証で設定。手入力があれば上書きされます）';
+                var c3 = await clickReal(document.getElementById('dbgMetaOk'));
+                expect('保存ボタンを実際に押せた', !c3.blocked, true);
+                await wait(80);
+
+                var saved = null;
+                try { saved = JSON.parse(localStorage.getItem(LS_META) || 'null'); } catch (e) { saved = null; }
+                expect('ラベルが localStorage へ書かれる',
+                    !!saved && String(saved.label).indexOf(mark) >= 0, true);
+                expect('実施メモが localStorage へ書かれる',
+                    !!saved && String(saved.memo || '').length > 0, true);
+                expect('コピー出力の「事実」節にラベルが出る',
+                    buildMarkdown().indexOf(mark) >= 0, true);
+                note('この回のラベル（再読み込み後に D-M7 が同じ値を記録します）', runLabel);
+            } else {
+                expect('メモのパネルの構造', '取得できない', '取得できること');
+            }
+        } finally {
+            /* 途中で落ちてもパネルを残さない（次のテストのクリックを塞ぐため）。 */
+            var left = document.getElementById('dbgModal');
+            if (left && left.parentNode) {
+                left.parentNode.removeChild(left);
+                log('  [後始末] 開いたままの記録パネルを閉じました');
+            }
+        }
+    }
+
+
     /* --- D-V1: 版数バッジ ------------------------------------------------- */
 
     async function testV1() {
@@ -1301,6 +1442,10 @@
         pc('sync_debug が再読み込みをまたいで有効なまま', function () {
             return localStorage.getItem(LS_ENABLE) === '1';
         });
+        /* ★v1.4.0: ラベル・実施メモが再読み込みをまたいで残ることの機械的な記録。
+           合否には数えない（D-M7 の判定数を変えないため）。 */
+        note('再読み込み後に残っていたラベル', runLabel || '(未記入)');
+        note('再読み込み後に残っていた実施メモ', runMemo || '(未記入)');
 
         log('  --- 再読み込み後の4系統一致 ---');
         var afterOk = true;
@@ -1537,13 +1682,23 @@
         pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
         if (!cid) { expect('この項目の実行', '枠が1つも無い', '枠が1つ以上あること'); return; }
 
-        /* 🔴 条件は順序ではなく観測で担保する。測定の直前に必ず聞く。 */
-        var shield = window.prompt(
-            'アドレスバー左の盾のアイコンを今すぐ見てください。\n'
-            + '強化型トラッキング防止は、このサイトでどちらですか？\n'
-            + 'on / off を入力してください。', '');
-        shield = String(shield === null ? '' : shield).trim().toLowerCase();
-        log('  [条件] 盾 = ' + (shield || '(未入力)') + ' / 配信元 = ' + location.origin);
+        /* 🔴 条件は順序ではなく観測で担保する。
+           ★v1.4.0: 一括実行のときは、その一括の冒頭で観測した値を使う。
+           一括の中では再読み込みも操作も挟まらないので、盾は変わりようがない。
+           単独実行のときは従来どおり測定の直前に聞く。 */
+        var shield;
+        if (groupShield !== null) {
+            shield = groupShield;
+            log('  [条件] 盾 = ' + (shield || '(未入力)') + '（一括実行の冒頭で観測した値）'
+                + ' / 配信元 = ' + location.origin);
+        } else {
+            shield = window.prompt(
+                'アドレスバー左の盾のアイコンを今すぐ見てください。\n'
+                + '強化型トラッキング防止は、このサイトでどちらですか？\n'
+                + 'on / off を入力してください。', '');
+            shield = String(shield === null ? '' : shield).trim().toLowerCase();
+            log('  [条件] 盾 = ' + (shield || '(未入力)') + ' / 配信元 = ' + location.origin);
+        }
 
         /* 🔴 http:// では __Secure-3PSID が iframe へ送られず、メンバー限定は必ず失敗する。 */
         expect('配信元が https であること（http ではメンバー限定が成立しない）', location.protocol, 'https:');
@@ -1763,6 +1918,7 @@
 
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
+        { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
         { id: 'D-V1', name: '版数バッジ', run: testV1 },
         { id: 'D-M2', name: 'トップメニューの排他制御（全遷移）', run: testM2 },
         { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
@@ -1776,6 +1932,44 @@
 
     var running = false;
     var runningAll = false;
+    var groupShield = null;   /* ★v1.4.0: 一括実行の冒頭で観測した盾の状態 */
+
+    /* 🔴 ★v1.4.0: 盾の切り替え（＝再読み込み）をまたいで記録を持ち越す。
+       これが無いと D-P1〜D-P3 と D-P4〜D-P5 で貼り付けが2回に分かれる。
+       LS_RESUME を phase='carry' で使い回す（新しいキーを増やさない）。 */
+    function saveCarry() {
+        try {
+            localStorage.setItem(LS_RESUME, JSON.stringify({
+                v: DEBUG_SUITE_VERSION,
+                at: Date.now(),
+                phase: 'carry',
+                logLines: logLines.slice(),
+                report: report
+            }));
+        } catch (e) { log('⚠ 記録の持ち越しに失敗しました: ' + (e && e.message)); }
+    }
+
+    async function runPlaybackGroup(title, ids, hint) {
+        if (running) { log('⚠ 実行中です。終わるまで待ってください。'); return; }
+        running = true;
+        var ans = window.prompt(
+            title + '\n\n'
+            + hint + '\n\n'
+            + 'アドレスバー左の盾のアイコンを今すぐ見てください。\n'
+            + '強化型トラッキング防止は、このサイトでどちらですか？\n'
+            + 'on / off を入力してください。', '');
+        groupShield = String(ans === null ? '' : ans).trim().toLowerCase();
+        log('=== ' + title + ' 開始（盾 = ' + (groupShield || '(未入力)') + '） ===');
+        for (var i = 0; i < ids.length; i++) {
+            await runOne(ids[i], true);
+        }
+        groupShield = null;
+        running = false;
+        saveCarry();
+        log('=== ' + title + ' 完了 ===');
+        log('  ここまでの記録は保存しました。盾を切り替えて再読み込みしても消えません。');
+        openDebugMenu();
+    }
 
     function finishTest(t) {
         log('--- ' + t.id + ' ' + t.name + ' : ' + verdictText(t)
@@ -1840,7 +2034,31 @@
 
         var payload = null;
         try { payload = JSON.parse(raw); } catch (e) { payload = null; }
-        if (!payload || payload.phase !== 'after-reload') {
+        if (!payload) {
+            try { localStorage.removeItem(LS_RESUME); } catch (e) { }
+            return;
+        }
+
+        /* ★v1.4.0: 盾の切り替えをまたいだ持ち越し。自動では何も実行しない。 */
+        if (payload.phase === 'carry') {
+            try { localStorage.removeItem(LS_RESUME); } catch (e) { }
+            if (payload.v !== DEBUG_SUITE_VERSION
+                || Date.now() - Number(payload.at || 0) > PLAYBACK_PC_TTL_MS) {
+                log('⚠ 持ち越した記録は使えません（版違い、または'
+                    + PLAYBACK_PC_TTL_MS / 60000 + '分超過）。D-P1 からやり直してください。');
+                return;
+            }
+            report = Array.isArray(payload.report) ? payload.report : [];
+            report.forEach(fixRecord);
+            logLines = (payload.logLines || []).slice();
+            if (logEl) logEl.textContent = logLines.join('\n');
+            log('=== 再読み込み前の記録を引き継ぎました（' + report.length + '本ぶん） ===');
+            log('  このまま次の一括実行を押せば、1回のコピーにまとめて出せます。');
+            openDebugMenu();
+            return;
+        }
+
+        if (payload.phase !== 'after-reload') {
             try { localStorage.removeItem(LS_RESUME); } catch (e) { }
             return;
         }
