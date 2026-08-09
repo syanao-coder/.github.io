@@ -37,7 +37,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.4.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.4.1';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1397,11 +1397,17 @@
            🔴 report ごと退避すること。current だけを退避すると、
               再読み込みで D-V1 / D-M2 の記録が消え、
               「報告書用にコピー」に D-M7 しか出なくなる（v1.0.0 の不具合）。 */
+        /* 🔴 ★v1.4.1: 「すべて実行」の残りのテストも引き継ぐ。
+           これが無いと location.reload() で runAll のループが消え、
+           D-M7 より後ろのテスト（D-E1）が黙って飛ばされる。
+           v1.0.0 から続いていた不具合で、2026-08-09 の実測で発覚した
+           （「すべて実行」の結果表に D-E1 が1本も出なかった）。 */
         var payload = {
             v: DEBUG_SUITE_VERSION,
             at: Date.now(),
             phase: 'after-reload',
             fromAll: runningAll,
+            remaining: allQueue.slice(),
             logLines: logLines.slice(),
             report: report
         };
@@ -1472,6 +1478,18 @@
         try { localStorage.removeItem(LS_RESUME); } catch (e) { }
         finishTest(current);
         openDebugMenu();
+
+        /* 🔴 ★v1.4.1: 再読み込みで途切れた「すべて実行」の続きをここで走らせる。 */
+        var rest = Array.isArray(payload.remaining) ? payload.remaining.slice() : [];
+        if (payload.fromAll && rest.length) {
+            runningAll = true;
+            log('=== すべて実行の続き（残り ' + rest.length + '本: ' + rest.join(' / ') + '） ===');
+            for (var i = 0; i < rest.length; i++) {
+                await runOne(rest[i], true);
+            }
+            runningAll = false;
+            openDebugMenu();
+        }
         if (payload.fromAll) log('=== すべて実行: 完了 ===');
     }
 
@@ -1933,6 +1951,7 @@
     var running = false;
     var runningAll = false;
     var groupShield = null;   /* ★v1.4.0: 一括実行の冒頭で観測した盾の状態 */
+    var allQueue = [];        /* ★v1.4.1: 「すべて実行」でこれから実行する残りのID */
 
     /* 🔴 ★v1.4.0: 盾の切り替え（＝再読み込み）をまたいで記録を持ち越す。
        これが無いと D-P1〜D-P3 と D-P4〜D-P5 で貼り付けが2回に分かれる。
@@ -2001,15 +2020,22 @@
         if (running) { log('⚠ 実行中です。終わるまでお待ちください。'); return; }
         running = true; runningAll = true;
         clearLog();
-        log('=== すべて実行 開始（' + TESTS.length + '本） ===');
-        for (var i = 0; i < TESTS.length; i++) {
-            /* 盾の切り替えなど人の準備が要るテストは飛ばす。取り違えた条件で測ると害になる。 */
-            if (TESTS[i].manual) {
-                log('— ' + TESTS[i].id + ' は準備が要るので「すべて実行」では飛ばします（個別に実行してください）');
-                continue;
-            }
-            await runOne(TESTS[i].id, true);
+
+        /* 盾の切り替えなど人の準備が要るテストは飛ばす。取り違えた条件で測ると害になる。 */
+        var queue = TESTS.filter(function (t) { return !t.manual; })
+            .map(function (t) { return t.id; });
+        TESTS.forEach(function (t) {
+            if (t.manual) log('— ' + t.id + ' は準備が要るので「すべて実行」では飛ばします（個別に実行してください）');
+        });
+        log('=== すべて実行 開始（' + queue.length + '本: ' + queue.join(' / ') + '） ===');
+
+        while (queue.length) {
+            var id = queue.shift();
+            /* 🔴 実行前に「残り」を共有する。D-M7 は再読み込みの前にこれを引き継ぎへ載せる。 */
+            allQueue = queue.slice();
+            await runOne(id, true);
         }
+        allQueue = [];
         running = false; runningAll = false;
         log('=== すべて実行: 完了 ===');
     }
