@@ -38,7 +38,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.4.4';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.4.5';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.7.5';
@@ -742,11 +742,11 @@
                     '先に「💬 D-C 取得一括」を終えてください。'
                     + 'このあと盾の状態を聞き、濃い区間へシークして再生します。');
             }));
-        row4.appendChild(mkBtn('🧪 D-C9 人工再現',
-            '取得タブへパッチを当ててから押してください',
+        row4.appendChild(mkBtn('🧪 D-C9 理由コード',
+            'CHAT_DISABLED の出し分けを確かめます（準備は不要）',
             function () {
-                runChatGroup('🧪 D-C9 理由コードの人工再現', ['D-C9'],
-                    '手順書 T5 のパッチを取得タブへ当ててから「OK」を押してください。');
+                runChatGroup('🧪 D-C9 理由コードの出し分け', ['D-C9'],
+                    '通常の動画を読み込んでから、CHAT_DISABLED の出し分けを確かめます（約30秒）。');
             }));
         row4.appendChild(mkBtn('🚪 D-C10 非ログイン',
             'YouTube からログアウトしてから押してください',
@@ -2255,17 +2255,26 @@
            ここでは「クリックが実際に発火したか」で判定し、被覆の実測は note に残す。
            トップバーや枠内通知の閉じるボタンは常時表示なので、従来どおり被覆で判定してよい。 */
         var fb = document.getElementById('flowToggleBtn_' + cid);
-        var rf = await clickReal(fb);
+        pc('🌊 ボタンを特定できた', function () { return fb ? describe(fb) : false; });
+
+        /* 🔴 v1.4.4 まで無条件にクリックしていたが、🌊 はトグルである。
+           前の実行がオンのまま終わっていると、押した結果オフになって0件になる
+           （2026-08-14 実測: 流しがオンになった=false / 画面上0件）。
+           ⚠️ トグルを押すテストは、押す前の状態を必ず読むこと。 */
+        var flowWas = false;
+        try { flowWas = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
+        note('🌊 を押す前の状態', flowWas ? 'すでにオン（押さない）' : 'オフ（これから押す）');
+        var rf = { clicked: false, blocked: false, hit: '(押していない)', reason: '' };
+        if (!flowWas) rf = await clickReal(fb);
         /* ★v1.4.3: v1.4.2 では blocked:covered とだけ出て、何が覆っていたのか分からなかった。
            ⚠️ clickReal は被覆でもクリックを実行するので、機能そのものは進む。 */
         note('🌊 を押したときの当たり判定',
             (rf.blocked ? '被覆あり / ' : '被覆なし / ') + (rf.hit || '(記録なし)')
             + ' / 実際にクリックした=' + rf.clicked);
         note('🌊 ボタンの位置', fb ? rect(fb) : '(要素なし)');
-        expect('🌊（コメントを流す）のクリックが実際に発火した', !!(fb && rf.clicked), true);
         var flowOn = false;
         try { flowOn = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
-        pc('流しがオンになった', function () { return flowOn ? 'on' : false; });
+        expect('🌊（コメントを流す）がオンになった', flowOn, true);
 
         /* 🔴 素材の密度を先に確かめる（鉄則 #14）。薄い区間では 0 件が正常になる。 */
         var dense = densestWindow(store.comments, 20000);
@@ -2322,6 +2331,12 @@
             ['画像で見えた', '文字（:名前:）のままだった', 'メンバー専用の絵文字が出てこなかった']);
 
         await stopAllIfPlaying();
+        /* 🔴 後始末: 次に実行するとき「すでにオン」から始まらないよう、オフへ戻す。 */
+        var flowEnd = false;
+        try { flowEnd = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
+        if (flowEnd) await clickReal(fb);
+        try { flowEnd = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
+        note('後始末: 流しの状態', flowEnd ? '★オンのまま残った' : 'オフへ戻した');
     }
 
     /* --- D-C5: メンバー専用絵文字が表示できるか（⚠ 判定にしない） -------------- */
@@ -2499,25 +2514,41 @@
         expect('再試行ボタンが出ている', !!(n && n.querySelector('button')), true);
     }
 
-    /* --- D-C9: 理由コード CHAT_DISABLED（人工再現） --------------------------- */
+    /* --- D-C9: 理由コード CHAT_DISABLED の出し分け（A側のみ） ------------------ */
     async function testC9() {
-        log('  [目的] 「チャットは無効です」と返ってきたときに CHAT_DISABLED が A側へ出ること。');
-        log('  [前提] 取得タブの MAIN world へ人工再現のパッチを当ててあること（手順書 T5）。');
+        log('  [目的] CHAT_DISABLED が返ったときに、A側が専用の文面で出し分けること。');
+        log('  [⚠] 人工再現は取り下げた。JSON.parse の差し替えは res.json() を通らないため空振りし、');
+        log('      Response.prototype.json の差し替えも取得タブの取得経路へ届かなかった（2026-08-14 実測 2回）。');
+        log('      チャットのリプレイが無効な実素材も未確保である。');
+        log('  🔴 そのため、B側が実際に CHAT_DISABLED を throw するかは、このテストでは検証していない。');
+        log('      ここで確かめるのは、その文字列を受け取った A側の出し分けだけである。');
+
+        /* 通常の投稿動画を読み込んで、失敗の終点まで到達させる（NOT_LIVE_ARCHIVE）。 */
         var r = await runChatCase({
-            url: ytUrl(VID.LIGHT), videoId: VID.LIGHT, waitMs: 120000
+            url: ytUrl(VID.REGULAR), videoId: VID.REGULAR, waitMs: 120000
         });
         if (!r) return;
-        /* 🔴 パッチが効いているかどうかは PC。効いていなければ「測れていない」。 */
-        pc('人工再現が効いている（取得が失敗で終わった）', function () {
-            return (r.state === 'error') ? 'chatState = error' : false;
+
+        pc('failChat が本体に存在する', function () {
+            return (typeof failChat === 'function') ? 'function' : false;
         });
-        expect('理由コード', r.code, 'CHAT_DISABLED');
-        expect('B側の文言に「チャットは無効」が含まれる',
-            chatErrorOf(VID.LIGHT).indexOf('チャットは無効') >= 0, true);
-        expect('総件数', r.total, 0);
+        if (typeof failChat !== 'function') return;
+        pc('呼ぶ前は CHAT_DISABLED ではなかった（＝これから確実に変わる）', function () {
+            var before = chatCodeOf(VID.REGULAR);
+            return (before !== 'CHAT_DISABLED') ? ('直前の理由コード = ' + before) : false;
+        });
+
+        /* B側が投げる文字列をそのまま終点へ渡す（書式は 'CODE: 説明'）。 */
+        var MSG = 'このライブ ストリームではチャットは無効です。';
+        failChat('dbg-c9', VID.REGULAR, 'CHAT_DISABLED: ' + MSG);
+        await wait(400);
+
         var n = document.getElementById('chatNote_' + r.cid);
         var txt = n ? String(n.innerText || '') : '';
         note('枠に出た案内文の全文', txt);
+        expect('取得の状態 chatState', chatStateOf(VID.REGULAR), 'error');
+        expect('理由コード', chatCodeOf(VID.REGULAR), 'CHAT_DISABLED');
+        expect('B側の文言がそのまま出ている', txt.indexOf(MSG) >= 0, true);
         expect('CHAT_DISABLED 用の文面が出ている',
             txt.indexOf('チャットのリプレイを公開していない') >= 0, true);
         expect('切り分け手順（確認する順番）が出ていないこと', txt.indexOf('確認する順番') >= 0, false);
@@ -2580,7 +2611,7 @@
         { id: 'D-C6', name: '認証情報が漏れていないこと', run: testC6, manual: true },
         { id: 'D-C7', name: '既存機能の回帰（NOT_LIVE_ARCHIVE / キャッシュ）', run: testC7, manual: true },
         { id: 'D-C8', name: '0件のときの表示が残っていること', run: testC8, manual: true },
-        { id: 'D-C9', name: '理由コード CHAT_DISABLED（人工再現）', run: testC9, manual: true },
+        { id: 'D-C9', name: '理由コード CHAT_DISABLED の出し分け（A側のみ）', run: testC9, manual: true },
         { id: 'D-C10', name: '非ログインでの回帰（ヘッダ無しの経路）', run: testC10, manual: true },
         { id: 'D-C11', name: '所要時間の参考値（重いアーカイブ）', run: testC11, manual: true }
     ];
