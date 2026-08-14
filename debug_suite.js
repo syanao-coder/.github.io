@@ -38,7 +38,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.4.3';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.4.4';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.7.5';
@@ -2174,10 +2174,17 @@
 
     /* --- D-C3: 同一チャンネルの公開アーカイブ（回帰） ------------------------- */
     async function testC3() {
-        log('  [目的] 公開アーカイブの件数が変わっていないこと（5-C の実測は 430 件）。');
+        log('  [目的] 公開アーカイブが完走すること。');
+        /* 🔴 v1.4.3 まで期待値を 430 件としていたが、これは誤りだった（2026-08-14 実測）。
+           実測 39,199件 / complete=true / gap=false、videoMs 11,589,000（3:13:09）に対し
+           lastT 11,589,782 で動画の最後まで届いている。取得は正常。
+           スパイク5-C の「430」は数リクエストぶんの部分計測を総件数と取り違えたもの。
+           ⚠️ 件数は YouTube 側の削除で動くので固定の判定には使わない。
+              固定値で判定してよいのは positive control の 356件（D-C1）だけである。 */
+        log('  [参考値] 2026-08-14 の実測は 39,199件 / 849リクエスト / 112秒。');
         await runChatCase({
             url: ytUrl(VID.SAMECH), videoId: VID.SAMECH, needCountPc: true,
-            expectState: 'ready', expectTotal: 430, expectComplete: true
+            expectState: 'ready', expectNotZero: true, expectComplete: true
         });
     }
 
@@ -2224,6 +2231,7 @@
         var pane = await openChatPane(cid);
         pc('チャット欄を開けた', function () { return pane.ok ? 'ok' : false; });
         /* ★v1.4.3: 被覆が出たときに何が覆っていたのかを残す。 */
+        /* ⚠️ 押し下げ式ヘッダーのため、マウスが枠外にあると「被覆あり」になるのが正常。 */
         note('💬 を押したときの当たり判定',
             (pane.blocked ? '被覆あり / ' : '被覆なし / ') + (pane.hit || '(記録なし)'));
 
@@ -2239,6 +2247,13 @@
         }
         note('待ち時間(ms) / 取得の状態', w.waitedMs + ' / ' + chatStateOf(VID.MEMBERS));
 
+        /* 🔴 枠のヘッダーは押し下げ式（`.player-header{height:0;overflow:hidden}` で、
+           `.player-card:hover` のときだけ高さが出る）。マウスが枠の外にあるあいだ
+           ヘッダーは切り取られているので、elementFromPoint は div.player-card を返す。
+           CSS の :hover は合成イベントでは作れないため、
+           ⚠️ hover でしか出ないボタンに被覆チェックは適用できない（2026-08-14 確定）。
+           ここでは「クリックが実際に発火したか」で判定し、被覆の実測は note に残す。
+           トップバーや枠内通知の閉じるボタンは常時表示なので、従来どおり被覆で判定してよい。 */
         var fb = document.getElementById('flowToggleBtn_' + cid);
         var rf = await clickReal(fb);
         /* ★v1.4.3: v1.4.2 では blocked:covered とだけ出て、何が覆っていたのか分からなかった。
@@ -2247,8 +2262,7 @@
             (rf.blocked ? '被覆あり / ' : '被覆なし / ') + (rf.hit || '(記録なし)')
             + ' / 実際にクリックした=' + rf.clicked);
         note('🌊 ボタンの位置', fb ? rect(fb) : '(要素なし)');
-        expect('🌊（コメントを流す）を実際に押せた（被覆なし）',
-            (fb && !rf.blocked) ? 'ok' : ('blocked:' + (rf && rf.reason)), 'ok');
+        expect('🌊（コメントを流す）のクリックが実際に発火した', !!(fb && rf.clicked), true);
         var flowOn = false;
         try { flowOn = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
         pc('流しがオンになった', function () { return flowOn ? 'on' : false; });
@@ -2560,7 +2574,7 @@
         /* ★v1.4.2: v2.7.5（チャット取得）の検証。いずれも準備が要るので manual。 */
         { id: 'D-C1', name: '公開アーカイブ 356件（数え方の positive control）', run: testC1, manual: true },
         { id: 'D-C2', name: '★メンバー限定アーカイブを完走させる', run: testC2, manual: true },
-        { id: 'D-C3', name: '同一チャンネルの公開アーカイブ 430件', run: testC3, manual: true },
+        { id: 'D-C3', name: '同一チャンネルの公開アーカイブ（完走）', run: testC3, manual: true },
         { id: 'D-C4', name: 'コメント流しの回帰（メンバー限定・要 盾オフ）', run: testC4, manual: true },
         { id: 'D-C5', name: 'メンバー専用絵文字の表示（記録のみ）', run: testC5, manual: true },
         { id: 'D-C6', name: '認証情報が漏れていないこと', run: testC6, manual: true },
