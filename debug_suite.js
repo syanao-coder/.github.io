@@ -22,7 +22,8 @@
      ブロック2  共通ライブラリ（wait / waitFor / sample / rect / overlap / clickReal /
                 hasAdvanced / breakdownOf / normalizeChoices / expect / pc / note）
      ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ・ask / メモ）
-     ブロック4  テスト登録（D-X1 / D-X2 / D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5）
+     ブロック4  テスト登録（D-X1 / D-X2 / D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5 /
+                ★v1.4.2: D-C1〜D-C11 ＝ チャット取得（v2.7.5 の検証用））
 
    ★v1.4.0 の方針
      🔴 人に「ログのどこを読め」と言わせない。判定はすべてコードが出し、
@@ -37,7 +38,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.4.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.4.2';   /* 本体の APP_VERSION とは別系統 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -719,6 +720,46 @@
             }));
         panel.appendChild(row3);
 
+        /* ★v1.4.2: D-C（チャット取得）の一括。盾の操作は要らない。 */
+        var row4 = document.createElement('div');
+        row4.className = 'dbg-row';
+        row4.appendChild(mkBtn('💬 D-C 取得一括（C1→C2→C3→C5→C6→C7→C8）',
+            'ログイン済みの状態で、取得まわりを続けて実行します（5〜10分）',
+            function () {
+                runChatGroup('💬 D-C 取得一括',
+                    ['D-C1', 'D-C2', 'D-C3', 'D-C5', 'D-C6', 'D-C7', 'D-C8'],
+                    'YouTube にメンバー登録済みのアカウントでログインした状態のまま、'
+                    + '最後まで触らずにお待ちください（5〜10分）。'
+                    + 'キャッシュはテストのコードが自動で捨てます。');
+            }));
+        row4.appendChild(mkBtn('🌊 D-C4 流し（盾オフ）',
+            'メンバー限定でコメントが実際に流れるかを測ります',
+            function () {
+                runChatGroup('🌊 D-C4 コメント流し', ['D-C4'],
+                    '先に「💬 D-C 取得一括」を終えてください。'
+                    + 'このあと盾の状態を聞き、濃い区間へシークして再生します。');
+            }));
+        row4.appendChild(mkBtn('🧪 D-C9 人工再現',
+            '取得タブへパッチを当ててから押してください',
+            function () {
+                runChatGroup('🧪 D-C9 理由コードの人工再現', ['D-C9'],
+                    '手順書 T5 のパッチを取得タブへ当ててから「OK」を押してください。');
+            }));
+        row4.appendChild(mkBtn('🚪 D-C10 非ログイン',
+            'YouTube からログアウトしてから押してください',
+            function () {
+                runChatGroup('🚪 D-C10 非ログインでの回帰', ['D-C10'],
+                    'YouTube からログアウトしてから「OK」を押してください（2〜4分）。');
+            }));
+        row4.appendChild(mkBtn('⏱ D-C11 参考値（重い）',
+            '52,362件のアーカイブを取得します。数分かかります',
+            function () {
+                runChatGroup('⏱ D-C11 所要時間の参考値', ['D-C11'],
+                    '重いアーカイブを取得します。3〜10分かかるので、'
+                    + 'このタブを閉じずにお待ちください。');
+            }));
+        panel.appendChild(row4);
+
         var noteEl = document.createElement('p');
         noteEl.className = 'dbg-note';
         noteEl.textContent = '押す順番は「▶ すべて実行」→「🛡 盾オン一括」→（盾をオフに切り替え）→'
@@ -728,7 +769,9 @@
             + 'D-E1 は枠1の通知要素を操作するので、枠1が画面内にある状態で実行してください。'
             + 'D-P1〜D-P5 は「すべて実行」では飛ばします（盾の操作が要るため）。'
             + '一括実行の記録は再読み込みをまたいで残るので、コピーは最後に1回でかまいません。'
-            + 'D-P は終了時に枠を空にしません。確認が済んだら 🧹 を押してください。';
+            + 'D-P は終了時に枠を空にしません。確認が済んだら 🧹 を押してください。'
+            + '★v1.4.2: D-C（チャット取得）は「💬 D-C 取得一括」から実行します。'
+            + '測定前のキャッシュ削除はコードが自動で行うので、手で消す必要はありません。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1932,6 +1975,558 @@
     }
 
 
+    /* ======================================================================
+       D-C: チャット取得（★v1.4.2 / v2.7.5 の検証用）
+
+       🔴 InnerTube への POST そのものは https://www.youtube.com オリジンでしか
+          200 が返らないため、このファイルからは原理的に到達できない
+          （/get-debug-suite 10節）。ここで測るのは A側で観測できる値だけである。
+            chatState / chatError / chatStore[videoId] の
+            comments.length / complete / truncated / gap / emoji / reqs / elapsed
+       🔴 キャッシュが残っているとエンジンを通らず測定が成立しないため、
+          各項目の冒頭で 🔄（reloadChat）を実際に押してキャッシュを捨てる。
+          「測定前にキャッシュを空にする」を人の手順ではなくコードで担保する。
+       ====================================================================== */
+
+    /* 素材は /get-chat-feature-spec 9-8節の実測済みのものだけを使う。 */
+    var VID = {
+        LIGHT:   'zuuZyNH0F1Y',   /* 356件 / 70.6分。数え方の positive control */
+        MEMBERS: 'AoaL9zbPAkA',   /* メンバー限定 / 7307秒。★本命 */
+        SAMECH:  'NshKf1Pw9nA',   /* MEMBERS と同一チャンネルの公開 / 3:13:09 */
+        REGULAR: 'J-TXiDsIdv0',   /* ライブではない通常の投稿動画（9分31秒） */
+        HEAVY:   'q176a2krHbg'    /* 52,362件 / 129.5分。所要時間の参考値用 */
+    };
+    function ytUrl(id) { return 'https://www.youtube.com/watch?v=' + id; }
+
+    var CHAT_WAIT_MS = 300000;         /* 取得の完了待ち上限（5分） */
+    var CHAT_WAIT_HEAVY_MS = 900000;   /* VID_HEAVY 用（15分） */
+    var chatCountPc = null;            /* D-C1 の結果。以降の PC に使う（同一セッション内） */
+
+    function gtZero(v) { return Number(v) > 0; }
+    gtZero.label = '0 より大きいこと';
+
+    function firstCard() {
+        try { if (typeof activeCardIds !== 'undefined' && activeCardIds.length) return activeCardIds[0]; }
+        catch (e) { }
+        return null;
+    }
+    function chatStoreOf(vid) {
+        try { return (typeof chatStore !== 'undefined') ? (chatStore[vid] || null) : null; }
+        catch (e) { return null; }
+    }
+    function chatStateOf(vid) {
+        try { return (typeof chatState !== 'undefined') ? (chatState[vid] || '(未取得)') : '(取得不可)'; }
+        catch (e) { return '(取得不可)'; }
+    }
+    function chatErrorOf(vid) {
+        try { return (typeof chatError !== 'undefined') ? String(chatError[vid] || '') : ''; }
+        catch (e) { return ''; }
+    }
+    /* 'CODE: 説明' の CODE だけを取り出す。🔴 説明文はそのまま出さない（本文が混ざりうる）。 */
+    function chatCodeOf(vid) {
+        var m = chatErrorOf(vid).match(/^([A-Z_]+):/);
+        return m ? m[1] : '(なし)';
+    }
+    function chatReloadBtn(cid) {
+        return document.querySelector('#' + cid + ' .chat-head button[title="コメントを取得し直す"]');
+    }
+
+    /* 枠へ URL を読み込む（D-P と同じ経路を実際にクリックする）。 */
+    async function loadUrlIntoCard(cid, url) {
+        var input = document.getElementById('urlInput_' + cid);
+        var loadBtn = document.querySelector('#' + cid + ' .placeholder-actions button.primary');
+        if (!input || !loadBtn) return { ok: false, reason: '入力欄か読み込むボタンが無い' };
+        input.value = url;
+        log('  [操作] 読み込む URL = ' + url);
+        var r = await clickReal(loadBtn);
+        await wait(2500);
+        return { ok: !r.blocked, reason: r.reason, blocked: r.blocked };
+    }
+
+    /* チャット欄を開く。開いていれば何もしない。 */
+    async function openChatPane(cid) {
+        if (document.getElementById('chatNote_' + cid)) {
+            var vis = false;
+            try { vis = !!(typeof chatVisible !== 'undefined' && chatVisible[cid]); } catch (e) { }
+            if (vis) return { ok: true, clicked: false };
+        }
+        var btn = document.getElementById('chatToggleBtn_' + cid);
+        if (!btn) return { ok: false, reason: '💬 ボタンが無い' };
+        var r = await clickReal(btn);
+        await wait(500);
+        return { ok: !!document.getElementById('chatNote_' + cid), clicked: true, blocked: r.blocked };
+    }
+
+    /* 取得が終端（ready / error）に達するまで待つ。🔴 固定時間で打ち切らない（鉄則 #27）。 */
+    async function waitChatSettled(vid, limitMs) {
+        return await waitFor(function () {
+            var st = chatStateOf(vid);
+            return (st === 'ready' || st === 'error') ? st : false;
+        }, limitMs || CHAT_WAIT_MS, 1000);
+    }
+
+    /* opt = { url, videoId, waitMs, needCountPc, skipReload,
+               expectState, expectCode, expectTotal, expectNotZero, expectComplete } */
+    async function runChatCase(opt) {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+
+        var cid = firstCard();
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+        if (!cid) { expect('この項目の実行', '枠が1つも無い', '枠が1つ以上あること'); return null; }
+
+        if (opt.needCountPc) {
+            pc('件数の数え方が本番と同じであることを確認済み（D-C1）', function () {
+                return chatCountPc || false;
+            });
+        }
+
+        var cleared = await clearCard(cid);
+        pc('枠を「URL入力待ち」にできた', function () { return cleared ? '入力欄と読み込むボタンあり' : false; });
+        if (!cleared) { expect('この項目の実行', '枠を空にできない', '空にできること'); return null; }
+
+        var ld = await loadUrlIntoCard(cid, opt.url);
+        expect('「読み込む」を実際に押せた（被覆なし）', ld.ok ? 'ok' : ('blocked:' + ld.reason), 'ok');
+
+        var pane = await openChatPane(cid);
+        pc('チャット欄を開けた', function () { return pane.ok ? ('chatNote_' + cid + ' あり') : false; });
+        if (!pane.ok) { expect('この項目の実行', 'チャット欄を開けない', '開けること'); return null; }
+
+        if (!opt.skipReload) {
+            /* 🔴 キャッシュを捨ててから測る。残っているとエンジンを通らず測定が成立しない。 */
+            var rb = chatReloadBtn(cid);
+            var r2 = await clickReal(rb);
+            pc('🔄（キャッシュを捨てて取り直す）を実際に押せた', function () {
+                return (rb && !r2.blocked) ? 'ok' : false;
+            });
+        }
+
+        var t0 = Date.now();
+        var w = await waitChatSettled(opt.videoId, opt.waitMs);
+        pc('取得が終端（ready / error）まで到達した', function () {
+            return w.ok ? (w.value + ' / ' + Math.round(w.waitedMs / 1000) + '秒') : false;
+        });
+
+        var store = chatStoreOf(opt.videoId);
+        var st = chatStateOf(opt.videoId);
+        var code = chatCodeOf(opt.videoId);
+        var total = store ? store.comments.length : 0;
+
+        note('取得の状態 chatState', st);
+        note('理由コード', code);
+        note('総件数', total);
+        note('A側で待った時間(ms)', Date.now() - t0);
+        if (store) {
+            note('B側が報告した所要時間 elapsed(ms)', store.elapsed);
+            note('リクエスト回数 reqs', store.reqs);
+            note('動画長 videoMs', store.videoMs);
+            note('最後のコメント位置 lastT', store.lastT);
+            note('絵文字辞書の件数', Object.keys(store.emoji || {}).length);
+            note('complete / truncated / gap',
+                store.complete + ' / ' + store.truncated + ' / ' + store.gap);
+        }
+
+        if (opt.expectState) expect('取得の状態 chatState', st, opt.expectState);
+        if (opt.expectCode) expect('理由コード', code, opt.expectCode);
+        if (opt.expectTotal !== undefined && opt.expectTotal !== null) {
+            expect('総件数', total, opt.expectTotal);
+        }
+        if (opt.expectNotZero) expect('総件数が 0 でないこと', total, gtZero);
+        if (opt.expectComplete !== undefined) {
+            expect('完走 complete', store ? store.complete : '(storeが無い)', opt.expectComplete);
+            expect('欠番 gap', store ? store.gap : '(storeが無い)', false);
+            expect('打ち切り truncated', store ? store.truncated : '(storeが無い)', false);
+        }
+        return { cid: cid, store: store, total: total, code: code, state: st, waited: w };
+    }
+
+    /* --- D-C1: 公開アーカイブ（数え方の positive control） -------------------- */
+    async function testC1() {
+        chatCountPc = null;
+        log('  [目的] 356件という既知の値と一致することが、数え方が本番と同じである唯一の裏づけ。');
+        var r = await runChatCase({
+            url: ytUrl(VID.LIGHT), videoId: VID.LIGHT,
+            expectState: 'ready', expectTotal: 356, expectComplete: true
+        });
+        if (r && r.state === 'ready' && r.total === 356) {
+            chatCountPc = VID.LIGHT + ' で既知の 356 件と一致（' + new Date().toISOString() + '）';
+        }
+        note('以降のテストへ渡す positive control', chatCountPc || '(不成立)');
+    }
+
+    /* --- D-C2: ★本命。メンバー限定アーカイブを完走させる ---------------------- */
+    async function testC2() {
+        log('  [目的] v2.7.5 の成否そのもの。0件でなく、かつ complete が true になること。');
+        log('  [前提] YouTube にメンバー登録済みのアカウントでログインしていること。');
+        await runChatCase({
+            url: ytUrl(VID.MEMBERS), videoId: VID.MEMBERS, needCountPc: true,
+            expectState: 'ready', expectNotZero: true, expectComplete: true,
+            expectCode: '(なし)'
+        });
+    }
+
+    /* --- D-C3: 同一チャンネルの公開アーカイブ（回帰） ------------------------- */
+    async function testC3() {
+        log('  [目的] 公開アーカイブの件数が変わっていないこと（5-C の実測は 430 件）。');
+        await runChatCase({
+            url: ytUrl(VID.SAMECH), videoId: VID.SAMECH, needCountPc: true,
+            expectState: 'ready', expectTotal: 430, expectComplete: true
+        });
+    }
+
+    /* --- D-C4: コメント流しの回帰（メンバー限定で実際に流れること） ------------- */
+    function densestWindow(comments, windowMs) {
+        var best = { startMs: 0, count: 0 };
+        if (!comments || !comments.length) return best;
+        var j = 0;
+        for (var i = 0; i < comments.length; i++) {
+            while (j < comments.length && comments[j].t < comments[i].t + windowMs) j++;
+            if (j - i > best.count) best = { startMs: comments[i].t, count: j - i };
+        }
+        return best;
+    }
+
+    async function testC4() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] 取得できたコメントが実際に画面へ流れること（本作業の目的）。');
+
+        var cid = firstCard();
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+        if (!cid) { expect('この項目の実行', '枠が1つも無い', '枠が1つ以上あること'); return; }
+
+        /* 🔴 条件は順序ではなく観測で担保する（鉄則 #24）。 */
+        var ans = window.prompt(
+            'アドレスバー左の盾のアイコンを今すぐ見てください。\n'
+            + '強化型トラッキング防止は、このサイトでどちらですか？\n'
+            + 'on / off を入力してください。', '');
+        var shield = String(ans === null ? '' : ans).trim().toLowerCase();
+        log('  [条件] 盾 = ' + (shield || '(未入力)') + ' / 配信元 = ' + location.origin);
+        expect('配信元が https であること（http ではメンバー限定は再生できない）', location.protocol, 'https:');
+        pc('この測定に必要な盾の状態だった（off）', function () {
+            return (shield === 'off') ? ('入力 = ' + shield) : false;
+        });
+
+        var cleared = await clearCard(cid);
+        pc('枠を「URL入力待ち」にできた', function () { return cleared ? 'ok' : false; });
+        if (!cleared) { expect('この項目の実行', '枠を空にできない', '空にできること'); return; }
+
+        var ld = await loadUrlIntoCard(cid, ytUrl(VID.MEMBERS));
+        expect('「読み込む」を実際に押せた（被覆なし）', ld.ok ? 'ok' : ('blocked:' + ld.reason), 'ok');
+
+        var pane = await openChatPane(cid);
+        pc('チャット欄を開けた', function () { return pane.ok ? 'ok' : false; });
+
+        /* 🔴 ここでは 🔄 を押さない。D-C2 の結果（キャッシュ）をそのまま使う。 */
+        var w = await waitChatSettled(VID.MEMBERS, 120000);
+        var store = chatStoreOf(VID.MEMBERS);
+        pc('メンバー限定のコメントが手元にある（先に D-C2 を実行すること）', function () {
+            return (store && store.comments.length) ? (store.comments.length + '件') : false;
+        });
+        if (!store || !store.comments.length) {
+            expect('この項目の実行', 'コメントが0件で流しを測れない', 'D-C2 が合格していること');
+            return;
+        }
+        note('待ち時間(ms) / 取得の状態', w.waitedMs + ' / ' + chatStateOf(VID.MEMBERS));
+
+        var fb = document.getElementById('flowToggleBtn_' + cid);
+        var rf = await clickReal(fb);
+        expect('🌊（コメントを流す）を実際に押せた（被覆なし）',
+            (fb && !rf.blocked) ? 'ok' : ('blocked:' + (rf && rf.reason)), 'ok');
+        var flowOn = false;
+        try { flowOn = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
+        pc('流しがオンになった', function () { return flowOn ? 'on' : false; });
+
+        /* 🔴 素材の密度を先に確かめる（鉄則 #14）。薄い区間では 0 件が正常になる。 */
+        var dense = densestWindow(store.comments, 20000);
+        note('最も密な20秒の窓（開始位置ms / 件数）', dense.startMs + ' / ' + dense.count);
+        pc('20秒あたり3件以上ある区間を選べた', function () {
+            return (dense.count >= 3) ? (dense.count + '件/20秒') : false;
+        });
+
+        var seekSec = Math.max(0, Math.round(dense.startMs / 1000) - 1);
+        try { ytPlayers[cid].seekTo(seekSec, true); } catch (e) { }
+        log('  [操作] 濃い区間へシークした: ' + seekSec + '秒');
+        /* 🔴 シークの完了を待ってから計測に入る（鉄則 #32）。 */
+        var sk = await waitFor(function () {
+            var t = 0;
+            try { t = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { t = 0; }
+            return (Math.abs(t - seekSec) < 5) ? t : false;
+        }, 15000, 500);
+        pc('シークが完了した（要求位置の±5秒以内）', function () {
+            return sk.ok ? ('現在位置 = ' + sk.value + '秒') : false;
+        });
+
+        var rp = await clickReal(document.getElementById('playPauseBtn'));
+        expect('「▶ 一括再生」を実際に押せた（被覆なし）', rp.blocked ? ('blocked:' + rp.reason) : 'ok', 'ok');
+
+        var startPos = 0;
+        try { startPos = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { startPos = 0; }
+        var adv = await waitFor(function () {
+            var s = 'ERR', c = 0;
+            try { s = ytPlayers[cid].getPlayerState(); } catch (e) { s = 'ERR'; }
+            try { c = ytPlayers[cid].getCurrentTime() || 0; } catch (e) { c = 0; }
+            return hasAdvanced(startPos, c, s) ? ('位置 ' + c + ' / state ' + s) : false;
+        }, 30000, 500);
+        pc('メンバー限定の動画が実際に再生された（再生できないと流しは測れない）', function () {
+            return adv.ok ? adv.value : false;
+        });
+
+        /* 🔴 目視は計測の直後にその場で聞く（鉄則 #12）。合否には数えない。
+           ⚠️ 記録パネルは画面を覆うので、覆う前に見る時間を作ってから開く。 */
+        window.alert('このあと約6秒間、枠の中を見ていてください。\n'
+            + 'コメントが画面を流れるか、メンバー専用の絵文字が画像で出るかを見ます。\n'
+            + 'OK を押すと計測を始めます。');
+
+        var s = await sample(250, 24, function () {
+            var layer = document.getElementById('flowLayer_' + cid);
+            return layer ? layer.childElementCount : 0;
+        });
+        note('画面上のコメント数（250ms × 24回）',
+            'min=' + s.min + ' / max=' + s.max + ' / avg=' + s.avg + ' / 0件だった回数=' + s.zeros);
+        expect('コメントが実際に画面を流れた（最大同時表示数）', s.max, gtZero);
+
+        await ask('いま画面を流れるコメントが見えましたか',
+            ['はっきり見えた', '少しだけ見えた', '見えなかった']);
+        await ask('メンバー専用の絵文字は画像として見えましたか',
+            ['画像で見えた', '文字（:名前:）のままだった', 'メンバー専用の絵文字が出てこなかった']);
+
+        await stopAllIfPlaying();
+    }
+
+    /* --- D-C5: メンバー専用絵文字が表示できるか（⚠ 判定にしない） -------------- */
+    function probeImage(url) {
+        return new Promise(function (resolve) {
+            var done = false;
+            var im = new Image();
+            var t = setTimeout(function () {
+                if (done) return; done = true; resolve('タイムアウト（10秒）');
+            }, 10000);
+            im.onload = function () {
+                if (done) return; done = true; clearTimeout(t);
+                resolve('読み込み成功 ' + im.naturalWidth + 'x' + im.naturalHeight);
+            };
+            im.onerror = function () {
+                if (done) return; done = true; clearTimeout(t);
+                resolve('読み込み失敗（403 などでブロックされた可能性）');
+            };
+            im.src = url;
+        });
+    }
+
+    async function testC5() {
+        log('  [目的] メンバー専用絵文字の画像が出るかを事実として記録する。');
+        log('  [⚠] 表示されなくても不合格にしない（指示書 P8）。この項目に合否の判定は置かない。');
+        var store = chatStoreOf(VID.MEMBERS);
+        pc('D-C2 の取得結果が手元にある（先に D-C2 を実行すること）', function () {
+            return (store && store.comments.length) ? (store.comments.length + '件') : false;
+        });
+        if (!store) return;
+
+        var dict = store.emoji || {};
+        var keys = Object.keys(dict);
+        note('絵文字辞書の件数', keys.length);
+        pc('辞書に1件以上ある（0件だと表示可否そのものを測れない）', function () {
+            return keys.length ? (keys.length + '件') : false;
+        });
+        if (!keys.length) return;
+
+        var n = Math.min(3, keys.length);
+        for (var i = 0; i < n; i++) {
+            var res = await probeImage(dict[keys[i]]);
+            /* 🔴 ショートカット名（＝コメント本文の一部）も URL も出さない。 */
+            note('絵文字' + (i + 1) + ' の画像', res);
+        }
+    }
+
+    /* --- D-C6: 認証情報が漏れていないこと ------------------------------------ */
+    var SECRET_RULES = [
+        { name: 'SAPISIDHASH', re: /SAPISIDHASH/i },
+        { name: 'SAPISID/APISID', re: /APISID/i },
+        /* ⚠️ \b は使えない。'1700000000_0123…' の '_' は語構成文字なので境界にならず、
+           人工の偽ヘッダを検出できずに positive control が落ちる（2026-08-14 実測）。 */
+        { name: 'SHA-1らしき16進40桁', re: /(?:^|[^0-9a-fA-F])[0-9a-f]{40}(?:[^0-9a-fA-F]|$)/ },
+        { name: 'unix秒_16進40桁', re: /\b\d{10}_[0-9a-f]{40}\b/ }
+    ];
+    function scanSecrets(text) {
+        var hits = [];
+        var s = String(text == null ? '' : text);
+        for (var i = 0; i < SECRET_RULES.length; i++) {
+            if (SECRET_RULES[i].re.test(s)) hits.push(SECRET_RULES[i].name);
+        }
+        return hits;
+    }
+    /* 🔴 自分自身（デバッグパネル）を検査対象に入れない。
+       パネルには検出パターン名そのものが出るため、必ず誤検出になる。 */
+    function bodyHtmlWithoutDebug() {
+        try {
+            var clone = document.body.cloneNode(true);
+            var a = clone.querySelector('#debugAnchor');
+            if (a && a.parentNode) a.parentNode.removeChild(a);
+            var m = clone.querySelector('#dbgModal');
+            if (m && m.parentNode) m.parentNode.removeChild(m);
+            return clone.innerHTML;
+        } catch (e) { return ''; }
+    }
+    function localStorageDump() {
+        var out = [];
+        try {
+            for (var i = 0; i < localStorage.length; i++) {
+                var k = localStorage.key(i);
+                if (k && k.indexOf('sync_debug') === 0) continue;   /* 基盤自身の記録は除く */
+                out.push(k + '=' + localStorage.getItem(k));
+            }
+        } catch (e) { }
+        return out.join('\n');
+    }
+
+    async function testC6() {
+        log('  [目的] Cookie の値・ハッシュ・認証ヘッダが、A側のどこにも出ていないこと。');
+        /* 🔴 検査器が実際に反応することを先に確かめる（鉄則 #11）。 */
+        var fake = 'Authorization: SAPISIDHASH 1700000000_'
+            + '0123456789abcdef0123456789abcdef01234567';
+        pc('検査器が反応する（人工の偽ヘッダを検出できた）', function () {
+            var h = scanSecrets(fake);
+            return (h.length === SECRET_RULES.length) ? h.join(' / ') : false;
+        });
+        pc('検査器が無関係な文字列に反応しない', function () {
+            return scanSecrets('コメント 356 件 / complete=true').length === 0 ? '検出0件' : false;
+        });
+
+        var bodyHits = scanSecrets(bodyHtmlWithoutDebug());
+        var lsHits = scanSecrets(localStorageDump());
+        var storeJson = '';
+        try { storeJson = JSON.stringify(typeof chatStore !== 'undefined' ? chatStore : {}); }
+        catch (e) { storeJson = ''; }
+        var storeHits = scanSecrets(storeJson);
+        var errJson = '';
+        try { errJson = JSON.stringify(typeof chatError !== 'undefined' ? chatError : {}); }
+        catch (e) { errJson = ''; }
+        var errHits = scanSecrets(errJson);
+
+        note('検査した文字数（DOM / localStorage / chatStore / chatError）',
+            bodyHtmlWithoutDebug().length + ' / ' + localStorageDump().length
+            + ' / ' + storeJson.length + ' / ' + errJson.length);
+
+        expect('本体のDOMに認証情報らしき文字列が無い', bodyHits.join(' / ') || 'なし', 'なし');
+        expect('localStorage に認証情報らしき文字列が無い', lsHits.join(' / ') || 'なし', 'なし');
+        expect('chatStore に認証情報らしき文字列が無い', storeHits.join(' / ') || 'なし', 'なし');
+        expect('chatError に認証情報らしき文字列が無い', errHits.join(' / ') || 'なし', 'なし');
+    }
+
+    /* --- D-C7: 既存機能の回帰（NOT_LIVE_ARCHIVE と キャッシュ） ---------------- */
+    async function testC7() {
+        log('  [目的] v2.6.4 の理由コード判定とキャッシュが v2.7.4 と同じであること。');
+        var r = await runChatCase({
+            url: ytUrl(VID.REGULAR), videoId: VID.REGULAR,
+            expectState: 'error', expectCode: 'NOT_LIVE_ARCHIVE', expectTotal: 0
+        });
+        if (r) {
+            var n = document.getElementById('chatNote_' + r.cid);
+            var txt = n ? String(n.innerText || '') : '(要素なし)';
+            note('枠に出た案内文の全文', txt);
+            expect('切り分け手順（確認する順番）が出ていないこと', txt.indexOf('確認する順番') >= 0, false);
+            expect('再試行ボタンが出ていないこと', !!(n && n.querySelector('button')), false);
+        }
+        var stats = null;
+        try { stats = await chatCacheStats(); } catch (e) { stats = null; }
+        pc('キャッシュの集計を読めた（IndexedDB が生きている）', function () {
+            return stats ? (stats.count + '本') : false;
+        });
+        if (stats) {
+            note('キャッシュ（本数 / バイト数）', stats.count + '本 / ' + stats.bytes + 'バイト');
+            expect('キャッシュに1本以上入っている（完走ぶんが保存されている）', stats.count, gtZero);
+        }
+    }
+
+    /* --- D-C8: 8-9節「0件のときの表示」が残っていること ----------------------- */
+    async function testC8() {
+        log('  [目的] 本当に0件のアーカイブ用の案内（8-9節）を v2.7.5 で消していないこと。');
+        log('  [⚠] 実素材（VID_CHAT_OFF 相当の0件アーカイブ）が未確保で、');
+        log('      本番UIから0件の状態を作る手段が無いため、表示関数を直接呼んで確かめる。');
+        await closeAllMenus();
+        var cid = firstCard();
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+        if (!cid) return;
+        pc('showChatEmptyNote が本体に存在する', function () {
+            return (typeof showChatEmptyNote === 'function') ? 'function' : false;
+        });
+        if (typeof showChatEmptyNote !== 'function') return;
+
+        var pane = await openChatPane(cid);
+        pc('チャット欄を開けた', function () { return pane.ok ? 'ok' : false; });
+        if (!pane.ok) return;
+
+        showChatEmptyNote(cid, '(検査用の架空ID)');
+        await wait(300);
+        var n = document.getElementById('chatNote_' + cid);
+        var txt = n ? String(n.innerText || '') : '';
+        note('表示された全文', txt);
+        expect('見出しが出ている', txt.indexOf('コメントが1件も見つかりませんでした') >= 0, true);
+        expect('原因①（メンバー限定の配信）が出ている', txt.indexOf('メンバー限定の配信') >= 0, true);
+        expect('原因②（リプレイを公開していない）が出ている', txt.indexOf('リプレイを公開していない') >= 0, true);
+        expect('原因③（1件も無かった）が出ている', txt.indexOf('コメントが1件も無かった') >= 0, true);
+        expect('再試行ボタンが出ている', !!(n && n.querySelector('button')), true);
+    }
+
+    /* --- D-C9: 理由コード CHAT_DISABLED（人工再現） --------------------------- */
+    async function testC9() {
+        log('  [目的] 「チャットは無効です」と返ってきたときに CHAT_DISABLED が A側へ出ること。');
+        log('  [前提] 取得タブの MAIN world へ人工再現のパッチを当ててあること（手順書 T5）。');
+        var r = await runChatCase({
+            url: ytUrl(VID.LIGHT), videoId: VID.LIGHT, waitMs: 120000
+        });
+        if (!r) return;
+        /* 🔴 パッチが効いているかどうかは PC。効いていなければ「測れていない」。 */
+        pc('人工再現が効いている（取得が失敗で終わった）', function () {
+            return (r.state === 'error') ? 'chatState = error' : false;
+        });
+        expect('理由コード', r.code, 'CHAT_DISABLED');
+        expect('B側の文言に「チャットは無効」が含まれる',
+            chatErrorOf(VID.LIGHT).indexOf('チャットは無効') >= 0, true);
+        expect('総件数', r.total, 0);
+        var n = document.getElementById('chatNote_' + r.cid);
+        var txt = n ? String(n.innerText || '') : '';
+        note('枠に出た案内文の全文', txt);
+        expect('CHAT_DISABLED 用の文面が出ている',
+            txt.indexOf('チャットのリプレイを公開していない') >= 0, true);
+        expect('切り分け手順（確認する順番）が出ていないこと', txt.indexOf('確認する順番') >= 0, false);
+        expect('再試行ボタンが出ていないこと', !!(n && n.querySelector('button')), false);
+    }
+
+    /* --- D-C10: 非ログインでの回帰（ヘッダ無しの経路） ------------------------- */
+    async function testC10() {
+        log('  [目的] Cookie が無いときにヘッダ無しで従来どおり取得できること（退行させない）。');
+        log('  [前提] YouTube からログアウトしていること。');
+        /* ① ログアウトできているかを「観測」で担保する（鉄則 #24）。 */
+        var m = await runChatCase({
+            url: ytUrl(VID.MEMBERS), videoId: VID.MEMBERS, waitMs: 120000
+        });
+        pc('ログアウトできている（メンバー限定が MEMBERS_ONLY で失敗した）', function () {
+            return (m && m.state === 'error' && m.code === 'MEMBERS_ONLY') ? m.code : false;
+        });
+        /* ② 公開アーカイブが従来どおり取れること。 */
+        await runChatCase({
+            url: ytUrl(VID.LIGHT), videoId: VID.LIGHT,
+            expectState: 'ready', expectTotal: 356, expectComplete: true
+        });
+    }
+
+    /* --- D-C11: 所要時間の参考値（VID_HEAVY） -------------------------------- */
+    async function testC11() {
+        log('  [目的] 重いアーカイブの所要時間を記録する。');
+        log('  [🔴] 所要時間は判定に使わない。測定PCが違うため v2.6.x の 165〜234秒とは比較できない。');
+        var r = await runChatCase({
+            url: ytUrl(VID.HEAVY), videoId: VID.HEAVY, waitMs: CHAT_WAIT_HEAVY_MS,
+            needCountPc: true, expectState: 'ready', expectComplete: true, expectNotZero: true
+        });
+        if (r && r.store) {
+            note('【参考値】所要時間(秒)', Math.round((r.store.elapsed || 0) / 1000));
+            note('【参考値】件数 / リクエスト回数', r.total + ' / ' + r.store.reqs);
+        }
+    }
+
+
     /* --- 実行制御 --------------------------------------------------------- */
 
     var TESTS = [
@@ -1945,7 +2540,19 @@
         { id: 'D-P2', name: '存在しない動画IDで通知が出る', run: testP2, manual: true },
         { id: 'D-P3', name: 'メンバー限定 / 保護オン → 通知が出る', run: testP3, manual: true },
         { id: 'D-P4', name: 'メンバー限定 / 保護オフ → 再生できる', run: testP4, manual: true },
-        { id: 'D-P5', name: '再生を押さない間は確定しない（存在しない動画ID）', run: testP5, manual: true }
+        { id: 'D-P5', name: '再生を押さない間は確定しない（存在しない動画ID）', run: testP5, manual: true },
+        /* ★v1.4.2: v2.7.5（チャット取得）の検証。いずれも準備が要るので manual。 */
+        { id: 'D-C1', name: '公開アーカイブ 356件（数え方の positive control）', run: testC1, manual: true },
+        { id: 'D-C2', name: '★メンバー限定アーカイブを完走させる', run: testC2, manual: true },
+        { id: 'D-C3', name: '同一チャンネルの公開アーカイブ 430件', run: testC3, manual: true },
+        { id: 'D-C4', name: 'コメント流しの回帰（メンバー限定・要 盾オフ）', run: testC4, manual: true },
+        { id: 'D-C5', name: 'メンバー専用絵文字の表示（記録のみ）', run: testC5, manual: true },
+        { id: 'D-C6', name: '認証情報が漏れていないこと', run: testC6, manual: true },
+        { id: 'D-C7', name: '既存機能の回帰（NOT_LIVE_ARCHIVE / キャッシュ）', run: testC7, manual: true },
+        { id: 'D-C8', name: '0件のときの表示が残っていること', run: testC8, manual: true },
+        { id: 'D-C9', name: '理由コード CHAT_DISABLED（人工再現）', run: testC9, manual: true },
+        { id: 'D-C10', name: '非ログインでの回帰（ヘッダ無しの経路）', run: testC10, manual: true },
+        { id: 'D-C11', name: '所要時間の参考値（重いアーカイブ）', run: testC11, manual: true }
     ];
 
     var running = false;
@@ -1966,6 +2573,23 @@
                 report: report
             }));
         } catch (e) { log('⚠ 記録の持ち越しに失敗しました: ' + (e && e.message)); }
+    }
+
+    /* ★v1.4.2: D-C 用の一括実行。盾は聞かない（取得は盾に影響されない）。
+       終わりに記録を持ち越すので、貼り付けは条件の区切りごとに1回で足りる。 */
+    async function runChatGroup(title, ids, hint) {
+        if (running) { log('⚠ 実行中です。終わるまで待ってください。'); return; }
+        running = true;
+        window.alert(title + '\n\n' + hint);
+        log('=== ' + title + ' 開始（' + ids.join(' → ') + '） ===');
+        for (var i = 0; i < ids.length; i++) {
+            await runOne(ids[i], true);
+        }
+        running = false;
+        saveCarry();
+        log('=== ' + title + ' 完了 ===');
+        log('  ここまでの記録は保存しました。再読み込みしても消えません。');
+        openDebugMenu();
     }
 
     async function runPlaybackGroup(title, ids, hint) {
