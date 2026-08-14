@@ -38,7 +38,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.4.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.4.3';   /* 本体の APP_VERSION とは別系統 */
+    /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
+       v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
+    var EXPECT_APP_VERSION = '2.7.5';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1232,9 +1235,10 @@
         });
         pc('DEBUG_SUITE_VERSION を読めている', function () { return DEBUG_SUITE_VERSION; });
 
-        expect('APP_VERSION', appVersion(), '2.7.4');
+        expect('APP_VERSION', appVersion(), EXPECT_APP_VERSION);
         expect('バッジのクラス', badge ? badge.className : '(要素なし)', 'version-badge ok');
-        expect('バッジの表示文字列', badge ? String(badge.textContent).trim() : '(要素なし)', 'v2.7.4');
+        expect('バッジの表示文字列', badge ? String(badge.textContent).trim() : '(要素なし)',
+            'v' + EXPECT_APP_VERSION);
         expect('debug_suite の版数', DEBUG_SUITE_VERSION, DEBUG_SUITE_VERSION);
     }
 
@@ -2054,7 +2058,10 @@
         if (!btn) return { ok: false, reason: '💬 ボタンが無い' };
         var r = await clickReal(btn);
         await wait(500);
-        return { ok: !!document.getElementById('chatNote_' + cid), clicked: true, blocked: r.blocked };
+        return {
+            ok: !!document.getElementById('chatNote_' + cid),
+            clicked: true, blocked: r.blocked, hit: r.hit
+        };
     }
 
     /* 取得が終端（ready / error）に達するまで待つ。🔴 固定時間で打ち切らない（鉄則 #27）。 */
@@ -2216,6 +2223,9 @@
 
         var pane = await openChatPane(cid);
         pc('チャット欄を開けた', function () { return pane.ok ? 'ok' : false; });
+        /* ★v1.4.3: 被覆が出たときに何が覆っていたのかを残す。 */
+        note('💬 を押したときの当たり判定',
+            (pane.blocked ? '被覆あり / ' : '被覆なし / ') + (pane.hit || '(記録なし)'));
 
         /* 🔴 ここでは 🔄 を押さない。D-C2 の結果（キャッシュ）をそのまま使う。 */
         var w = await waitChatSettled(VID.MEMBERS, 120000);
@@ -2231,6 +2241,12 @@
 
         var fb = document.getElementById('flowToggleBtn_' + cid);
         var rf = await clickReal(fb);
+        /* ★v1.4.3: v1.4.2 では blocked:covered とだけ出て、何が覆っていたのか分からなかった。
+           ⚠️ clickReal は被覆でもクリックを実行するので、機能そのものは進む。 */
+        note('🌊 を押したときの当たり判定',
+            (rf.blocked ? '被覆あり / ' : '被覆なし / ') + (rf.hit || '(記録なし)')
+            + ' / 実際にクリックした=' + rf.clicked);
+        note('🌊 ボタンの位置', fb ? rect(fb) : '(要素なし)');
         expect('🌊（コメントを流す）を実際に押せた（被覆なし）',
             (fb && !rf.blocked) ? 'ok' : ('blocked:' + (rf && rf.reason)), 'ok');
         var flowOn = false;
@@ -2578,7 +2594,12 @@
     /* ★v1.4.2: D-C 用の一括実行。盾は聞かない（取得は盾に影響されない）。
        終わりに記録を持ち越すので、貼り付けは条件の区切りごとに1回で足りる。 */
     async function runChatGroup(title, ids, hint) {
-        if (running) { log('⚠ 実行中です。終わるまで待ってください。'); return; }
+        /* ★v1.4.3: ログに出すだけでは気づけない。押したのに始まらない状態を表に出す。 */
+        if (running) {
+            log('⚠ 実行中です。終わるまで待ってください。');
+            window.alert('いま別のテストを実行中です。\n終わってから、もう一度押してください。');
+            return;
+        }
         running = true;
         window.alert(title + '\n\n' + hint);
         log('=== ' + title + ' 開始（' + ids.join(' → ') + '） ===');
