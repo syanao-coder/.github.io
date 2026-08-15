@@ -622,7 +622,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.0';
+        const APP_VERSION = '2.8.1';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -2869,6 +2869,11 @@
             const store = ensureChatStore(videoId);
             store.videoMs = d.videoMs || 0;
             if (d.live === true) store.live = true;
+            /* ★v2.8.1: B側がどのフィールドで配信中と判定したかを控える。
+               v2.8.0 では受け取っていたのに捨てており、実機で
+               「実際に効いたフィールド」を裏づけられなかった。
+               ⚠️ 真偽とフィールド名だけで、個人情報は含まない。 */
+            if (d.liveBy) store.liveBy = d.liveBy;
         }
 
         function handleChatChunk(d) {
@@ -2925,6 +2930,8 @@
                 if (d.live === true) liveVideoIds[videoId] = true;
                 const store = ensureChatStore(videoId);
                 if (d.live === true) store.live = true;
+                if (d.liveBy) store.liveBy = d.liveBy;          /* ★v2.8.1 */
+                if (d.livePolls !== undefined) store.livePolls = d.livePolls;
                 store.complete = (d.complete !== false);
                 store.truncated = !!d.truncated;
                 if (d.videoMs) store.videoMs = d.videoMs;

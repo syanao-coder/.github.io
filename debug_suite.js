@@ -38,10 +38,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.5.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.5.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.0';
+    var EXPECT_APP_VERSION = '2.8.1';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1697,12 +1697,55 @@
                 && disp(noticeEl) === 'block')
                 ? 'timer/code/log[' + stateSeq(cardId) + ']/ready/表示 の5つとも設定済み' : false;
         });
+        /* 🔴 ★v1.5.1: v1.5.0 では reset の 50ms 後だけを見ていたため、
+           「消えなかった」のか「消えた直後に何かが入れ直した」のかが
+           区別できなかった（v2.8.0 の検証で3項目が落ちた際、原因を絞れなかった）。
+           reset の直後（await を挟まない）と 50ms 後の2点で測る。
+           ⚠️ 直後が消えていて 50ms 後に戻っていれば、犯人は後始末ではなく
+              生き残ったタイマーか onReady の再発火である。 */
+        var timerIdBefore = playerVerifyTimer[cardId];
         resetPlayerDiagnostics(cardId);
+
+        var at0 = {
+            timer: playerVerifyTimer[cardId] === undefined,
+            code: playerErrorCode[cardId] === undefined,
+            log: playerStateLog[cardId] === undefined,
+            ready: playerReadyDone[cardId] === undefined
+        };
+        note('後始末の直後（0ms / await なし）',
+            'timer=' + at0.timer + ' / code=' + at0.code + ' / log=' + at0.log + ' / ready=' + at0.ready);
+
         await wait(50);
-        expect('後始末: 確定タイマーが消える', playerVerifyTimer[cardId] === undefined, true);
-        expect('後始末: エラーコードが消える', playerErrorCode[cardId] === undefined, true);
-        expect('後始末: 状態遷移の記録が消える', playerStateLog[cardId] === undefined, true);
-        expect('後始末: playerReadyDone が落ちる', playerReadyDone[cardId] === undefined, true);
+        var at50 = {
+            timer: playerVerifyTimer[cardId] === undefined,
+            code: playerErrorCode[cardId] === undefined,
+            log: playerStateLog[cardId] === undefined,
+            ready: playerReadyDone[cardId] === undefined
+        };
+        note('後始末の 50ms 後',
+            'timer=' + at50.timer + ' / code=' + at50.code + ' / log=' + at50.log + ' / ready=' + at50.ready);
+
+        /* 犯人の切り分け: 直後は消えていたのに戻ったものを名指しする。 */
+        var revived = [];
+        ['timer', 'code', 'log', 'ready'].forEach(function (k) {
+            if (at0[k] && !at50[k]) revived.push(k);
+        });
+        note('🔴 いったん消えたのに 50ms 以内に戻ったもの',
+            revived.length ? revived.join(' / ') : '(なし)');
+        note('タイマーIDが張り直されたか',
+            (playerVerifyTimer[cardId] === undefined) ? '(タイマーは無い)'
+                : ((playerVerifyTimer[cardId] === timerIdBefore)
+                    ? '同じID（後始末が効いていない）' : '別のID（後から張り直された）'));
+        note('後始末の時点の isPlayingRequest',
+            (typeof isPlayingRequest !== 'undefined') ? String(isPlayingRequest) : '(読めない)');
+        note('この枠にプレイヤーがいるか',
+            (function () { try { return ytPlayers[cardId] ? 'いる' : 'いない'; } catch (e) { return '(読めない)'; } })());
+
+        /* 判定は従来どおり 50ms 後の値で行う（合否の基準は変えない）。 */
+        expect('後始末: 確定タイマーが消える', at50.timer, true);
+        expect('後始末: エラーコードが消える', at50.code, true);
+        expect('後始末: 状態遷移の記録が消える', at50.log, true);
+        expect('後始末: playerReadyDone が落ちる', at50.ready, true);
         expect('後始末: 通知が消える', disp(noticeEl), 'none');
     }
 
@@ -2907,10 +2950,21 @@
         try { on = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
         expect('🌊（コメントを流す）がオンになった', on, true);
 
-        note('ライブとして流しているか（flowLive）',
-            (function () {
-                try { return String(!!flowLive[cid]); } catch (e) { return '(読めない)'; }
-            })());
+        /* 🔴 ★v1.5.1: v1.5.0 は 🌊 を押した直後に flowLive を読んでいた。
+           流しの tick は 250ms 間隔なので、1度も回る前の初期値を読んでおり
+           測定になっていなかった（v2.8.0 の検証で false と出て判定不能になった）。
+           1秒待ってから読み、計測後にもう一度読む。 */
+        function readFlowLive() {
+            try { return String(!!flowLive[cid]); } catch (e) { return '(読めない)'; }
+        }
+        function readFlowCursor() {
+            try { return String(flowCursor[cid]); } catch (e) { return '(読めない)'; }
+        }
+        await wait(1000);
+        var liveFlagBefore = readFlowLive();
+        var cursorBefore = readFlowCursor();
+        note('ライブとして流しているか（1秒後）', liveFlagBefore);
+        note('流しのカーソル（計測前）', cursorBefore);
 
         var s = await sample(500, 30, function () {
             var layer = document.getElementById('flowLayer_' + cid);
@@ -2919,6 +2973,19 @@
         note('画面上のコメント数（500ms × 30回 ＝ 15秒）',
             'min=' + s.min + ' / max=' + s.max + ' / avg=' + s.avg + ' / 0件だった回数=' + s.zeros);
         expect('コメントが実際に画面を流れた（最大同時表示数）', s.max, gtZero);
+
+        var liveFlagAfter = readFlowLive();
+        note('ライブとして流しているか（計測後）', liveFlagAfter);
+        note('流しのカーソル（計測後）', readFlowCursor());
+        note('件数（計測後）', countOf(vid));
+
+        /* 🔴 ここが v2.8.0 の要件そのものである。
+           ライブ枠がアーカイブ経路で流れていても画面上は流れて見えてしまうため、
+           「流れたこと」だけでは実装が意図どおりか判定できない。
+           ⚠️ ライブの t は「配信開始からの経過ms」で、ライブの再生位置とも
+              桁が一致してしまうので、なおさら見た目では区別がつかない。 */
+        expect('ライブ枠がライブとして流れている（アーカイブ経路に落ちていない）',
+            liveFlagAfter, 'true');
 
         /* 後始末: 押したぶんは戻す。 */
         if (!was) { await clickReal(fb); }
