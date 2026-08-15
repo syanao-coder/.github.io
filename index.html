@@ -622,7 +622,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.7.5';
+        const APP_VERSION = '2.8.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -2182,6 +2182,17 @@
         let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
         let chatFontScale = {};  // cardId → 文字サイズ倍率（枠ごとに独立）
 
+        /* ★v2.8.0: 配信中のライブだと分かった videoId。
+           B側の chatMeta / chatDone の live:true でだけ立つ。
+
+           🔴 これがA側で「この枠はライブか」を知る唯一の手段である。
+              チャット欄も流しも一度も開いていない枠は取得が走らないため、
+              ライブでも判別できない（＝一括シークの除外が効かない）。
+              v2.8.0 では制約として残す。
+           ⚠️ 配信が終わってアーカイブになっても、このセッションの間は
+              live のままになる。取り直し（🔄）で消える。 */
+        let liveVideoIds = {};   // videoId → true
+
         /* ★v2.7.0: コメント流し（ニコニコ風）。
            🔴 チャット欄用の chatCursor / chatLastMs と共用しないこと。
               共用すると、チャット欄を閉じた瞬間に流しが進まなくなる
@@ -2199,6 +2210,16 @@
         let flowFrozenMs = {};   // cardId → 一時停止した瞬間の位置を掴んでおく
         let flowLastEstMs = {};  // cardId → 直近フレームで描いた位置
         let flowW = {};          // cardId → 直近の枠の幅（変わったら移動量を引き直す）
+        /* ★v2.8.0: ライブ枠の流しは実時計で動かす（再生位置と紐づいた時刻が無いため）。
+           🔴 アーカイブ枠は従来どおり再生位置が時刻源。分岐はここだけにする。 */
+        let flowLive = {};       // cardId → その枠がライブか（tickで更新）
+        let flowLiveT0 = {};     // cardId → その枠の実時計の起点 performance.now()
+        /* 1tickで一気に湧かせない。10秒ぶんが一度に届くので、そのまま出すと
+           同じ瞬間に数十件が並び、レーンの空き待ちでほとんどが捨てられる。 */
+        const FLOW_LIVE_SPAWN_PER_TICK = 4;
+        /* 追いつけないほど溜まったら、古い方は捨てて最新へ飛ぶ。
+           配信中に何分も前のコメントを流しても意味がないため。 */
+        const FLOW_LIVE_BACKLOG_MAX = 60;
         let flowRaf = null;      // 🔴 全枠で1本だけ。枠ごとに立てないこと
         let flowCanvasCtx = null;
 
@@ -2557,6 +2578,18 @@
             saveChatState();
         }
 
+        /* ★v2.8.0: その videoId が配信中のライブか。
+           chatStore が消えていても分かるよう liveVideoIds を正とする。 */
+        function isLiveVideo(videoId) {
+            return !!(videoId && liveVideoIds[videoId]);
+        }
+
+        /* ★v2.8.0: その枠が配信中のライブを映しているか。
+           🔴 一括シークの除外はこの1関数だけを見る。判定を各所へ散らさない。 */
+        function isLiveCard(cardId) {
+            return isLiveVideo(getChatVideoId(cardId));
+        }
+
         function updateChatHeadTitle(cardId) {
             const el = document.getElementById('chatHeadTitle_' + cardId);
             if (!el) return;
@@ -2565,6 +2598,24 @@
             if (!store) { el.innerText = '💬 チャット'; return; }
 
             const n = store.comments.length.toLocaleString();
+
+            /* ★v2.8.0: ライブには「完走」も「取得中○%」も無い。
+               🔴「取得に失敗した」と見えないようにするのが要件。
+                  videoMs が 0 なので、従来の式では常に「取得中 0%」になり、
+                  止まっているように見えてしまう。
+               🔴 ⚠不完全 を出さない。complete は null（＝未確定）であって
+                  「途中で失敗した」ではない。 */
+            if (store.live) {
+                if (chatState[videoId] === 'streaming') {
+                    el.innerText = '💬 チャット (' + n + ' / 🔴 配信中)';
+                } else if (store.comments.length === 0) {
+                    el.innerText = '💬 チャット (配信中・まだコメントなし)';
+                } else {
+                    el.innerText = '💬 チャット (' + n + ' / 配信終了)';
+                }
+                return;
+            }
+
             if (chatState[videoId] === 'streaming') {
                 /* 重い動画は全部揃うまで数分かかる。何%まで来たかを出しておかないと
                    「止まっている」ように見える。 */
@@ -2800,7 +2851,8 @@
                 s = chatStore[videoId] = {
                     comments: [], emoji: {}, source: 'innertube',
                     complete: false, truncated: false, gap: false,
-                    videoMs: 0, lastT: 0, nextSeq: 0
+                    videoMs: 0, lastT: 0, nextSeq: 0,
+                    live: isLiveVideo(videoId)   /* ★v2.8.0 */
                 };
             }
             return s;
@@ -2811,8 +2863,12 @@
             if (videoId === undefined) return;
             armChatWatchdog(d.requestId, CHAT_STALL_TIMEOUT_MS);
             if (!d.ok) { failChat(d.requestId, videoId, d.error); return; }
+            /* ★v2.8.0: live は meta の時点で分かる。store を作る前に立てておくと、
+               ensureChatStore が最初から live 付きの store を作れる。 */
+            if (d.live === true) liveVideoIds[videoId] = true;
             const store = ensureChatStore(videoId);
             store.videoMs = d.videoMs || 0;
+            if (d.live === true) store.live = true;
         }
 
         function handleChatChunk(d) {
@@ -2865,7 +2921,10 @@
             clearChatWatchdog(d.requestId);
 
             if (d.ok) {
+                /* ★v2.8.0: done でも live を受ける（meta を取りこぼした場合の保険）。 */
+                if (d.live === true) liveVideoIds[videoId] = true;
                 const store = ensureChatStore(videoId);
+                if (d.live === true) store.live = true;
                 store.complete = (d.complete !== false);
                 store.truncated = !!d.truncated;
                 if (d.videoMs) store.videoMs = d.videoMs;
@@ -2881,7 +2940,12 @@
 
                 chatState[videoId] = 'ready';
                 delete chatError[videoId];
-                chatCachePut(videoId, store);   // ★v2.6.3: complete なものだけ保存される
+                /* 🔴 v2.8.0: 配信中のチャットは保存しない。増え続けるうえ完走しない。
+                   アーカイブ化された後に取り直す。
+                   ⚠️ chatCachePut が持つ0件ガードとは別の判定である。
+                      あちらは「取れなかった空」を固着させないための安全弁で、
+                      こちらは「まだ終わっていないもの」を完成品として残さないためのもの。 */
+                if (!store.live) chatCachePut(videoId, store);
                 refreshChatCardsFor(videoId);
                 return;
             }
@@ -3079,10 +3143,18 @@
             const list = document.getElementById('chatList_' + cardId);
             if (!store || !list) return;
 
-            const ms = getChatPlayheadMs(cardId);
-            const now = (ms === null) ? 0 : ms;
-            const idx = chatIndexFor(store.comments, now);
-            const from = Math.max(0, idx - CHAT_CONTEXT_COUNT);
+            /* ★v2.8.0: ライブは再生位置で組み直せない。直近を末尾から見せる。 */
+            let idx, from, now;
+            if (store.live) {
+                idx = store.comments.length;
+                from = Math.max(0, idx - CHAT_CONTEXT_COUNT);
+                now = 0;
+            } else {
+                const ms = getChatPlayheadMs(cardId);
+                now = (ms === null) ? 0 : ms;
+                idx = chatIndexFor(store.comments, now);
+                from = Math.max(0, idx - CHAT_CONTEXT_COUNT);
+            }
 
             list.innerHTML = '';
             const frag = document.createDocumentFragment();
@@ -3102,7 +3174,9 @@
             /* ★取得が追いついていない位置へ飛んだ場合。
                取得は再生の約60倍速なので実際に見えるのは開始直後の数秒だけだが、
                無言で空欄になると壊れたように見えるため一言出す。 */
-            if (chatState[videoId] === 'streaming' && idx >= store.comments.length
+            /* ★v2.8.0: ライブでは出さない。取得が遅れているのではなく、
+               まだ誰も書いていないだけなので「取得中」は誤解を招く。 */
+            if (!store.live && chatState[videoId] === 'streaming' && idx >= store.comments.length
                 && store.lastT < now - 1000) {
                 const ph = document.createElement('div');
                 ph.className = 'chat-msg';
@@ -3136,6 +3210,35 @@
                 const store = chatStore[videoId];
                 const list = document.getElementById('chatList_' + cardId);
                 if (!store || !list || list.style.display === 'none') return;
+
+                /* ★v2.8.0: ライブ枠は到着順にそのまま追加する。
+                   再生位置に追いついた分だけ出す従来の式は、ライブでは成立しない
+                   （コメントの時刻は配信開始からの経過であって、
+                     利用者の再生位置とは無関係にどんどん増えるため）。
+                   🔴 アーカイブ枠はこの if の下（従来のコード）をそのまま通る。 */
+                if (store.live) {
+                    let cursorL = chatCursor[cardId] || 0;
+                    if (cursorL >= store.comments.length) return;
+                    const stickL = chatStick[cardId] !== false;
+                    const fragL = document.createDocumentFragment();
+                    let addedL = 0;
+                    while (cursorL < store.comments.length) {
+                        fragL.appendChild(buildChatMessageNode(store.comments[cursorL], store.emoji));
+                        cursorL++; addedL++;
+                    }
+                    chatCursor[cardId] = cursorL;
+                    if (!addedL) return;
+                    list.appendChild(fragL);
+                    while (list.childElementCount > CHAT_MAX_NODES) list.removeChild(list.firstElementChild);
+                    const jumpL = document.getElementById('chatJump_' + cardId);
+                    if (stickL) {
+                        list.scrollTop = list.scrollHeight;
+                        if (jumpL) jumpL.style.display = 'none';
+                    } else if (jumpL) {
+                        jumpL.style.display = 'block';
+                    }
+                    return;
+                }
 
                 const ms = getChatPlayheadMs(cardId);
                 if (ms === null) return;
@@ -3189,6 +3292,9 @@
                 delete chatInflight[videoId];
                 chatCacheSkip[videoId] = true;
                 chatCacheDelete(videoId);
+                /* ★v2.8.0: 配信が終わってアーカイブになったときに戻れるよう、
+                   🔄 ではライブ判定も捨てる。次の取得で B 側が判定し直す。 */
+                delete liveVideoIds[videoId];
             }
             chatLoadedVideoId[cardId] = null;
             updateChatContent(cardId, true);
@@ -3522,15 +3628,18 @@
             return free[(Math.random() * free.length) | 0];
         }
 
-        function flowSpawn(cardId, layer, lanes, c, emojiMap) {
+        /* ★v2.8.0: t0Override はライブ専用。渡さなければ従来どおり c.t を使う。
+           アーカイブ側の呼び出しは1文字も変えていない。 */
+        function flowSpawn(cardId, layer, lanes, c, emojiMap, t0Override) {
             const W = layer.clientWidth || 0;
             if (!W) return;
             let onscreen = 0;
             for (let i = 0; i < lanes.length; i++) onscreen += lanes[i].length;
             if (onscreen >= FLOW.maxOnscreen) return;
 
+            const t0 = (t0Override === undefined || t0Override === null) ? c.t : t0Override;
             const w = flowTextWidth(c.m);
-            const lane = flowPickLane(lanes, W, w, c.t);
+            const lane = flowPickLane(lanes, W, w, t0);
             if (lane < 0) return;
 
             const el = document.createElement('div');
@@ -3547,7 +3656,7 @@
             el.style.transform = 'translateX(0px)';
             appendChatBody(el, c.m, emojiMap);   /* 🔴 innerHTML は使わない（他人が書いた文字列） */
             layer.appendChild(el);
-            lanes[lane].push({ el: el, w: w, t0: c.t, target: -(W + w) });
+            lanes[lane].push({ el: el, w: w, t0: t0, target: -(W + w) });
         }
 
         /* 一時停止しているか。
@@ -3571,6 +3680,18 @@
            毎フレーム 9枠ぶん getCurrentTime() を叩かないための仕掛け。
            補間は 400ms で頭打ちにする（tick が遅れても走りすぎないように）。 */
         function flowEstMs(cardId) {
+            /* ★v2.8.0: ライブ枠は再生位置を時刻源にできない。
+               到着順にそのまま流すため、実時計をそのまま返す。
+               🔴 一時停止では止めない。実時計を止めると t0 との差が飛び、
+                  再開時に全部が一気に消える（ライブは巻き戻せないので、
+                  止めても後から追いつく意味がない）。 */
+            if (flowLive[cardId]) {
+                if (flowLiveT0[cardId] === undefined || flowLiveT0[cardId] === null) {
+                    flowLiveT0[cardId] = performance.now();
+                }
+                return performance.now() - flowLiveT0[cardId];
+            }
+
             const base = flowClockMs[cardId];
             if (base === undefined || base === null) return null;
 
@@ -3664,6 +3785,9 @@
                     flowClearCard(cardId);
                     flowCursor[cardId] = 0;
                     flowLastMs[cardId] = null;
+                    /* ★v2.8.0: ライブ用の実時計も引き直す。 */
+                    flowLive[cardId] = false;
+                    flowLiveT0[cardId] = null;
                 }
 
                 /* ★流しだけをオンにしても取得を始める（チャット欄を開かない使い方が主用途）。
@@ -3673,6 +3797,36 @@
                 const store = chatStore[videoId];
                 if (!store) return;
                 const comments = store.comments;
+
+                /* ★v2.8.0: ライブ枠は「到着順にそのまま流す」。
+                   再生位置と突き合わせない（ラグで揃わないので突き合わせる意味が無い）。
+                   🔴 アーカイブ枠はこの if の下（従来のコード）をそのまま通る。 */
+                if (isLiveVideo(videoId)) {
+                    flowLive[cardId] = true;
+                    if (flowLiveT0[cardId] === undefined || flowLiveT0[cardId] === null) {
+                        flowLiveT0[cardId] = performance.now();
+                    }
+                    const lanesL = flowEnsureLanes(cardId, layer);
+                    let iL = flowCursor[cardId];
+                    if (iL === undefined || iL === null) iL = comments.length;   // 開いた時点より後だけ流す
+
+                    /* 溜まりすぎたら古い方を捨てて最新へ飛ぶ。 */
+                    if (comments.length - iL > FLOW_LIVE_BACKLOG_MAX) {
+                        iL = comments.length - FLOW_LIVE_BACKLOG_MAX;
+                    }
+                    /* 1tickで湧かせる上限。10秒ぶんが一度に届くため、
+                       そのまま出すとレーンの空き待ちでほとんどが捨てられる。 */
+                    let spawned = 0;
+                    const nowL = performance.now() - flowLiveT0[cardId];
+                    while (iL < comments.length && spawned < FLOW_LIVE_SPAWN_PER_TICK) {
+                        flowSpawn(cardId, layer, lanesL, comments[iL], store.emoji, nowL);
+                        iL++; spawned++;
+                    }
+                    flowCursor[cardId] = iL;
+                    return;
+                }
+                flowLive[cardId] = false;
+                flowLiveT0[cardId] = null;
 
                 const ms = getChatPlayheadMs(cardId);
                 if (ms === null) return;                   // YouTube枠以外は流さない
@@ -4062,6 +4216,12 @@
                 if (id !== excludeCardId) v.currentTime = Math.max(0, v.currentTime + diff);
             });
             Object.entries(ytPlayers).forEach(([id, player]) => {
+                /* 🔴 v2.8.0: ライブ枠はシークしない。
+                   ライブは同期しないと決めたので、揃えようとする処理を通さない。
+                   ラグで正確には揃わないうえ、ライブは巻き戻せないため、
+                   シークを投げると枠だけが勝手に最新へ飛んで体験が壊れる。
+                   ⚠️ ▶一括再生は除外しない（同時再生には対応する）。 */
+                if (isLiveCard(id)) return;
                 if (id !== excludeCardId && player && typeof player.getCurrentTime === 'function') {
                     player.seekTo(Math.max(0, player.getCurrentTime() + diff), true);
                 }
@@ -4086,6 +4246,8 @@
             });
         }
         function skipPlayer(cardId, seconds) {
+            /* 🔴 v2.8.0: ライブ枠は枠単位でもシークしない（同上）。 */
+            if (isLiveCard(cardId)) return;
             const yt = ytPlayers[cardId];
             const lv = document.getElementById('localVideo_' + cardId);
             if (yt && typeof yt.getCurrentTime === 'function') yt.seekTo(Math.max(0, yt.getCurrentTime() + seconds), true);
@@ -4293,6 +4455,7 @@
             broadcastSyncCommand('seekTo', globalCurrentTime);
             document.querySelectorAll('.custom-local-video').forEach(v => { v.currentTime = globalCurrentTime; });
             Object.entries(ytPlayers).forEach(([id, player]) => {
+                if (isLiveCard(id)) return;   /* 🔴 v2.8.0: ライブ枠は絶対シークもしない */
                 if (player && typeof player.seekTo === 'function') player.seekTo(globalCurrentTime, true);
             });
             display.style.display = 'inline-block'; input.style.display = 'none'; updateTimerDisplay();
@@ -4302,6 +4465,7 @@
             broadcastSyncCommand('seekTo', 0);
             document.querySelectorAll('.custom-local-video').forEach(v => { v.currentTime = 0; });
             Object.entries(ytPlayers).forEach(([id, player]) => {
+                if (isLiveCard(id)) return;   /* 🔴 v2.8.0: ライブ枠は 0 へも戻さない */
                 if (player && typeof player.seekTo === 'function') player.seekTo(0, true);
             });
             updateTimerDisplay();

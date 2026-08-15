@@ -38,16 +38,19 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.4.5';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.5.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.7.5';
+    var EXPECT_APP_VERSION = '2.8.0';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
     /* 🔴 D-P1 の結果は「盾の切り替え → 再読み込み」をまたいで生き残る必要がある。
        メモリに置いていたため、2026-08-07 の検証で D-P3/P4/P5 が全部「判定不能」になった。 */
     var LS_PLAYBACK_PC = 'sync_debug_playback_pc';
+    /* ★v1.5.0: 配信中のライブは実施時にしか決まらないので、
+       一度聞いた動画IDを持ち回す。TTL 12時間（配信は長くても半日で終わる）。 */
+    var LS_LIVE_VID = 'sync_debug_live_vid';
     var PLAYBACK_PC_TTL_MS = 30 * 60 * 1000;
     /* 🔴 ★v1.3.0: 実施メモとラベル。盾の切り替えは再読み込みを伴うので、
        メモリに置くと消える（LS_PLAYBACK_PC と同じ理由）。localStorage に置く。
@@ -64,6 +67,7 @@
             localStorage.removeItem(LS_ENABLE);
             localStorage.removeItem(LS_RESUME);
             localStorage.removeItem(LS_PLAYBACK_PC);   /* ★v1.2.1: 置き土産を残さない */
+            localStorage.removeItem(LS_LIVE_VID);      /* ★v1.5.0 */
             localStorage.removeItem(LS_META);          /* ★v1.3.0 */
         } catch (e) { }
         return;
@@ -763,6 +767,35 @@
             }));
         panel.appendChild(row4);
 
+        /* ★v1.5.0: D-L（ライブ配信）。動画IDは最初の1回だけ聞き、以降は持ち回す。
+           🔴 ボタンは2つだけにする。手順書の1項目＝ボタン1つに対応させるため。 */
+        var row5 = document.createElement('div');
+        row5.className = 'dbg-row';
+        row5.appendChild(mkBtn('🔴 D-L ライブ一括（L1→L2→L3→L4→L5→L6）',
+            '配信中のライブで、取得・表示・シーク除外・流しを続けて実行します（約3分）',
+            function () {
+                runChatGroup('🔴 D-L ライブ一括',
+                    ['D-L1', 'D-L2', 'D-L3', 'D-L4', 'D-L5', 'D-L6'],
+                    'はじめに、配信中のライブの動画IDを1回だけ聞きます。\n'
+                    + '設定メニューの「コメント取得用タブ」を close（取得のたびに閉じる）に'
+                    + 'してから始めてください。\n'
+                    + 'そのあとは触らずにお待ちください（約3分）。');
+            }));
+        row5.appendChild(mkBtn('⏱ D-L7 長時間（30分）',
+            'ライブの取得が30分もつかを測ります。記録のみで合否は付けません',
+            function () {
+                runChatGroup('⏱ D-L7 長時間の継続', ['D-L7'],
+                    '先に「🔴 D-L ライブ一括」を終えてください。\n'
+                    + '30分かかります。about:debugging の「調査」パネルを閉じてから始めてください。');
+            }));
+        row5.appendChild(mkBtn('🗑 ライブの動画IDを忘れる',
+            '別の配信で測り直すときに押します',
+            function () {
+                try { localStorage.removeItem(LS_LIVE_VID); } catch (e) { }
+                log('ライブの動画IDを忘れました。次の実行でもう一度聞きます。');
+            }));
+        panel.appendChild(row5);
+
         var noteEl = document.createElement('p');
         noteEl.className = 'dbg-note';
         noteEl.textContent = '押す順番は「▶ すべて実行」→「🛡 盾オン一括」→（盾をオフに切り替え）→'
@@ -774,7 +807,9 @@
             + '一括実行の記録は再読み込みをまたいで残るので、コピーは最後に1回でかまいません。'
             + 'D-P は終了時に枠を空にしません。確認が済んだら 🧹 を押してください。'
             + '★v1.4.2: D-C（チャット取得）は「💬 D-C 取得一括」から実行します。'
-            + '測定前のキャッシュ削除はコードが自動で行うので、手で消す必要はありません。';
+            + '測定前のキャッシュ削除はコードが自動で行うので、手で消す必要はありません。'
+            + '★v1.5.0: D-L（ライブ配信）は「🔴 D-L ライブ一括」から実行します。'
+            + '配信中のライブの動画IDは最初の1回だけ聞き、12時間は覚えています。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -2590,6 +2625,387 @@
 
     /* --- 実行制御 --------------------------------------------------------- */
 
+    /* ======================================================================
+       D-L: v2.8.0 ライブ配信のチャット対応
+
+       🔴 素材が特殊である。「配信中のライブ」はその時にしか存在しないため、
+          動画IDを定数で持てない。実施時に1回だけ聞いて localStorage へ置く。
+       🔴 件数を固定値で期待しない。増え続けるので note に留め、
+          判定は「増えていること（単調増加）」で行う
+          （固定の件数を期待値に置いてよいのは D-C1 の 356件だけ）。
+       ⚠️ B側（InnerTube への POST）は https://www.youtube.com オリジンでしか
+          成立しないため、この基盤からは触れない。ここで測るのは
+          「A側に何が届いたか」と「A側がどう振る舞ったか」だけである。
+       ====================================================================== */
+
+    /* ★v1.5.0: ライブ取得を始める「前」のキャッシュ集計。D-L3 で突き合わせる。
+       🔴 前後で比べないと「増えていないこと」を機械で判定できない。 */
+    var liveCacheBefore = null;
+
+    var LIVE_SAMPLE_MS = 20000;    /* 件数の推移を見る長さ */
+    var LIVE_SAMPLE_N = 10;        /* 何回数えるか（2秒おきに10回） */
+
+    function liveVid() {
+        var raw = null;
+        try { raw = localStorage.getItem(LS_LIVE_VID); } catch (e) { raw = null; }
+        if (raw) {
+            try {
+                var o = JSON.parse(raw);
+                if (o && o.id && (Date.now() - o.at) < 43200000) return o.id;
+            } catch (e) { }
+        }
+        var ans = window.prompt(
+            'いま配信中のライブの動画ID（11文字）を入れてください。\n'
+            + '例: dQw4w9WgXcQ\n\n'
+            + '🔴 チャットが実際に流れている配信を選んでください。\n'
+            + '（薄い配信では、正常でも0件になって判定できません）', '');
+        var id = String(ans === null ? '' : ans).trim();
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+        try {
+            localStorage.setItem(LS_LIVE_VID, JSON.stringify({ id: id, at: Date.now() }));
+        } catch (e) { }
+        return id;
+    }
+
+    function isLiveOf(vid) {
+        try { return !!(typeof liveVideoIds !== 'undefined' && liveVideoIds[vid]); }
+        catch (e) { return false; }
+    }
+    function countOf(vid) {
+        var s = chatStoreOf(vid);
+        return s ? s.comments.length : 0;
+    }
+
+    /* ライブ枠を1つ用意して取得を始める。戻り値の cid / vid を各テストで使う。 */
+    async function setUpLiveCard() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) {
+            expect('この項目の実行', '動画IDが未入力', '11文字の動画IDが入っていること');
+            return null;
+        }
+        log('  [素材] VID_LIVE = ' + vid);
+
+        var cid = firstCard();
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+        if (!cid) return null;
+
+        var cleared = await clearCard(cid);
+        pc('枠を「URL入力待ち」にできた', function () { return cleared ? 'ok' : false; });
+        if (!cleared) return null;
+
+        /* 🔴 取得を始める「前」に集計を取る。D-L3 はこれと突き合わせる。 */
+        try { liveCacheBefore = await chatCacheStats(); } catch (e) { liveCacheBefore = null; }
+        note('取得前のキャッシュ（本数 / バイト数）', liveCacheBefore
+            ? (liveCacheBefore.count + '本 / ' + liveCacheBefore.bytes + 'バイト')
+            : '(読めなかった)');
+
+        var ld = await loadUrlIntoCard(cid, ytUrl(vid));
+        expect('「読み込む」を実際に押せた（被覆なし）', ld.ok ? 'ok' : ('blocked:' + ld.reason), 'ok');
+
+        var pane = await openChatPane(cid);
+        pc('チャット欄を開けた', function () { return pane.ok ? 'ok' : false; });
+        if (!pane.ok) return null;
+
+        /* 🔴 固定時間で打ち切らない。届くまで待ってから基準値を取る（鉄則 #27）。 */
+        var w = await waitFor(function () {
+            var st = chatStateOf(vid);
+            return (st === 'streaming' || st === 'ready' || st === 'error') ? st : false;
+        }, 120000, 1000);
+        pc('取得が始まった（chatState が動いた）', function () {
+            return w.ok ? (w.value + ' / ' + Math.round(w.waitedMs / 1000) + '秒') : false;
+        });
+        note('取得の状態 chatState', chatStateOf(vid));
+        note('理由コード', chatCodeOf(vid));
+        return { cid: cid, vid: vid, waited: w };
+    }
+
+    /* --- D-L1: ★本命。配信中と判定され、コメントが増え続ける ------------------ */
+    async function testL1() {
+        log('  [目的] v2.8.0 の成否そのもの。live が立ち、件数が単調に増えること。');
+        var s = await setUpLiveCard();
+        if (!s) return;
+
+        expect('配信中と判定された（chatMeta の live）', isLiveOf(s.vid), true);
+        var store = chatStoreOf(s.vid);
+        expect('store.live が立っている', store ? !!store.live : '(storeが無い)', true);
+        note('判定に効いたフィールド（B側の liveBy）', store && store.liveBy ? store.liveBy : '(未記録)');
+        note('動画長 videoMs（ライブは 0 で返る）', store ? store.videoMs : '(なし)');
+
+        /* 🔴 件数は固定値で期待しない。増えていることだけを見る。 */
+        var seq = [];
+        var sm = await sample(LIVE_SAMPLE_MS / LIVE_SAMPLE_N, LIVE_SAMPLE_N, function () {
+            var n = countOf(s.vid);
+            seq.push(n);
+            return n;
+        });
+        note('件数の推移（' + (LIVE_SAMPLE_MS / 1000) + '秒 / ' + LIVE_SAMPLE_N + '回）', seq.join(' → '));
+        note('件数（最小 / 最大）', sm.min + ' / ' + sm.max);
+
+        var monotone = true;
+        for (var i = 1; i < seq.length; i++) if (seq[i] < seq[i - 1]) monotone = false;
+        expect('件数が減っていない（単調非減少）', monotone, true);
+        expect('件数が増えた（配信中のチャットが届いている）', sm.max - seq[0], gtZero);
+        expect('総件数が 0 でない', sm.max, gtZero);
+    }
+
+    /* --- D-L2: 「配信中」が失敗として表示されないこと ------------------------- */
+    async function testL2() {
+        log('  [目的] complete:false の流用をしていないこと。「取得に失敗」と見えないこと。');
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) return;
+        var cid = firstCard();
+        pc('対象の枠を特定できた', function () { return cid || false; });
+        if (!cid) return;
+        pc('D-L1 でライブの取得が始まっている', function () {
+            return isLiveOf(vid) ? 'live=true' : false;
+        });
+        if (!isLiveOf(vid)) return;
+
+        var store = chatStoreOf(vid);
+        note('complete / truncated / gap',
+            (store ? store.complete : '?') + ' / ' + (store ? store.truncated : '?')
+            + ' / ' + (store ? store.gap : '?'));
+        expect('取得の状態が error になっていない', chatStateOf(vid) === 'error', false);
+        expect('理由コードが付いていない', chatCodeOf(vid), '(なし)');
+
+        var head = document.getElementById('chatHeadTitle_' + cid);
+        var txt = head ? String(head.innerText || '') : '(要素なし)';
+        note('チャット欄のヘッダー表記', txt);
+        expect('ヘッダーに「配信中」と出ている', txt.indexOf('配信中') >= 0, true);
+        expect('ヘッダーに「⚠不完全」が出ていない', txt.indexOf('不完全') >= 0, false);
+        expect('ヘッダーに「取得中 0%」が出ていない', txt.indexOf('取得中') >= 0, false);
+
+        var n = document.getElementById('chatNote_' + cid);
+        var note1 = (n && n.style.display !== 'none') ? String(n.innerText || '') : '';
+        note('案内文（出ていれば全文）', note1 || '(出ていない)');
+        expect('「取得できませんでした」の案内が出ていない',
+            note1.indexOf('取得できませんでした') >= 0, false);
+    }
+
+    /* --- D-L3: キャッシュへ保存されない --------------------------------------- */
+    async function testL3() {
+        log('  [目的] 配信中のチャットを IndexedDB へ入れないこと（増え続けるため）。');
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) return;
+        pc('D-L1 でライブの取得が始まっている', function () {
+            return isLiveOf(vid) ? 'live=true' : false;
+        });
+
+        var stats = null;
+        try { stats = await chatCacheStats(); } catch (e) { stats = null; }
+        pc('キャッシュの集計を読めた（IndexedDB が生きている）', function () {
+            return stats ? (stats.count + '本') : false;
+        });
+        if (!stats) return;
+        note('取得後のキャッシュ（本数 / バイト数）', stats.count + '本 / ' + stats.bytes + 'バイト');
+
+        /* 🔴 前後で比べる。D-L1 の冒頭で取った集計と突き合わせること。 */
+        pc('取得前のキャッシュ集計がある（先に D-L1 を実行すること）', function () {
+            return liveCacheBefore
+                ? (liveCacheBefore.count + '本 / ' + liveCacheBefore.bytes + 'バイト') : false;
+        });
+        if (liveCacheBefore) {
+            note('本数の変化', liveCacheBefore.count + ' → ' + stats.count);
+            note('バイト数の変化', liveCacheBefore.bytes + ' → ' + stats.bytes);
+            expect('キャッシュの本数が増えていない', stats.count <= liveCacheBefore.count, true);
+            expect('キャッシュのバイト数が増えていない', stats.bytes <= liveCacheBefore.bytes, true);
+        }
+
+        var found = false;
+        try {
+            if (stats.items) {
+                for (var i = 0; i < stats.items.length; i++) {
+                    if (stats.items[i] && stats.items[i].videoId === vid) found = true;
+                }
+            }
+        } catch (e) { }
+        note('集計に videoId の一覧があるか', stats.items ? 'ある' : '無い（本数で判定する）');
+
+        /* 集計に一覧が無い場合に備えて、取り出しでも確かめる。 */
+        var hit = null;
+        try { hit = await chatCacheGet(vid); } catch (e) { hit = null; }
+        expect('ライブの動画がキャッシュから引けないこと', !!hit || found, false);
+    }
+
+    /* --- D-L4: 一括シークの対象外 / ▶一括再生は効く --------------------------- */
+    async function testL4() {
+        log('  [目的] ⭐「同期しない」が守られていること。');
+        log('        ライブ枠は一括シークで動かず、▶一括再生では再生が始まること。');
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) return;
+        var cid = firstCard();
+        pc('対象の枠を特定できた', function () { return cid || false; });
+        if (!cid) return;
+        pc('この枠がライブだと判定できている（判定できないと除外も効かない）', function () {
+            return (typeof isLiveCard === 'function' && isLiveCard(cid)) ? 'isLiveCard=true' : false;
+        });
+
+        var p = null;
+        try { p = ytPlayers[cid]; } catch (e) { p = null; }
+        pc('プレイヤーを掴めた', function () { return p ? 'ok' : false; });
+        if (!p) return;
+
+        /* まず再生させる（▶一括再生はライブも対象という要件の確認も兼ねる）。 */
+        var rp = await clickReal(document.getElementById('playPauseBtn'));
+        expect('「▶ 一括再生」を実際に押せた（被覆なし）', rp.blocked ? ('blocked:' + rp.reason) : 'ok', 'ok');
+        var start = 0;
+        try { start = p.getCurrentTime() || 0; } catch (e) { start = 0; }
+        var adv = await waitFor(function () {
+            var st = 'ERR', c = 0;
+            try { st = p.getPlayerState(); } catch (e) { st = 'ERR'; }
+            try { c = p.getCurrentTime() || 0; } catch (e) { c = 0; }
+            return hasAdvanced(start, c, st) ? ('位置 ' + c + ' / state ' + st) : false;
+        }, 30000, 500);
+        expect('▶一括再生でライブ枠の再生が始まった', adv.ok, true);
+        note('再生開始の観測', adv.ok ? adv.value : '(始まらなかった)');
+
+        /* 一括シークを投げて、ライブ枠が動かないことを見る。
+           🔴 ライブの再生位置は放っておいても進むので、
+              「シークで飛んだか」を進行と区別する必要がある。
+              −600秒を要求し、位置が減っていないことで判定する。 */
+        var before = 0;
+        try { before = p.getCurrentTime() || 0; } catch (e) { before = 0; }
+        note('一括シーク前の位置(秒)', Math.round(before));
+        try { skipAll(-600); } catch (e) { log('  ⚠ skipAll が呼べない: ' + (e && e.message)); }
+        await wait(4000);
+        var after = 0;
+        try { after = p.getCurrentTime() || 0; } catch (e) { after = 0; }
+        note('一括シーク後の位置(秒)', Math.round(after));
+        note('位置の変化(秒)', Math.round(after - before));
+        expect('ライブ枠が巻き戻っていない（一括シークの対象外）', after >= before - 5, true);
+    }
+
+    /* --- D-L5: ライブの流し ---------------------------------------------------- */
+    async function testL5() {
+        log('  [目的] 到着順にそのまま流れること（再生位置と突き合わせない）。');
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) return;
+        var cid = firstCard();
+        pc('対象の枠を特定できた', function () { return cid || false; });
+        if (!cid) return;
+        pc('ライブの取得が始まっている', function () {
+            return countOf(vid) ? (countOf(vid) + '件') : false;
+        });
+        if (!countOf(vid)) return;
+
+        /* 🔴 トグルは押す前の状態を必ず読む（D-C4 で踏んだ罠）。 */
+        var fb = document.getElementById('flowToggleBtn_' + cid);
+        pc('🌊 ボタンを特定できた', function () { return fb ? describe(fb) : false; });
+        var was = false;
+        try { was = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
+        note('🌊 を押す前の状態', was ? 'すでにオン（押さない）' : 'オフ（これから押す）');
+        if (!was) await clickReal(fb);
+        var on = false;
+        try { on = !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); } catch (e) { }
+        expect('🌊（コメントを流す）がオンになった', on, true);
+
+        note('ライブとして流しているか（flowLive）',
+            (function () {
+                try { return String(!!flowLive[cid]); } catch (e) { return '(読めない)'; }
+            })());
+
+        var s = await sample(500, 30, function () {
+            var layer = document.getElementById('flowLayer_' + cid);
+            return layer ? layer.childElementCount : 0;
+        });
+        note('画面上のコメント数（500ms × 30回 ＝ 15秒）',
+            'min=' + s.min + ' / max=' + s.max + ' / avg=' + s.avg + ' / 0件だった回数=' + s.zeros);
+        expect('コメントが実際に画面を流れた（最大同時表示数）', s.max, gtZero);
+
+        /* 後始末: 押したぶんは戻す。 */
+        if (!was) { await clickReal(fb); }
+    }
+
+    /* --- D-L6: 取得タブの維持と、設定値が書き換わっていないこと ----------------- */
+    async function testL6() {
+        log('  [目的] 「コメント取得用タブ」を close にしても、ライブ取得中は');
+        log('        取得が続くこと。そして設定値そのものが書き換わっていないこと。');
+        log('  [注] 取得タブの存在はこの画面から見えない。');
+        log('       「件数が増え続けているか」で、取得が生きていることを間接的に測る。');
+
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) return;
+        pc('ライブの取得が始まっている', function () {
+            return isLiveOf(vid) ? 'live=true' : false;
+        });
+        if (!isLiveOf(vid)) return;
+
+        var sel = document.getElementById('chatTabPolicy');
+        pc('「コメント取得用タブ」の設定を特定できた', function () {
+            return sel ? ('現在 = ' + sel.value) : false;
+        });
+        if (!sel) return;
+        var before = sel.value;
+        note('設定の元の値', before);
+        expect('この測定に必要な設定になっている（close）', before, 'close');
+
+        var seq = [];
+        var sm = await sample(3000, 10, function () {
+            var n = countOf(vid);
+            seq.push(n);
+            return n;
+        });
+        note('件数の推移（3秒 × 10回 ＝ 30秒）', seq.join(' → '));
+        expect('30秒たっても件数が増え続けている（取得タブが生きている）',
+            sm.max - seq[0], gtZero);
+
+        /* 🔴 設定値そのものを書き換えていないこと。 */
+        var after = sel.value;
+        note('設定の現在の値', after);
+        expect('「コメント取得用タブ」の設定が書き換わっていない', after, before);
+        var saved = '(読めない)';
+        try { saved = String(localStorage.getItem('sync_chat_tab_policy')); } catch (e) { }
+        note('localStorage の保存値', saved);
+    }
+
+    /* --- D-L7: 長時間の継続（MV3 のアイドル終了に耐えるか）--------------------- */
+    async function testL7() {
+        log('  [目的] MV3 バックグラウンドのアイドル終了に耐えるかを測る。');
+        log('  [注] 🔴 止まっても不合格にしない。何分もったかを記録することが目的。');
+        var vid = liveVid();
+        pc('配信中のライブの動画IDを受け取れた', function () { return vid || false; });
+        if (!vid) return;
+        pc('ライブの取得が始まっている', function () {
+            return isLiveOf(vid) ? 'live=true' : false;
+        });
+        if (!isLiveOf(vid)) return;
+
+        window.alert('これから30分、1分おきに件数を数えます。\n\n'
+            + '・このタブは閉じないでください（他のタブを見るのは自由です）\n'
+            + '・about:debugging の「調査」パネルは閉じておいてください\n'
+            + '　（開いているとバックグラウンドが終了せず、測定になりません）\n\n'
+            + 'OK を押すと始まります。');
+
+        var seq = [], stalledAt = null, prev = -1;
+        var t0 = Date.now();
+        for (var i = 0; i < 30; i++) {
+            var n = countOf(vid);
+            seq.push(Math.round((Date.now() - t0) / 60000) + '分:' + n);
+            if (prev >= 0 && n === prev && stalledAt === null && i >= 2) {
+                /* 1分間まったく増えなかった最初の時点を控える（確定はしない）。 */
+                stalledAt = Math.round((Date.now() - t0) / 60000);
+            }
+            if (prev >= 0 && n > prev) stalledAt = null;   /* また増えたら取り消す */
+            prev = n;
+            if (i < 29) await wait(60000);
+        }
+        note('件数の推移（1分 × 30回）', seq.join(' / '));
+        note('最初に1分間増えなかった時点', stalledAt === null ? '(最後まで増え続けた)' : (stalledAt + '分'));
+        note('30分後の総件数', countOf(vid));
+        /* 🔴 合否は付けない。観測そのものが成果である。 */
+        await ask('30分のあいだ、チャットは流れ続けていましたか',
+            ['ずっと流れていた', '途中で止まった', '見ていなかった']);
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -2613,7 +3029,16 @@
         { id: 'D-C8', name: '0件のときの表示が残っていること', run: testC8, manual: true },
         { id: 'D-C9', name: '理由コード CHAT_DISABLED の出し分け（A側のみ）', run: testC9, manual: true },
         { id: 'D-C10', name: '非ログインでの回帰（ヘッダ無しの経路）', run: testC10, manual: true },
-        { id: 'D-C11', name: '所要時間の参考値（重いアーカイブ）', run: testC11, manual: true }
+        { id: 'D-C11', name: '所要時間の参考値（重いアーカイブ）', run: testC11, manual: true },
+        /* ★v1.5.0: v2.8.0（ライブ配信のチャット対応）。
+           素材が実施時にしか決まらないので、いずれも manual。 */
+        { id: 'D-L1', name: '★配信中と判定され、コメントが増え続ける', run: testL1, manual: true },
+        { id: 'D-L2', name: '「配信中」が失敗として表示されないこと', run: testL2, manual: true },
+        { id: 'D-L3', name: 'キャッシュへ保存されないこと', run: testL3, manual: true },
+        { id: 'D-L4', name: '一括シークの対象外 / ▶一括再生は効く', run: testL4, manual: true },
+        { id: 'D-L5', name: 'ライブの流し（到着順）', run: testL5, manual: true },
+        { id: 'D-L6', name: '取得タブの維持と設定値の不変', run: testL6, manual: true },
+        { id: 'D-L7', name: '長時間の継続（30分・記録のみ）', run: testL7, manual: true }
     ];
 
     var running = false;
