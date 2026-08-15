@@ -38,7 +38,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.5.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.5.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.1';
@@ -857,6 +857,14 @@
         lines.push('## 1. 事実');
         lines.push('');
         lines.push('- debug_suite: `' + DEBUG_SUITE_VERSION + '` / APP_VERSION: `' + appVersion() + '`');
+        /* 🔴 ★v1.5.2: 版数バッジの実測をここへ必ず出す。
+           2026-08-15 の事故では、出力の見出しだけでは
+           「どのファイルが古かったのか」が読み取りにくかった。 */
+        (function () {
+            var b = document.getElementById('versionBadge');
+            lines.push('- 版数バッジ: `' + (b ? String(b.innerText || '') : '(バッジが無い)') + '`'
+                + ' / 期待する APP_VERSION: `' + EXPECT_APP_VERSION + '`');
+        })();
         lines.push('- 実行日時: ' + new Date().toISOString());
         lines.push('- 画面: ' + window.innerWidth + ' x ' + window.innerHeight);
         lines.push('- 配信元: ' + location.origin);
@@ -3130,6 +3138,67 @@
 
     /* ★v1.4.2: D-C 用の一括実行。盾は聞かない（取得は盾に影響されない）。
        終わりに記録を持ち越すので、貼り付けは条件の区切りごとに1回で足りる。 */
+    /* 🔴 ★v1.5.2: 設置が反映されているかを、始める前に機械で確かめる。
+
+       2026-08-15 の事故: manifest.json だけ差し替えられ、GitHub Pages 側の
+       index.html と debug_suite.js が古いまま一括実行が走った。
+       全項目が「古い版の検証」になり、出力を読むまで誰も気づけなかった。
+       ⚠️ 目視の確認手順を手順書に書くだけでは防げない。ここで止める。
+
+       見るのは3点。
+         ・本体 APP_VERSION が EXPECT_APP_VERSION と一致するか
+         ・アドオンの版数が本体と一致するか（バッジが warn でないか）
+         ・この基盤自身が最新か（＝ EXPECT_APP_VERSION を持つ版か）
+       🔴 3点目は自分自身なので判定できない。だから代わりに
+          「本体の版数が期待と違えば、基盤か本体のどちらかが古い」と報告する。 */
+    function installCheck() {
+        var app = appVersion();
+        var badge = document.getElementById('versionBadge');
+        var badgeText = badge ? String(badge.innerText || '') : '(バッジが無い)';
+        var badgeWarn = !!(badge && (badge.classList.contains('warn') || badge.classList.contains('ng')));
+        var appOk = (app === EXPECT_APP_VERSION);
+        return {
+            ok: appOk && !badgeWarn,
+            app: app, expect: EXPECT_APP_VERSION,
+            badge: badgeText, badgeWarn: badgeWarn,
+            suite: DEBUG_SUITE_VERSION
+        };
+    }
+
+    /* 一括実行の入口で必ず通す。false を返したら始めない。 */
+    function guardInstall(title) {
+        var c = installCheck();
+        if (c.ok) return true;
+        var lines = [];
+        lines.push('⚠ 設置が反映されていません。このまま測っても結果は使えません。');
+        lines.push('');
+        lines.push('  この基盤 debug_suite.js = ' + c.suite);
+        lines.push('  本体 APP_VERSION       = ' + c.app + '（期待 ' + c.expect + '）');
+        lines.push('  版数バッジ             = ' + c.badge);
+        lines.push('');
+        if (c.app === '(取得不可)' || !c.app) {
+            lines.push('🔴 本体の APP_VERSION を読めません。');
+            lines.push('   index.html が読み込まれていないか、本体が壊れています。');
+            lines.push('   ページを開き直してください。');
+        } else if (c.app !== c.expect) {
+            lines.push('🔴 本体の版数が期待と違います。');
+            lines.push('   index.html か debug_suite.js のどちらかが古いままです。');
+            lines.push('   GitHub Pages 側のファイルは、置き換えても');
+            lines.push('   ブラウザのキャッシュで古いものが読まれることがあります。');
+            lines.push('   URL の末尾に ?debug=1&v=' + Date.now());
+            lines.push('   のように毎回違う値を付けて開き直してください。');
+        }
+        if (c.badgeWarn) {
+            lines.push('🔴 HTML とアドオンの版数が揃っていません。');
+            lines.push('   about:debugging でアドオンを再読み込みしてください。');
+        }
+        var msg = lines.join('\n');
+        log('=== ' + title + ' 中止 ===');
+        log(msg);
+        window.alert(msg);
+        return false;
+    }
+
     async function runChatGroup(title, ids, hint) {
         /* ★v1.4.3: ログに出すだけでは気づけない。押したのに始まらない状態を表に出す。 */
         if (running) {
@@ -3137,6 +3206,7 @@
             window.alert('いま別のテストを実行中です。\n終わってから、もう一度押してください。');
             return;
         }
+        if (!guardInstall(title)) return;   /* ★v1.5.2 */
         running = true;
         window.alert(title + '\n\n' + hint);
         log('=== ' + title + ' 開始（' + ids.join(' → ') + '） ===');
@@ -3152,6 +3222,7 @@
 
     async function runPlaybackGroup(title, ids, hint) {
         if (running) { log('⚠ 実行中です。終わるまで待ってください。'); return; }
+        if (!guardInstall(title)) return;   /* ★v1.5.2 */
         running = true;
         var ans = window.prompt(
             title + '\n\n'
@@ -3200,6 +3271,7 @@
 
     async function runAll() {
         if (running) { log('⚠ 実行中です。終わるまでお待ちください。'); return; }
+        if (!guardInstall('▶ すべて実行')) return;   /* ★v1.5.2 */
         running = true; runningAll = true;
         clearLog();
 
