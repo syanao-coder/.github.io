@@ -38,7 +38,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.6.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.6.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.2';
@@ -835,7 +835,9 @@
             + '準備が要らないので「▶ すべて実行」に含まれます。'
             + 'D-M2 はトップメニューが5枚（🐞 / 📜 / 💬 / 📂 / ▼）になり 30遷移・34判定へ増えました。'
             + '★v1.6.1: 🐞 の挿入位置をボタンIDから引くよう直し、'
-            + 'パネルが画面外へはみ出していないかを D-N6 で測るようにしました。';
+            + 'パネルが画面外へはみ出していないかを D-N6 で測るようにしました。'
+            + '★v1.6.2: 押し下げ式（📂 / ▼）は 0.3秒かけて滑るため、'
+            + 'D-N6 は矩形が動かなくなるまで待ってから測るようにしました。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1083,6 +1085,32 @@
         return Math.max(0, b.left - a.left) + Math.max(0, a.right - b.right)
             + Math.max(0, b.top - a.top) + Math.max(0, a.bottom - b.bottom);
     }
+    /* 🔴 ★v1.6.2: 矩形が動かなくなるまで待つ。
+       .settings-container（📂 / ▼）は押し下げ式で transform を 0.3秒かけて滑らせる。
+       clickReal() の待ちは SETTLE_MS = 60ms しかないので、
+       クリック直後に測ると「滑っている途中の矩形」を掴む。
+       ⚠️ 固定の待ち時間を足して誤魔化さないこと。条件（2回続けて同じ）で待つ。 */
+    async function waitRectSettled(el, timeoutMs) {
+        var limit = timeoutMs || 2000;
+        var t0 = performance.now();
+        var prev = null, same = 0;
+        while (performance.now() - t0 < limit) {
+            var r = rect(el);
+            var key = r ? [r.left, r.top, r.right, r.bottom].join(',') : 'null';
+            if (key === prev) {
+                same++;
+                if (same >= 2) {
+                    return { settled: true, ms: Math.round(performance.now() - t0), rect: r };
+                }
+            } else {
+                same = 0;
+                prev = key;
+            }
+            await wait(50);
+        }
+        return { settled: false, ms: Math.round(performance.now() - t0), rect: rect(el) };
+    }
+
     function inViewport(r) {
         return !!r && r.left >= 0 && r.top >= 0
             && r.right <= window.innerWidth && r.bottom <= window.innerHeight;
@@ -1866,20 +1894,31 @@
                 ? 'false を返した' : false;
         });
 
-        var details = [];
+        var details = [], settles = [], notSettled = [];
         for (var i = 0; i < MENUS.length; i++) {
             var m = MENUS[i];
             await setMenuState(m.id);
-            var pr = rect(document.getElementById(m.panel));
+            /* 🔴 ★v1.6.2: 開き切るまで待つ。押し下げ式は 0.3秒かけて滑る。 */
+            var st = await waitRectSettled(document.getElementById(m.panel), 2000);
+            settles.push(m.label + '=' + st.ms + 'ms');
+            if (!st.settled) notSettled.push(m.label);
+            var pr = st.rect;
             var out = [];
             if (pr.left < 0) out.push('左へ ' + (-pr.left) + 'px');
             if (pr.right > window.innerWidth) out.push('右へ ' + (pr.right - window.innerWidth) + 'px');
             if (pr.top < 0) out.push('上へ ' + (-pr.top) + 'px');
             expect('画面内に収まる: ' + m.label,
                 out.length ? out.join(' / ') : '収まる', '収まる');
-            details.push(m.label + '=[' + pr.left + ',' + pr.right + ']');
+            details.push(m.label + '=[' + pr.left + ',' + pr.top + '→' + pr.right + ']');
         }
         await closeAllMenus();
+
+        /* 🔴 収束せずに測った枚数があれば、その回の矩形は信用できない。
+           前提条件なので expect ではなく pc で落とす。 */
+        pc('5枚とも矩形が動かなくなってから測った（滑っている途中で測っていない）', function () {
+            return notSettled.length ? false : settles.join(' / ');
+        });
+        note('矩形が収束するまでの時間', settles.join(' / '));
 
         /* 並び順（🐞 は 💬 の直前に入る設計）。ずれていても押せるなら不合格にはしない。 */
         var dbg = document.getElementById('topDebugBtn');
