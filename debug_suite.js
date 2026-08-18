@@ -38,10 +38,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.5.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.6.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.1';
+    var EXPECT_APP_VERSION = '2.8.2';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -774,6 +774,19 @@
         row5.appendChild(mkBtn('🔴 D-L ライブ一括（L1→L2→L3→L4→L5→L6）',
             '配信中のライブで、取得・表示・シーク除外・流しを続けて実行します（約3分）',
             function () {
+                /* 🔴 ★v1.5.3: 3分待たせてから「測れていません」と言わないため、
+                   押した時点で設定を確かめる。D-L6 は close でないと成立しない。 */
+                var sel = document.getElementById('chatTabPolicy');
+                if (sel && sel.value !== 'close') {
+                    var m = '⚠ 「コメント取得用タブ」が ' + sel.value + ' になっています。\n\n'
+                        + 'D-L6（取得タブの維持）は「取得のたびに閉じる」でないと成立しません。\n'
+                        + 'このまま進めると D-L6 だけ判定不能になります。\n\n'
+                        + '▼ 設定メニュー →「コメント取得用タブ」を\n'
+                        + '「取得のたびに閉じる」に変えてから、もう一度押してください。';
+                    log(m);
+                    window.alert(m);
+                    return;
+                }
                 runChatGroup('🔴 D-L ライブ一括',
                     ['D-L1', 'D-L2', 'D-L3', 'D-L4', 'D-L5', 'D-L6'],
                     'はじめに、配信中のライブの動画IDを1回だけ聞きます。\n'
@@ -809,7 +822,10 @@
             + '★v1.4.2: D-C（チャット取得）は「💬 D-C 取得一括」から実行します。'
             + '測定前のキャッシュ削除はコードが自動で行うので、手で消す必要はありません。'
             + '★v1.5.0: D-L（ライブ配信）は「🔴 D-L ライブ一括」から実行します。'
-            + '配信中のライブの動画IDは最初の1回だけ聞き、12時間は覚えています。';
+            + '配信中のライブの動画IDは最初の1回だけ聞き、12時間は覚えています。'
+            + '★v1.6.0: v2.8.2 の判定（D-H1〜D-H5 / D-N1〜D-N5 / D-R1）は '
+            + '準備が要らないので「▶ すべて実行」に含まれます。'
+            + 'D-M2 はトップメニューが5枚（🐞 / 📜 / 💬 / 📂 / ▼）になり 30遷移・34判定へ増えました。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1008,13 +1024,80 @@
        ブロック4: テスト登録
        ====================================================================== */
 
-    /* トップバーの4メニュー。本体の TOP_MENUS とは独立に持つ
-       （本体が古くても D-M2 の観測だけは成立させるため）。 */
+    /* トップバーの5メニュー。本体の TOP_MENUS とは独立に持つ
+       （本体が古くても D-M2 の観測だけは成立させるため）。
+       🔴 ★v1.6.0: 📜 更新履歴（v2.8.2）を足して5枚にした。判定数は 24 → 34。
+          足さないと「📜 が開いたままでも openIds() が 0 を返す」ため、
+          排他制御の破れをまったく検出できない。
+          ⚠️ v2.7.3〜v2.8.1 の D-M2 の記録（24判定）とは直接比較できない。 */
     var MENUS = [
         { id: 'debug', panel: 'debugMenu', btn: 'topDebugBtn', label: '🐞 デバッグ' },
+        { id: 'history', panel: 'historyMenu', btn: 'versionBadge', label: '📜 更新履歴' },
         { id: 'comment', panel: 'commentMenu', btn: 'topCommentBtn', label: '💬 コメント設定' },
         { id: 'session', panel: 'sessionContainer', btn: 'topSessionBtn', label: '📂 マイリスト' },
         { id: 'settings', panel: 'settingsContainer', btn: 'topSettingsBtn', label: '▼ 設定メニュー', arrow: 'topSettingsArrow' }
+    ];
+
+    /* ★v1.6.0: v2.8.2 の判定で使う道具。
+       🔴 本体の const（APP_HISTORY / HELP_TEXTS）はグローバル「レキシカル」環境に入り、
+          window のプロパティにはならない。名前で直接参照する（TDZ 対策で try/catch）。 */
+    function appHistory() {
+        try { return (typeof APP_HISTORY !== 'undefined') ? APP_HISTORY : null; }
+        catch (e) { return null; }
+    }
+    function helpTexts() {
+        try { return (typeof HELP_TEXTS !== 'undefined') ? HELP_TEXTS : null; }
+        catch (e) { return null; }
+    }
+    function helpQ(key) { return document.querySelector('.help-q[data-help="' + key + '"]'); }
+    function tipEl() { return document.getElementById('helpTip'); }
+    function tipOpen() {
+        var t = tipEl();
+        return !!(t && t.classList.contains('open'));
+    }
+    /* 実際のイベント経路を通す（関数の直呼びで代用しない）。 */
+    async function hoverQ(el) {
+        if (!el) return false;
+        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        await wait(60);
+        return tipOpen();
+    }
+    async function unhoverQ(el) {
+        if (!el) return;
+        el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        await wait(60);
+    }
+    /* a が b の外へどれだけ出ているか（px）。0 なら完全に内側。 */
+    function outsideOf(a, b) {
+        if (!a || !b) return -1;
+        return Math.max(0, b.left - a.left) + Math.max(0, a.right - b.right)
+            + Math.max(0, b.top - a.top) + Math.max(0, a.bottom - b.bottom);
+    }
+    function inViewport(r) {
+        return !!r && r.left >= 0 && r.top >= 0
+            && r.right <= window.innerWidth && r.bottom <= window.innerHeight;
+    }
+
+    /* v2.8.2 で ? を付ける11項目。menu は開いておくべきパネル。 */
+    var HELP_ITEMS = [
+        { key: 'flowMaxOnscreen', label: '同時表示数の上限', menu: 'comment' },
+        { key: 'flowDurationMs', label: '画面を横切る時間', menu: 'comment' },
+        { key: 'flowFontPx', label: '文字サイズ', menu: 'comment' },
+        { key: 'flowColor', label: '文字の色', menu: 'comment' },
+        { key: 'flowOpacity', label: '不透明度', menu: 'comment' },
+        { key: 'flowAreaRatio', label: '表示位置の範囲', menu: 'comment' },
+        { key: 'flowShadow', label: '文字を縁取る', menu: 'comment' },
+        { key: 'chatCache', label: 'コメントのキャッシュ', menu: 'comment' },
+        { key: 'chatTabPolicy', label: 'コメント取得用タブ', menu: 'settings' },
+        { key: 'syncChatRatio', label: 'チャット欄の幅を全枠で連動', menu: 'settings' },
+        /* 🔴 ディレイ秒数の行は「ディレイスタート」を有効にするまで display:none。
+           存在（D-H1）だけを見て、ホバー（D-H2）と画面端（D-H4）の対象からは外す。 */
+        { key: 'delaySec', label: 'ディレイ秒数', menu: 'settings', hidden: true }
+    ];
+    /* ? を付けない側。行の中に .help-q が無いことを見る。 */
+    var NO_HELP_IDS = [
+        'activeCountDisplay', 'layout2Dir', 'skipSecBack', 'skipSecForward',
+        'uiSizeSelect', 'chatPosition', 'toggleAllChatsBtn'
     ];
 
     function openIds() {
@@ -1321,8 +1404,11 @@
             return h.blocked ? 'blocked / reason=' + h.reason + ' / hit=' + h.hit : false;
         });
 
-        /* 全遷移の総当たり: 開始状態5通り × 押すボタン4通り = 20遷移 */
-        var starts = [null, 'debug', 'comment', 'session', 'settings'];
+        /* 全遷移の総当たり: 開始状態(全閉 ＋ 各メニュー)通り × 押すボタン(メニュー数)通り。
+           🔴 ★v1.6.0: 直書きの配列をやめ MENUS から導出する。
+              メニューを足したのに starts を直し忘れる事故を構造的に防ぐ。
+              5枚なら 6 × 5 = 30遷移（v1.5.3 までは 5 × 4 = 20遷移）。 */
+        var starts = [null].concat(MENUS.map(function (m) { return m.id; }));
         var blockedCount = 0;
         for (var s = 0; s < starts.length; s++) {
             for (var t = 0; t < MENUS.length; t++) {
@@ -1358,6 +1444,480 @@
         expect('クリックが被覆された回数', blockedCount, 0);
 
         openDebugMenu();   /* ログを見られるように戻す */
+    }
+
+
+    /* ======================================================================
+       ★v1.6.0 : v2.8.2「設定の解説（?マーク）と更新履歴」の判定
+       ==================================================================== */
+
+    /* --- D-H1: ?マークが付いている / 付けない側には無い ------------------- */
+
+    async function testH1() {
+        await closeAllMenus();
+        log('  [前提] 11項目に ? があり、基本的な設定には無いことを見る');
+
+        pc('セレクタが「存在しないキー」を落とす', function () {
+            return helpQ('__not_exist__') === null ? 'null を返した' : false;
+        });
+        pc('セレクタが「存在するキー」を拾う', function () {
+            var e = helpQ('flowMaxOnscreen');
+            return e ? describe(e) : false;
+        });
+        pc('本体の HELP_TEXTS を読めている', function () {
+            var h = helpTexts();
+            return h ? Object.keys(h).length + '件' : false;
+        });
+
+        HELP_ITEMS.forEach(function (it) {
+            var el = helpQ(it.key);
+            expect('? がある: ' + it.label + '（' + it.key + '）',
+                el ? 'あり' : 'なし', 'あり');
+        });
+
+        NO_HELP_IDS.forEach(function (id) {
+            var base = document.getElementById(id);
+            var row = base && base.closest ? base.closest('.control-row') : null;
+            var found = row ? !!row.querySelector('.help-q') : null;
+            expect('? が無い（付けない側）: #' + id,
+                row ? (found ? 'あり' : 'なし') : '(行が見つからない)', 'なし');
+        });
+
+        expect('?マークの総数', document.querySelectorAll('.help-q').length, HELP_ITEMS.length);
+
+        var texts = helpTexts() || {};
+        var empty = HELP_ITEMS.filter(function (it) {
+            return !texts[it.key] || String(texts[it.key]).trim().length < 10;
+        }).map(function (it) { return it.key; });
+        expect('解説の本文が空・極端に短いもの', empty.length ? empty.join(',') : 'なし', 'なし');
+        note('解説の文字数', HELP_ITEMS.map(function (it) {
+            return it.key + '=' + String(texts[it.key] || '').length;
+        }).join(' / '));
+        /* 🔴 ライブ中は設定にかかわらず取得タブを維持する、が解説に入っているか。 */
+        expect('取得用タブの解説にライブの注意がある',
+            String(texts.chatTabPolicy || '').indexOf('ライブ') >= 0, true);
+    }
+
+    /* --- D-H2: ホバーでツールチップが出る -------------------------------- */
+
+    async function testH2() {
+        await closeAllMenus();
+        log('  [前提] パネルを開いてから ? へ mouseover を送る（関数の直呼びはしない）');
+
+        pc('はじめはツールチップが出ていない', function () {
+            return tipOpen() === false ? '閉じている' : false;
+        });
+        pc('関係のない要素の mouseover では出ない', function () {
+            var b = document.getElementById('topSessionBtn');
+            if (!b) return false;
+            b.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            return tipOpen() === false ? '出なかった' : false;
+        });
+
+        var groups = { comment: [], settings: [] };
+        HELP_ITEMS.forEach(function (it) {
+            if (!it.hidden) groups[it.menu].push(it);
+        });
+
+        for (var gi = 0; gi < 2; gi++) {
+            var menuId = gi === 0 ? 'comment' : 'settings';
+            await setMenuState(menuId);
+            for (var i = 0; i < groups[menuId].length; i++) {
+                var it = groups[menuId][i];
+                var el = helpQ(it.key);
+                var opened = await hoverQ(el);
+                var t = tipEl();
+                var body = t ? String(t.textContent).trim() : '';
+                expect('ホバーで出て本文がある: ' + it.label,
+                    (opened && body.length > 0) ? ('open / ' + body.length + '文字') : ('open=' + opened + ' / ' + body.length + '文字'),
+                    function (v) { return /^open \/ \d+文字$/.test(String(v)); });
+                await unhoverQ(el);
+            }
+        }
+
+        pc('mouseout で閉じる', function () {
+            return tipOpen() === false ? '閉じた' : false;
+        });
+        note('ホバーの対象外', 'delaySec（ディレイ秒数の行は既定で display:none のため D-H2・D-H4 の対象外。D-H1 で存在のみ判定）');
+        await closeAllMenus();
+    }
+
+    /* --- D-H3: パネルの外へはみ出しても切れない（最大の罠） --------------- */
+
+    async function testH3() {
+        await setMenuState('comment');
+        var panel = document.getElementById('commentMenu');
+        var pr = rect(panel);
+
+        pc('パネルに切り取りの土俵がある（overflow-y / max-height）', function () {
+            var cs = window.getComputedStyle(panel);
+            return (cs.overflowY === 'auto' && cs.maxHeight !== 'none')
+                ? (cs.overflowY + ' / ' + cs.maxHeight) : false;
+        });
+        pc('はみ出し量の測定器が効く（トップバーはパネルの外）', function () {
+            var out = outsideOf(rect(document.querySelector('.top-bar')), pr);
+            return out > 0 ? out + 'px はみ出しと判定' : false;
+        });
+
+        var q0 = helpQ('flowMaxOnscreen');
+        await hoverQ(q0);
+        var tip = tipEl();
+
+        /* 🔴 ここが今回の最重要判定。親が body でなければ必ず切り取られる。 */
+        expect('ツールチップの親要素', tip ? describe(tip.parentElement) : '(要素なし)', 'body');
+        expect('position', tip ? window.getComputedStyle(tip).position : '(要素なし)', 'fixed');
+        var z = tip ? Number(window.getComputedStyle(tip).zIndex) : 0;
+        expect('z-index がパネル(120)より上', z > 120 ? 'true (' + z + ')' : 'false (' + z + ')',
+            function (v) { return String(v).indexOf('true') === 0; });
+        await unhoverQ(q0);
+
+        /* パネル内の ? を総なめし、はみ出しても画面内に収まることを見る。 */
+        var outside = 0, offscreen = [], details = [];
+        var list = HELP_ITEMS.filter(function (it) { return it.menu === 'comment'; });
+        for (var i = 0; i < list.length; i++) {
+            var el = helpQ(list[i].key);
+            await hoverQ(el);
+            var tr = rect(tipEl());
+            var out = outsideOf(tr, pr);
+            if (out > 0) outside++;
+            if (!inViewport(tr)) offscreen.push(list[i].key);
+            details.push(list[i].key + '=' + out + 'px');
+            await unhoverQ(el);
+        }
+        expect('パネルからはみ出した ? の数（1件以上あれば罠の土俵に乗っている）',
+            outside, function (v) { return Number(v) >= 1; });
+        expect('画面外へ出たツールチップ', offscreen.length ? offscreen.join(',') : 'なし', 'なし');
+        note('パネル矩形からのはみ出し量', details.join(' / '));
+        note('パネル矩形', JSON.stringify(pr));
+
+        await closeAllMenus();
+    }
+
+    /* --- D-H4: 画面端で内側へ寄る ---------------------------------------- */
+
+    async function testH4() {
+        await closeAllMenus();
+        /* 実機の ? が必ず画面端に来るとは限らないので、
+           同じ .help-q として扱われる要素を隅へ置いて補正だけを測る。 */
+        function corner(pos) {
+            var s = document.createElement('span');
+            s.className = 'help-q';
+            s.setAttribute('data-help', 'flowFontPx');
+            s.textContent = '?';
+            s.style.position = 'fixed';
+            s.style.zIndex = '150';
+            if (pos === 'br') { s.style.right = '2px'; s.style.bottom = '2px'; }
+            else { s.style.left = '2px'; s.style.top = '2px'; }
+            document.body.appendChild(s);
+            return s;
+        }
+
+        var br = corner('br');
+        pc('右下の ? が画面端から40px以内にある（補正が無ければはみ出す条件）', function () {
+            var r = rect(br);
+            var d = Math.min(window.innerWidth - r.right, window.innerHeight - r.bottom);
+            return d <= 40 ? ('端から ' + d + 'px') : false;
+        });
+        await hoverQ(br);
+        var trBR = rect(tipEl());
+        var naive = { left: rect(br).left, top: rect(br).bottom + 6 };
+        pc('補正しなければ画面外に出る位置である', function () {
+            return (naive.top + (trBR.bottom - trBR.top) > window.innerHeight
+                || naive.left + (trBR.right - trBR.left) > window.innerWidth)
+                ? ('素の位置 ' + JSON.stringify(naive)) : false;
+        });
+        expect('右下: ツールチップが画面内に収まる', inViewport(trBR) ? '収まる' : 'はみ出す（' + JSON.stringify(trBR) + '）', '収まる');
+        await unhoverQ(br);
+        br.parentNode.removeChild(br);
+
+        var tl = corner('tl');
+        await hoverQ(tl);
+        var trTL = rect(tipEl());
+        expect('左上: ツールチップが画面内に収まる', inViewport(trTL) ? '収まる' : 'はみ出す（' + JSON.stringify(trTL) + '）', '収まる');
+        await unhoverQ(tl);
+        tl.parentNode.removeChild(tl);
+
+        expect('後始末: 合成した ? が残っていない', document.querySelectorAll('.help-q').length, HELP_ITEMS.length);
+        note('画面サイズ', window.innerWidth + '×' + window.innerHeight);
+    }
+
+    /* --- D-H5: パネルを閉じたらツールチップも消える ---------------------- */
+
+    async function testH5() {
+        await closeAllMenus();
+        pc('閉じた状態から始めている', function () {
+            return (openIds().length === 0 && tipOpen() === false) ? '両方とも閉' : false;
+        });
+
+        /* 💬 を閉じる経路 */
+        await setMenuState('comment');
+        await hoverQ(helpQ('flowOpacity'));
+        expect('💬 を開いた状態でツールチップが出ている', tipOpen(), true);
+        await clickReal(document.getElementById('topCommentBtn'));
+        expect('💬 を閉じるとツールチップも消える', tipOpen(), false);
+
+        /* ▼ を閉じる経路（経路ごとに分ける ─ 鉄則 #10） */
+        await setMenuState('settings');
+        await hoverQ(helpQ('chatTabPolicy'));
+        expect('▼ を開いた状態でツールチップが出ている', tipOpen(), true);
+        await clickReal(document.getElementById('topSettingsBtn'));
+        expect('▼ を閉じるとツールチップも消える', tipOpen(), false);
+
+        /* 他のメニューへ切り替える経路 */
+        await setMenuState('comment');
+        await hoverQ(helpQ('flowColor'));
+        await clickReal(document.getElementById('topSessionBtn'));
+        expect('別のメニューを開いてもツールチップは消える', tipOpen(), false);
+
+        await closeAllMenus();
+        expect('後始末: 全メニューが閉じている', openIds().length, 0);
+    }
+
+    /* --- D-N1: 版数バッジのクリックで更新履歴が開く ---------------------- */
+
+    async function testN1() {
+        await closeAllMenus();
+        var badge = document.getElementById('versionBadge');
+        var panel = document.getElementById('historyMenu');
+
+        pc('バッジとパネルの両方を取得できる', function () {
+            return (badge && panel) ? describe(badge) + ' / ' + describe(panel) : false;
+        });
+        pc('はじめは閉じている', function () {
+            return (!panel.classList.contains('open') && !badge.classList.contains('active'))
+                ? '閉じている' : false;
+        });
+        pc('バッジのカーソルが pointer（押せることが見て分かる）', function () {
+            var c = window.getComputedStyle(badge).cursor;
+            return c === 'pointer' ? c : false;
+        });
+
+        var r1 = await clickReal(badge);
+        expect('1回目のクリックが被覆されていない', r1.blocked ? ('被覆: ' + r1.reason) : '被覆なし', '被覆なし');
+        expect('1回目: パネルに open が付く', panel.classList.contains('open'), true);
+        expect('1回目: バッジに active が付く', badge.classList.contains('active'), true);
+
+        var r2 = await clickReal(badge);
+        expect('2回目のクリックが被覆されていない', r2.blocked ? ('被覆: ' + r2.reason) : '被覆なし', '被覆なし');
+        expect('2回目: open が外れる', panel.classList.contains('open'), false);
+        expect('2回目: active が外れる', badge.classList.contains('active'), false);
+    }
+
+    /* --- D-N2: 履歴パネルの形（次にメニューを増やす人の基準になる） -------- */
+
+    async function testN2() {
+        await setMenuState('history');
+        var panel = document.getElementById('historyMenu');
+        var badge = document.getElementById('versionBadge');
+        var cs = window.getComputedStyle(panel);
+        var pr = rect(panel);
+        var br = rect(badge);
+
+        pc('計算後スタイルを読めている', function () {
+            return cs.width && cs.width !== 'auto' ? cs.width : false;
+        });
+        pc('パネルが実際に表示されている（面積がある）', function () {
+            return (pr.right - pr.left) > 0 && (pr.bottom - pr.top) > 0
+                ? (pr.right - pr.left) + '×' + (pr.bottom - pr.top) : false;
+        });
+
+        expect('box-sizing', cs.boxSizing, 'border-box');
+        expect('overflow-y', cs.overflowY, 'auto');
+        expect('z-index', cs.zIndex, '120');
+        var maxH = parseFloat(cs.maxHeight);
+        var h = pr.bottom - pr.top;
+        expect('高さが max-height を超えない', (h <= maxH + 1) ? 'ok' : (h + ' > ' + maxH), 'ok');
+        var dLeft = Math.abs(pr.left - br.left);
+        expect('左端がバッジと一致（±2px）', dLeft <= 2 ? 'ok(' + dLeft + 'px)' : 'ずれ ' + dLeft + 'px',
+            function (v) { return String(v).indexOf('ok') === 0; });
+        expect('右端が画面内に収まる', pr.right <= window.innerWidth ? 'ok' : 'はみ出し', 'ok');
+        expect('幅が max-width（100vw-20px）を超えない',
+            (pr.right - pr.left) <= (window.innerWidth - 20) + 1 ? 'ok' : 'はみ出し', 'ok');
+
+        note('確定値（幅 / max-height / 実高 / left）',
+            cs.width + ' / ' + cs.maxHeight + ' / ' + Math.round(h) + 'px / ' + Math.round(pr.left));
+        note('バッジ矩形', JSON.stringify(br));
+        await closeAllMenus();
+    }
+
+    /* --- D-N3: 履歴の中身 ------------------------------------------------ */
+
+    async function testN3() {
+        await setMenuState('history');
+        var hist = appHistory();
+        var body = document.getElementById('historyBody');
+
+        pc('本体の APP_HISTORY を読めている', function () {
+            return (hist && hist.length) ? hist.length + '件' : false;
+        });
+        pc('履歴の描画先を取得できる', function () {
+            return body ? describe(body) : false;
+        });
+
+        expect('先頭の版数が APP_VERSION と一致',
+            hist && hist.length ? hist[0].v : '(空)', appVersion());
+        expect('配列の件数', hist ? hist.length : 0, 25);
+        expect('描画された行数が配列と一致',
+            document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
+        expect('❌ v2.4.1（欠番）の行がある',
+            /❌\s*v2\.4\.1/.test(body ? body.textContent : ''), true);
+        var vs = (hist || []).map(function (h) { return h.v; });
+        var dup = vs.filter(function (v, i) { return vs.indexOf(v) !== i; });
+        expect('版数の重複', dup.length ? dup.join(',') : 'なし', 'なし');
+        var noText = (hist || []).filter(function (h) { return !h.t || !h.t.length; });
+        expect('本文が空の版', noText.length ? noText.map(function (h) { return h.v; }).join(',') : 'なし', 'なし');
+
+        note('先頭3件', vs.slice(0, 3).join(' / '));
+        note('末尾', vs[vs.length - 1]);
+        await closeAllMenus();
+    }
+
+    /* --- D-N4: 縦スクロールが出る ---------------------------------------- */
+
+    async function testN4() {
+        await setMenuState('history');
+        var panel = document.getElementById('historyMenu');
+
+        pc('スクロール量を読めている', function () {
+            return panel ? (panel.scrollHeight + ' / ' + panel.clientHeight) : false;
+        });
+
+        expect('中身が max-height を超えている（scrollHeight > clientHeight）',
+            panel.scrollHeight > panel.clientHeight ? 'ok' : '超えていない', 'ok');
+        panel.scrollTop = 99999;
+        await wait(60);
+        expect('実際に縦スクロールできる', panel.scrollTop > 0 ? 'ok(' + Math.round(panel.scrollTop) + 'px)' : '動かない',
+            function (v) { return String(v).indexOf('ok') === 0; });
+        note('scrollHeight / clientHeight', panel.scrollHeight + ' / ' + panel.clientHeight);
+        panel.scrollTop = 0;
+        await closeAllMenus();
+    }
+
+    /* --- D-N5: バッジの既存の役割が変わっていないこと --------------------- */
+
+    async function testN5() {
+        await closeAllMenus();
+        var badge = document.getElementById('versionBadge');
+
+        function snap() {
+            var cs = window.getComputedStyle(badge);
+            return {
+                text: String(badge.textContent).trim(),
+                kind: ['ok', 'warn', 'ng'].filter(function (c) { return badge.classList.contains(c); }).join(',') || '(なし)',
+                color: cs.color,
+                border: cs.borderTopColor,
+                bg: cs.backgroundColor
+            };
+        }
+
+        pc('バッジの見た目を読み取れている', function () {
+            var s = snap();
+            return s.text && s.color ? JSON.stringify(s) : false;
+        });
+        pc('版数照合が緑（ok）で成立している', function () {
+            return snap().kind === 'ok' ? 'ok' : false;
+        });
+
+        var before = snap();
+        await clickReal(badge);
+        var during = snap();
+        await clickReal(badge);
+        var after = snap();
+
+        expect('文言が変わらない（開いている間）', during.text, before.text);
+        expect('色が変わらない（開いている間）', during.color + '/' + during.border + '/' + during.bg,
+            before.color + '/' + before.border + '/' + before.bg);
+        expect('緑/橙/赤の区分が変わらない（開いている間）', during.kind, before.kind);
+        expect('閉じたあとも元どおり', JSON.stringify(after), JSON.stringify(before));
+        expect('active が残っていない', badge.classList.contains('active'), false);
+
+        note('バッジの見た目', JSON.stringify(before));
+    }
+
+    /* --- D-R1: 既存操作への非干渉（回帰）--------------------------------- */
+
+    async function testR1() {
+        await closeAllMenus();
+        /* 一括コントローラーは hover で押し上がる作り。合成イベントでは :hover を作れないので
+           同じクラスを直接付けて測り、最後に元へ戻す。 */
+        var oc = document.getElementById('overlayController');
+        var ocWas = oc ? oc.classList.contains('active') : false;
+        if (oc && !ocWas) oc.classList.add('active');
+        await wait(400);
+
+        var targets = [
+            { id: 'playPauseBtn', label: '▶ 一括再生' },
+            { id: 'batchSkipBackBtn', label: '↺ 一括戻る' },
+            { id: 'batchSkipForwardBtn', label: '↻ 一括進む' },
+            { id: 'topSessionBtn', label: '📂 マイリスト' },
+            { id: 'topSettingsBtn', label: '▼ 設定メニュー' }
+        ];
+
+        pc('被覆判定が「覆われている」を検出する（▶の上へ一時的に板を置く）', function () {
+            var b = document.getElementById('playPauseBtn');
+            if (!b) return false;
+            var r = b.getBoundingClientRect();
+            var cover = document.createElement('div');
+            cover.style.cssText = 'position:fixed; z-index:99999; background:transparent;'
+                + 'left:' + r.left + 'px; top:' + r.top + 'px;'
+                + 'width:' + r.width + 'px; height:' + r.height + 'px;';
+            document.body.appendChild(cover);
+            var h = hitTest(b);
+            document.body.removeChild(cover);
+            return h.blocked ? 'blocked / ' + h.reason : false;
+        });
+        pc('板が無ければ ▶ は最前面である', function () {
+            return hitTest(document.getElementById('playPauseBtn')).blocked ? false : '最前面';
+        });
+
+        /* ① ツールチップを出したまま、下の操作が死んでいないか */
+        await setMenuState('comment');
+        var q = helpQ('flowMaxOnscreen');
+        await hoverQ(q);
+        expect('ツールチップの pointer-events',
+            tipEl() ? window.getComputedStyle(tipEl()).pointerEvents : '(要素なし)', 'none');
+
+        /* 🔴 ツールチップの真下にある部品が押せるか。重なっていることを先に前提として確かめる。 */
+        var below = document.getElementById('flowDurationMs');
+        var ov = overlap(rect(below), rect(tipEl()));
+        pc('ツールチップが下の行のスライダーに実際に重なっている', function () {
+            return ov.ratio > 0 ? ov.ratio + '% 重なり' : false;
+        });
+        var hb = hitTest(below);
+        expect('重なった下のスライダーが押せる（ツールチップが吸わない）',
+            hb.blocked ? ('被覆: ' + hb.reason + ' / hit=' + hb.hit) : '被覆なし', '被覆なし');
+        note('重なりの割合', ov.ratio + '% / hit=' + hb.hit);
+
+        for (var i = 0; i < targets.length; i++) {
+            var el = document.getElementById(targets[i].id);
+            var h = hitTest(el);
+            expect('ツールチップ表示中に押せる: ' + targets[i].label,
+                h.blocked ? ('被覆: ' + h.reason) : '被覆なし', '被覆なし');
+        }
+        await unhoverQ(q);
+        await closeAllMenus();
+
+        /* ② 更新履歴を開いたまま、下の操作が死んでいないか */
+        await setMenuState('history');
+        for (var j = 0; j < targets.length; j++) {
+            if (targets[j].id === 'topSessionBtn' || targets[j].id === 'topSettingsBtn') continue;
+            var el2 = document.getElementById(targets[j].id);
+            var h2 = hitTest(el2);
+            expect('📜 を開いた状態で押せる: ' + targets[j].label,
+                h2.blocked ? ('被覆: ' + h2.reason) : '被覆なし', '被覆なし');
+        }
+        var grid = document.getElementById('playersGrid');
+        note('履歴パネルと動画領域の重なり',
+            overlap(rect(grid), rect(document.getElementById('historyMenu'))).ratio + '%');
+        await closeAllMenus();
+
+        /* ③ 流しの設定が壊れていないこと（D-M7 の簡易版・値は変えない） */
+        expect('FLOW の同時表示数を読める', typeof flowValue('maxOnscreen'), 'number');
+        expect('FLOW の横切る時間を読める', typeof flowValue('durationMs'), 'number');
+
+        if (oc && !ocWas) oc.classList.remove('active');
+        expect('後始末: 一括コントローラーの状態を戻した',
+            oc ? oc.classList.contains('active') : false, ocWas);
     }
 
     /* --- D-M7: コメント流し設定の永続化（4系統一致） ---------------------- */
@@ -3021,7 +3581,20 @@
         if (!sel) return;
         var before = sel.value;
         note('設定の元の値', before);
-        expect('この測定に必要な設定になっている（close）', before, 'close');
+        /* 🔴 ★v1.5.3: ここは「測定の前提」であって機能の合否ではない。
+           v1.5.2 まで expect で書いており、keep のまま実行したときに
+           機能は正常なのに「不合格」として集計された（2026-08-15）。
+           pc にすることで「判定不能（測れていない）」として正しく出る。
+           ⚠️ keep では取得タブを元から破棄しないので、この項目は成立しない。 */
+        pc('この測定に必要な設定になっている（close）', function () {
+            return (before === 'close') ? before : false;
+        });
+        if (before !== 'close') {
+            note('この項目を測れなかった理由',
+                '「コメント取得用タブ」が ' + before + ' だった。'
+                + 'close（取得のたびに閉じる）でないと、タブが維持されたことの証明にならない');
+            return;
+        }
 
         var seq = [];
         var sm = await sample(3000, 10, function () {
@@ -3085,7 +3658,19 @@
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
         { id: 'D-V1', name: '版数バッジ', run: testV1 },
-        { id: 'D-M2', name: 'トップメニューの排他制御（全遷移）', run: testM2 },
+        /* ★v1.6.0: v2.8.2（設定の解説と更新履歴）。準備が要らないので manual にしない。 */
+        { id: 'D-H1', name: '?マークが11項目に付いている', run: testH1 },
+        { id: 'D-H2', name: 'ホバーでツールチップが出る', run: testH2 },
+        { id: 'D-H3', name: 'パネルの外へはみ出しても切れない', run: testH3 },
+        { id: 'D-H4', name: '画面端で内側へ寄る', run: testH4 },
+        { id: 'D-H5', name: 'パネルを閉じたらツールチップも消える', run: testH5 },
+        { id: 'D-N1', name: '版数バッジのクリックで更新履歴が開く', run: testN1 },
+        { id: 'D-N2', name: '履歴パネルの形（確定値）', run: testN2 },
+        { id: 'D-N3', name: '履歴の中身', run: testN3 },
+        { id: 'D-N4', name: '履歴の縦スクロール', run: testN4 },
+        { id: 'D-N5', name: 'バッジの既存の役割が変わっていない', run: testN5 },
+        { id: 'D-R1', name: '既存操作への非干渉（回帰）', run: testR1 },
+        { id: 'D-M2', name: 'トップメニューの排他制御（全遷移・5枚）', run: testM2 },
         { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
         { id: 'D-E1', name: '再生可否の確定処理と枠内通知', run: testE1 },
         { id: 'D-P1', name: '通常動画（positive control を兼ねる）', run: testP1, manual: true },

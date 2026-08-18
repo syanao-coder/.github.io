@@ -48,12 +48,16 @@
            「片方だけ古いまま動かしている」事故を防ぐ。 */
         .version-badge {
             margin-left: 10px; font-family: monospace; font-size: 0.7rem; font-weight: bold;
-            padding: 2px 7px; border-radius: 10px; cursor: help; user-select: none;
+            padding: 2px 7px; border-radius: 10px; cursor: pointer; user-select: none;
             border: 1px solid #444; color: #888; background: rgba(0,0,0,0.4); white-space: nowrap;
         }
         .version-badge.ok   { border-color: #2ed57355; color: #2ed573; }
         .version-badge.warn { border-color: #ffa502;   color: #ffa502; background: rgba(255,165,2,0.12); }
         .version-badge.ng   { border-color: #ff4757;   color: #ff4757; background: rgba(255,71,87,0.12); }
+        /* ★v2.8.2: 版数バッジのクリックで更新履歴を開くようにした。
+           🔴 色と文言は変えない。緑/橙/赤は版数照合の意味を持つので、
+              開いていることは box-shadow だけで示す（.ok/.warn/.ng の色を上書きしない）。 */
+        .version-badge.active { box-shadow: 0 0 0 2px rgba(0, 255, 204, 0.35); }
 
         .settings-toggle-btn {
             background: transparent; border: 1px solid #00ffcc; color: #00ffcc;
@@ -132,6 +136,62 @@
         .topmenu-dropdown h3 + .control-row {
             margin-top: 0 !important; border-top: none !important; padding-top: 0 !important;
         }
+
+        /* ★v2.8.2: 左寄せ版のドロップダウン（版数バッジはトップバーの「左側」にある）。
+           🔴 right:0 のままだと画面の右端に出てしまうので left:0 へ振り替える。
+              幅・max-height・box-sizing・z-index は .topmenu-dropdown の確定値をそのまま使う。 */
+        .topmenu-dropdown.left { right: auto; left: 0; }
+        /* 履歴は横に長いので幅だけ広げる。max-width: calc(100vw - 20px) は継承したまま残す。 */
+        #historyMenu { width: 560px; }
+        /* 🔴 版数バッジ用のアンカー。
+           .version-badge が自分で持っていた margin-left:10px をここへ移す。
+           移さないと left:0 のパネルがバッジより 10px 左にずれ、左端が揃わない。
+           .topmenu-anchor の margin-right:8px は既存の間隔を変えないよう打ち消す。 */
+        #versionAnchor { margin-left: 10px; margin-right: 0; }
+        #versionAnchor .version-badge { margin-left: 0; }
+
+        .history-entry { margin-bottom: 9px; padding-bottom: 7px; border-bottom: 1px solid #2a2a33; }
+        .history-entry:last-child { border-bottom: none; margin-bottom: 0; }
+        .history-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+        .history-ver { font-family: monospace; font-weight: bold; font-size: 0.85rem; color: #00ffcc; }
+        .history-date { font-family: monospace; font-size: 0.7rem; color: #888; }
+        .history-entry.current .history-ver { background: rgba(0,255,204,0.18); border-radius: 4px; padding: 0 5px; }
+        /* 欠番は取り消し線と赤で示す。番号を再利用しないための記録なので消さない。 */
+        .history-entry.gap .history-ver { color: #ff4757; text-decoration: line-through; }
+        .history-list { margin: 0; padding-left: 20px; list-style: disc; }
+        .history-list li { font-size: 0.8rem; color: #ddd; line-height: 1.5; margin-bottom: 2px; }
+
+        /* ★v2.8.2: 設定の解説（?マーク）。
+           🔴 title 属性は使わない。表示まで1〜2秒待たされ、改行も効かないため、
+              「その設定で何が起きるか」を2〜3行書く用途には向かない。
+           🔴 ? 自身は pointer-events を持つ（ホバーを拾うため）。
+              ただしスライダーの上には重ねず、ラベルの末尾に置く。 */
+        .help-q {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 14px; height: 14px; margin-left: 5px; flex-shrink: 0;
+            border: 1px solid #00ffcc88; border-radius: 50%;
+            font-size: 0.62rem; font-weight: bold; line-height: 1;
+            color: #00ffcc; background: rgba(0, 255, 204, 0.08);
+            cursor: help; user-select: none; vertical-align: middle;
+        }
+        .help-q:hover { background: rgba(0, 255, 204, 0.3); color: #fff; }
+        /* 🔴 ツールチップは document.body の直下に置き、position: fixed で座標を与える。
+              設定パネルは max-height:70vh; overflow-y:auto なので、
+              パネルの中に相対配置すると、はみ出した部分が必ず切り取られる。
+           🔴 z-index はパネル（120）より上。body 直下なので .top-bar(101) とも並ぶ。
+           🔴 pointer-events:none。吸わせるとスライダーとシークバーの操作を奪う
+              （/get-danmaku-spec 1-4節で実際に踏んだ罠と同じ性質）。 */
+        #helpTip {
+            display: none; position: fixed; left: 0; top: 0;
+            box-sizing: border-box; z-index: 200;
+            width: 300px; max-width: calc(100vw - 16px);
+            padding: 9px 11px; border: 1px solid #00ffcc; border-radius: 6px;
+            background: rgba(12, 12, 16, 0.97); color: #ddd;
+            font-size: 0.78rem; line-height: 1.55; white-space: pre-wrap;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            pointer-events: none;
+        }
+        #helpTip.open { display: block; }
 
         .settings-container {
             position: absolute; top: 35px; left: 0; width: 100%; z-index: 100;
@@ -387,7 +447,16 @@
 
     <div class="top-bar">
         <span style="color:#00ffcc; font-size:0.85rem; font-weight:bold; letter-spacing:1px;">アニメ同時視聴コントローラー</span>
-        <span id="versionBadge" class="version-badge" title="読み込み中">v?.?.?</span>
+        <!-- ★v2.8.2: 版数バッジのクリックで更新履歴を出す。
+             バッジはトップバーの「左側」にあるので、パネルは .left（left:0）で開く。
+             🔴 アンカーはこの span だけに持たせる（.top-bar へ position:relative を足さない）。 -->
+        <span class="topmenu-anchor" id="versionAnchor">
+            <span id="versionBadge" class="version-badge" title="読み込み中" onclick="toggleHistoryMenu()">v?.?.?</span>
+            <div class="topmenu-dropdown left" id="historyMenu">
+                <h3>📜 更新履歴</h3>
+                <div id="historyBody"></div>
+            </div>
+        </span>
         <div class="topbar-count-group" style="margin-right:auto;" title="視聴枠数の増減（最大9枠）">
             <button class="topbar-count-btn" id="topCountMinus" onclick="changePlayerCount(-1)" title="枠を1つ減らす">➖</button>
             <span class="topbar-count-value" id="topActiveCountDisplay">2</span>
@@ -407,43 +476,43 @@
                     <button onclick="resetFlowSettings()" style="font-size:0.75rem; margin-left:auto;">既定値に戻す</button>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.85rem; width:150px;" for="flowMaxOnscreen">同時表示数の上限:</label>
+                    <label style="font-size:0.85rem; width:150px;" for="flowMaxOnscreen">同時表示数の上限:<span class="help-q" data-help="flowMaxOnscreen">?</span></label>
                     <input type="range" id="flowMaxOnscreen" min="5" max="100" step="5" value="40" style="width:160px;" oninput="applyFlowSettingsFromUI()">
                     <span id="flowMaxOnscreenVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">40件</span>
                     <span style="font-size:0.72rem; color:#888;">下げると軽くなります</span>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.85rem; width:150px;" for="flowDurationMs">画面を横切る時間:</label>
+                    <label style="font-size:0.85rem; width:150px;" for="flowDurationMs">画面を横切る時間:<span class="help-q" data-help="flowDurationMs">?</span></label>
                     <input type="range" id="flowDurationMs" min="2000" max="12000" step="100" value="4000" style="width:160px;" oninput="applyFlowSettingsFromUI()">
                     <span id="flowDurationMsVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">4.0秒</span>
                     <span style="font-size:0.72rem; color:#888;">長いほどゆっくり流れますが、画面に残る数が増えて重くなります（6.0秒以上はカクつきます）</span>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.85rem; width:150px;" for="flowFontPx">文字サイズ:</label>
+                    <label style="font-size:0.85rem; width:150px;" for="flowFontPx">文字サイズ:<span class="help-q" data-help="flowFontPx">?</span></label>
                     <input type="range" id="flowFontPx" min="10" max="32" step="1" value="16" style="width:160px;" oninput="applyFlowSettingsFromUI()">
                     <span id="flowFontPxVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">16px</span>
                     <span style="font-size:0.72rem; color:#888;">大きくすると流せる行数が減ります</span>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.85rem; width:150px;" for="flowColor">文字の色:</label>
+                    <label style="font-size:0.85rem; width:150px;" for="flowColor">文字の色:<span class="help-q" data-help="flowColor">?</span></label>
                     <input type="color" id="flowColor" value="#ffffff" style="width:44px; height:24px; padding:0;" oninput="applyFlowSettingsFromUI()">
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.85rem; width:150px;" for="flowOpacity">不透明度:</label>
+                    <label style="font-size:0.85rem; width:150px;" for="flowOpacity">不透明度:<span class="help-q" data-help="flowOpacity">?</span></label>
                     <input type="range" id="flowOpacity" min="0.2" max="1" step="0.05" value="1" style="width:160px;" oninput="applyFlowSettingsFromUI()">
                     <span id="flowOpacityVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">1.00</span>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.85rem; width:150px;" for="flowAreaRatio">表示位置の範囲:</label>
+                    <label style="font-size:0.85rem; width:150px;" for="flowAreaRatio">表示位置の範囲:<span class="help-q" data-help="flowAreaRatio">?</span></label>
                     <input type="range" id="flowAreaRatio" min="0.2" max="1" step="0.05" value="1" style="width:160px;" oninput="applyFlowSettingsFromUI()">
                     <span id="flowAreaRatioVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">上100%</span>
-                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.85rem; margin-left:10px;"><input type="checkbox" id="flowShadow" checked onchange="applyFlowSettingsFromUI()"> 文字を縁取る</label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.85rem; margin-left:10px;"><input type="checkbox" id="flowShadow" checked onchange="applyFlowSettingsFromUI()"> 文字を縁取る</label><span class="help-q" data-help="flowShadow">?</span>
                 </div>
                 <div class="control-row" style="margin-top:-6px;">
                     <span style="font-size:0.72rem; color:#888;">設定はすべての枠に効きます。色・不透明度・文字サイズは<strong>これから出るコメント</strong>から反映されます（すでに流れているものは変わりません）。</span>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.9rem;">コメントのキャッシュ:</label>
+                    <label style="font-size:0.9rem;">コメントのキャッシュ:<span class="help-q" data-help="chatCache">?</span></label>
                     <span id="chatCacheStat" style="font-size:0.85rem; color:#aaa; font-family:monospace;">-</span>
                     <button onclick="clearChatCacheFromUI()" style="font-size:0.8rem; margin-left:8px;">すべて削除</button>
                 </div>
@@ -536,7 +605,7 @@
                     <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="enableDelaySync" onchange="toggleDelaySettingView()"> ディレイスタート（カウントダウン）を有効にする</label>
                 </div>
                 <div class="control-row" id="delaySecContainer" style="display:none;">
-                    <label style="font-size:0.9rem;">ディレイ秒数:</label>
+                    <label style="font-size:0.9rem;">ディレイ秒数:<span class="help-q" data-help="delaySec">?</span></label>
                     <input type="number" id="delaySec" value="3" min="1" max="10" style="width:50px;" onchange="saveSettings()"> 秒
                 </div>
             </div>
@@ -560,10 +629,10 @@
                     <button id="toggleAllChatsBtn" onclick="toggleAllChats()" style="font-size:0.8rem; margin-left:8px;">全枠のチャットを表示</button>
                 </div>
                 <div class="control-row">
-                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="syncChatRatio" onchange="saveSettings()"> チャット欄の幅を全枠で連動させる（📌で拡大中の枠は除く）</label>
+                    <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="syncChatRatio" onchange="saveSettings()"> チャット欄の幅を全枠で連動させる（📌で拡大中の枠は除く）</label><span class="help-q" data-help="syncChatRatio">?</span>
                 </div>
                 <div class="control-row">
-                    <label style="font-size:0.9rem;" for="chatTabPolicy">コメント取得用タブ:</label>
+                    <label style="font-size:0.9rem;" for="chatTabPolicy">コメント取得用タブ:<span class="help-q" data-help="chatTabPolicy">?</span></label>
                     <select id="chatTabPolicy" onchange="saveSettings(); sendChatTabPolicy();">
                         <option value="keep">隠したまま保持（既定・再取得が速い）</option>
                         <option value="idle10">10分使わなければ閉じる</option>
@@ -622,7 +691,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.1';
+        const APP_VERSION = '2.8.2';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -824,6 +893,10 @@
             updateVersionBadge();
             // 一定時間アドオンから名乗りが無ければ「未検出」として確定表示する
             setTimeout(updateVersionBadge, ADDON_DETECT_TIMEOUT_MS);
+            /* ★v2.8.2: 更新履歴の組み立てと、?マークの配線。
+               どちらも表示だけの処理で、既存の状態には触らない。 */
+            renderAppHistory();
+            setupHelpTips();
             loadSavedSettings();
             /* 設定を読み込んだ直後にアドオンへ伝える。
                アドオン側は storage.local に持つが、版数を上げた直後や
@@ -1043,6 +1116,270 @@
             sendYoutubeAddResult(requestId, 'loaded', getSlotIndex(emptyCardId));
         }
 
+        /* ============================================================
+           ★v2.8.2: 設定の解説（?マーク）と更新履歴
+
+           目的は機能追加ではなく「説明の追加」。既存の挙動は1つも変えない。
+
+           🔴 解説は title 属性ではなく独自ツールチップで出す。
+              title は表示まで1〜2秒待たされ、改行が効かない。
+           🔴 ツールチップは document.body の直下へ置き position:fixed で座標を与える。
+              設定パネルは max-height:70vh; overflow-y:auto なので、
+              パネルの中に置くと、はみ出した部分が必ず切り取られる。
+           ============================================================ */
+
+        /* 解説の本文。?マークの data-help をキーにして引く。
+           🔴 確定値と矛盾させないこと。
+              流しの7項目は /get-danmaku-spec 2-1節、
+              コメント取得用タブのライブ時の挙動は /get-chat-feature-spec 1-6節が正本。 */
+        const HELP_TEXTS = {
+            flowMaxOnscreen:
+                '1つの枠に同時に流すコメントの最大数です。\n'
+                + 'これを超えたぶんは流れずに捨てられます（先に来たものが優先）。\n'
+                + '既定は40件で、通常の動画ではここまで届きません。下げると軽くなります。',
+            flowDurationMs:
+                'コメントが右端から左端まで流れきるまでの時間です。\n'
+                + '長くするほどゆっくり流れますが、画面に残る数が増えるぶん重くなります。\n'
+                + '既定は4.0秒。6.0秒以上はカクつくことが実測で確認されています。',
+            flowFontPx:
+                '流れるコメントの文字の大きさです。\n'
+                + '1行の高さは文字サイズの1.3倍なので、大きくすると流せる行数が減ります。\n'
+                + '既定は16px。これから出るコメントから反映されます。',
+            flowColor:
+                '流れるコメントの文字色です。既定は白。\n'
+                + 'これから出るコメントから反映されます（すでに流れているものは変わりません）。',
+            flowOpacity:
+                '流れるコメントの濃さです。下げるほど動画が透けて見えます。\n'
+                + '既定は1.00（不透明）。これから出るコメントから反映されます。',
+            flowAreaRatio:
+                'コメントを流す高さの範囲です。枠の上から何％までを使うかを指定します。\n'
+                + '下げると下側が空くので、字幕や演者の顔が隠れるのを避けられます。\n'
+                + 'そのぶん流せる行数は減ります。既定は上100%。',
+            flowShadow:
+                'コメントの文字に黒い縁取りを付けます。\n'
+                + '明るい映像の上でも読みやすくなります。既定はオン。\n'
+                + 'これから出るコメントから反映されます。',
+            chatCache:
+                '取得済みのコメントを圧縮してこのPCのブラウザ内に保存します。\n'
+                + '2回目以降は取り直さずにすぐ表示されます。\n'
+                + '上限は150MBで、超えると使っていない古いものから削除されます。\n'
+                + '⚠️ 配信中のライブのコメントは保存されません。',
+            delaySec:
+                '▶一括再生を押してから実際に再生が始まるまでのカウントダウン秒数です。\n'
+                + 'すぐ上の「ディレイスタート」を有効にしたときだけ使われます。\n'
+                + '画面の中央に数字が出ます。',
+            syncChatRatio:
+                '1つの枠でチャット欄の幅を変えたとき、他の枠も同じ幅に揃えます。\n'
+                + '📌で拡大中の枠は対象外です。\n'
+                + 'オフにすると枠ごとに別々の幅を持てます。',
+            chatTabPolicy:
+                'コメントの取得には、裏で隠したYouTubeのタブを使います。その後始末の方針です。\n'
+                + '・隠したまま保持（既定）… 次の取得が速い\n'
+                + '・10分使わなければ閉じる\n'
+                + '・取得が終わるたびに閉じる … 毎回3秒ほど余計にかかります\n'
+                + '⚠️ 配信中のライブを取得している間は、この設定にかかわらずタブを維持します。'
+        };
+
+        /* ツールチップの実体は1つだけ作り、使い回す。 */
+        let helpTipEl = null;
+
+        function ensureHelpTip() {
+            if (helpTipEl && helpTipEl.parentNode === document.body) return helpTipEl;
+            helpTipEl = document.createElement('div');
+            helpTipEl.id = 'helpTip';
+            /* 🔴 body 直下。パネルの中に入れると overflow-y:auto で切り取られる。 */
+            document.body.appendChild(helpTipEl);
+            return helpTipEl;
+        }
+
+        function showHelpTip(anchor) {
+            if (!anchor) return;
+            const text = HELP_TEXTS[anchor.getAttribute('data-help')];
+            if (!text) return;
+            const tip = ensureHelpTip();
+            tip.textContent = text;
+            tip.classList.add('open');
+            /* 実寸を測ってから画面内へ寄せる。先に左上へ置いて折り返しを確定させる。 */
+            tip.style.left = '0px';
+            tip.style.top = '0px';
+            const a = anchor.getBoundingClientRect();
+            const t = tip.getBoundingClientRect();
+            const M = 8;                                  /* 画面端からの余白 */
+            const vw = window.innerWidth, vh = window.innerHeight;
+            let left = a.left;
+            let top = a.bottom + 6;
+            /* 右端からはみ出すなら内側へ寄せる。 */
+            if (left + t.width > vw - M) left = vw - M - t.width;
+            if (left < M) left = M;
+            /* 下端からはみ出すなら ? の上へ出す。それでも入らなければ画面内へ収める。 */
+            if (top + t.height > vh - M) {
+                top = a.top - t.height - 6;
+                if (top < M) top = Math.max(M, vh - M - t.height);
+            }
+            tip.style.left = Math.round(left) + 'px';
+            tip.style.top = Math.round(top) + 'px';
+        }
+
+        function hideHelpTip() {
+            if (helpTipEl) helpTipEl.classList.remove('open');
+        }
+
+        function closestHelpQ(target) {
+            return (target && target.closest) ? target.closest('.help-q') : null;
+        }
+
+        function setupHelpTips() {
+            ensureHelpTip();
+            document.addEventListener('mouseover', function (e) {
+                const q = closestHelpQ(e.target);
+                if (q) showHelpTip(q);
+            });
+            document.addEventListener('mouseout', function (e) {
+                if (closestHelpQ(e.target)) hideHelpTip();
+            });
+            /* クリックでも出す（ホバーが無い環境向け）。
+               🔴 label の内側に置いた ? は、そのままだと入力側へクリックが転送される。
+                  capture で先に受けて既定動作を止める。 */
+            document.addEventListener('click', function (e) {
+                const q = closestHelpQ(e.target);
+                if (!q) return;
+                e.preventDefault();
+                e.stopPropagation();
+                showHelpTip(q);
+            }, true);
+            /* position:fixed はパネルのスクロールに追従しない。ずれるくらいなら消す。 */
+            document.addEventListener('scroll', hideHelpTip, true);
+            window.addEventListener('resize', hideHelpTip);
+        }
+
+        /* ------------------------------------------------------------
+           更新履歴
+
+           🔴 index.html の中に配列で持つ（外部ファイルにしない）。
+           🔴 新しい版が上。1版につき1〜3行。
+           🔴 版を切るたびに先頭へ1行足すこと。放っておくと必ず失効する。
+              先頭の v と APP_VERSION の食い違いは起動時にコンソールへ出す。
+           ⚠️ v2.6.1 以前の日付は月までしか分かっていない。そのままでよい。
+           ⚠️ v2.1.0 / v2.4.4 などの抜けは、利用者の記録にそう書かれているため。埋めない。
+           🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
+           ------------------------------------------------------------ */
+        const APP_HISTORY = [
+            { v: '2.8.2', d: '2026-08-16', t: [
+                '設定の横に ?マークを追加し、ホバーで解説が出るようにした',
+                '版数バッジのクリックで更新履歴を表示'] },
+            { v: '2.8.1', d: '2026-08-15', t: [
+                'ライブ配信の取得状況（判定根拠・ポーリング回数）を保存するようにした'] },
+            { v: '2.8.0', d: '2026-08-15', t: [
+                '配信中のライブチャットに対応。到着順にコメント欄と流しへ反映',
+                '⚠️ ライブ枠は一括シークの対象外（同期しません）'] },
+            { v: '2.7.5', d: '2026-08-15', t: [
+                'メンバー限定アーカイブのコメントを取得できるようにした（認証ヘッダの追加）',
+                '取得できない理由の表示も追加'] },
+            { v: '2.7.4', d: '2026-08-07', t: [
+                '再生できなかったときに、枠内へ理由の候補を表示するようにした'] },
+            { v: '2.7.3', d: '2026-08-04', t: [
+                '自動デバッグ基盤を追加（開発用。通常は表に出ません）'] },
+            { v: '2.7.2', d: '2026-08-03', t: [
+                'コメント関係の設定を「💬 コメント設定」として独立メニュー化'] },
+            { v: '2.7.1', d: '2026-08-02', t: [
+                '読み込んだ動画URLが再読み込みで消える不具合を修正',
+                'コメント流しの調整UIを追加'] },
+            { v: '2.7.0', d: '2026-07-31', t: [
+                '🎉 ニコニコ風コメント流しを追加',
+                '版数バッジに「YouTube権限なし」を追加'] },
+            { v: '2.6.5', d: '2026-07-29', t: [
+                '取得は成功したがコメントが0件のときに、専用の表示を出すようにした'] },
+            { v: '2.6.4', d: '2026-07-28', t: [
+                '取得に失敗した理由（メンバー限定・アーカイブでない・チャット無効）を出し分けるようにした'] },
+            { v: '2.6.3', d: '2026-07-27', t: [
+                '取得済みコメントをブラウザ内に保存（2回目以降は即座に表示）'] },
+            { v: '2.6.2', d: '2026-07-26', t: [
+                '外部ヘルパー（Python / yt-dlp）を完全撤去。ブラウザだけで動くようになった'] },
+            { v: '2.6.1', d: '2026-07', t: [
+                '取得用タブをタブ一覧から隠蔽／取得タブの破棄方針を設定可能に',
+                'チャット欄幅の全枠連動'] },
+            { v: '2.6.0', d: '2026-07', t: [
+                'コメント取得をブラウザ単体（InnerTube 直接取得）へ転換',
+                '先頭が届いた瞬間から表示開始'] },
+            { v: '2.5.1', d: '2026-06', t: [
+                'チャット欄の文字サイズを枠ごとに調整（A- / A+）'] },
+            { v: '2.5.0', d: '2026-06', t: [
+                'アーカイブチャットの自前描画。再生位置・シークへ完全追従'] },
+            { v: '2.4.3', d: '2026-06', t: [
+                '一括シークの精密同期（ローカル動画のデコード待ちと YouTube の先行再生を組み合わせた時間差再開）'] },
+            { v: '2.4.2', d: '2026-05', t: [
+                '全枠の完全対等化（ベース枠の廃止）／📌ピン留めで枠を4倍に',
+                '押し上げ式コントローラーと🔒ロック／マイリスト・セッション保存／版数バッジ'] },
+            { v: '2.4.1', d: '─', gap: true, t: [
+                '欠番（➕送信ボタンの不具合により撤回）'] },
+            { v: '2.4.0', d: '2026-05', t: [
+                'YouTubeページへ「➕送信」ボタンを注入／重複判定と自動増枠'] },
+            { v: '2.3.0', d: '2026-05', t: [
+                'ブラウザ拡張機能との連携を確立。別タブの配信サイトへ一括操作を送れるようになった'] },
+            { v: '2.2.0', d: '2026-04', t: [
+                '枠の動的増減と差し替え／2窓時の並び方向',
+                '再生速度の一括変更／ディレイスタート'] },
+            { v: '2.0.0', d: '2026-04', t: [
+                'UI全面刷新。画面いっぱいのレイアウト／上部プルダウン設定／下部オーバーレイ一括コントローラー'] },
+            { v: '1.0.0', d: '2026-03', t: [
+                '初版。YouTube複数窓の一括制御／ローカル動画枠／同期タイマー／URLの自動保存'] }
+        ];
+
+        function renderAppHistory() {
+            const box = document.getElementById('historyBody');
+            if (!box) return;
+            box.innerHTML = '';
+            APP_HISTORY.forEach(function (h) {
+                const entry = document.createElement('div');
+                entry.className = 'history-entry'
+                    + (h.gap ? ' gap' : '')
+                    + (h.v === APP_VERSION ? ' current' : '');
+                const head = document.createElement('div');
+                head.className = 'history-head';
+                const ver = document.createElement('span');
+                ver.className = 'history-ver';
+                ver.textContent = (h.gap ? '❌ v' : 'v') + h.v;
+                const date = document.createElement('span');
+                date.className = 'history-date';
+                date.textContent = h.d;
+                head.appendChild(ver);
+                head.appendChild(date);
+                const ul = document.createElement('ul');
+                ul.className = 'history-list';
+                (h.t || []).forEach(function (line) {
+                    const li = document.createElement('li');
+                    /* 🔴 innerHTML を使わない（8-3節のセキュリティ要件と同じ扱い）。 */
+                    li.textContent = line;
+                    ul.appendChild(li);
+                });
+                entry.appendChild(head);
+                entry.appendChild(ul);
+                box.appendChild(entry);
+            });
+            /* 🔴 履歴の先頭と APP_VERSION の食い違いを起動時に知らせる。
+               「更新履歴は放っておくと必ず失効する」への機械的な歯止め。 */
+            const head0 = APP_HISTORY.length ? APP_HISTORY[0].v : '(空)';
+            if (head0 !== APP_VERSION) {
+                console.warn('【コントローラー】更新履歴の先頭 v' + head0
+                    + ' が APP_VERSION v' + APP_VERSION + ' と一致していません。'
+                    + '版を切ったら履歴へ1行足してください。');
+            }
+        }
+
+        /* 📜 更新履歴のドロップダウン。他のトップメニューと同じ作法で開閉する。
+           排他制御は TOP_MENUS への登録だけで済ませ、closeTopMenus() に分岐を足さない。 */
+        function toggleHistoryMenu() {
+            const panel = document.getElementById('historyMenu');
+            const btn = document.getElementById('versionBadge');
+            if (!panel || !btn) return;
+            const willOpen = !panel.classList.contains('open');
+            closeTopMenus(null);
+            if (willOpen) {
+                panel.classList.add('open');
+                btn.classList.add('active');
+            }
+        }
+
         /* トップバーのメニューは同時に1つしか開かない。
            ★v2.7.2: 2枚のときは互いを名指しで閉じていたが、3枚目を足すと
            組み合わせが増えて閉じ忘れが出るため、ここへ集約した。
@@ -1050,9 +1387,15 @@
         const TOP_MENUS = [
             { panel: 'sessionContainer',  btn: 'topSessionBtn' },
             { panel: 'settingsContainer', btn: 'topSettingsBtn', arrow: 'topSettingsArrow' },
-            { panel: 'commentMenu',       btn: 'topCommentBtn' }
+            { panel: 'commentMenu',       btn: 'topCommentBtn' },
+            /* ★v2.8.2: 📜 更新履歴。ボタンの役目は版数バッジが兼ねる。
+               ⚠️ .version-badge.active には色の指定を置かないこと（R2 ─ 緑/橙/赤の意味を壊す）。 */
+            { panel: 'historyMenu',       btn: 'versionBadge' }
         ];
         function closeTopMenus(exceptId) {
+            /* ★v2.8.2: パネルを閉じたらツールチップも消す。
+               消し忘れると、パネルが無くなったあとも画面に残る。 */
+            hideHelpTip();
             TOP_MENUS.forEach(function (m) {
                 if (m.panel === exceptId) return;
                 const panel = document.getElementById(m.panel);
