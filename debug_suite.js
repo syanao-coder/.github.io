@@ -38,7 +38,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.6.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.6.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.2';
@@ -664,7 +664,15 @@
     }
 
     function buildUI() {
-        var commentAnchor = document.querySelector('.topmenu-anchor');
+        /* 🔴 ★v1.6.1: DOM順で最初の .topmenu-anchor を拾ってはいけない。
+
+           v2.8.2 で版数バッジが .topmenu-anchor（#versionAnchor）で包まれ、
+           「最初のアンカー」がトップバー左端のバッジになった。その直前へ 🐞 を入れた結果、
+           right:0 で開く幅420pxのパネルが画面の左外へはみ出して押せなくなった。
+           ⚠️ 挿入位置は必ずボタンのIDから引く。並び順が変わっても壊れない。 */
+        var commentBtn = document.getElementById('topCommentBtn');
+        var commentAnchor = (commentBtn && commentBtn.closest)
+            ? commentBtn.closest('.topmenu-anchor') : null;
         var topBar = document.querySelector('.top-bar');
         if (!topBar) { console.warn('[debug_suite] .top-bar が見つかりません。UIを作れません。'); return false; }
 
@@ -825,7 +833,9 @@
             + '配信中のライブの動画IDは最初の1回だけ聞き、12時間は覚えています。'
             + '★v1.6.0: v2.8.2 の判定（D-H1〜D-H5 / D-N1〜D-N5 / D-R1）は '
             + '準備が要らないので「▶ すべて実行」に含まれます。'
-            + 'D-M2 はトップメニューが5枚（🐞 / 📜 / 💬 / 📂 / ▼）になり 30遷移・34判定へ増えました。';
+            + 'D-M2 はトップメニューが5枚（🐞 / 📜 / 💬 / 📂 / ▼）になり 30遷移・34判定へ増えました。'
+            + '★v1.6.1: 🐞 の挿入位置をボタンIDから引くよう直し、'
+            + 'パネルが画面外へはみ出していないかを D-N6 で測るようにしました。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1832,6 +1842,56 @@
         expect('active が残っていない', badge.classList.contains('active'), false);
 
         note('バッジの見た目', JSON.stringify(before));
+    }
+
+
+    /* --- D-N6: すべてのトップメニューが画面内に収まる（★v1.6.1） ----------
+
+       2026-08-18 の事故の再発防止。
+       .topmenu-dropdown は right:0 で開くので、アンカーが画面の左寄りにあると
+       パネルが左外へはみ出す。「開くこと」は測れていても「押せること」は別である。
+       ---------------------------------------------------------------------- */
+
+    async function testN6() {
+        await closeAllMenus();
+
+        pc('5枚すべてのボタンとパネルを取得できる', function () {
+            var miss = MENUS.filter(function (m) {
+                return !document.getElementById(m.btn) || !document.getElementById(m.panel);
+            });
+            return miss.length ? false : MENUS.length + '枚';
+        });
+        pc('画面内かどうかの判定器が「外」を落とす', function () {
+            return inViewport({ left: -10, top: 0, right: 100, bottom: 100 }) === false
+                ? 'false を返した' : false;
+        });
+
+        var details = [];
+        for (var i = 0; i < MENUS.length; i++) {
+            var m = MENUS[i];
+            await setMenuState(m.id);
+            var pr = rect(document.getElementById(m.panel));
+            var out = [];
+            if (pr.left < 0) out.push('左へ ' + (-pr.left) + 'px');
+            if (pr.right > window.innerWidth) out.push('右へ ' + (pr.right - window.innerWidth) + 'px');
+            if (pr.top < 0) out.push('上へ ' + (-pr.top) + 'px');
+            expect('画面内に収まる: ' + m.label,
+                out.length ? out.join(' / ') : '収まる', '収まる');
+            details.push(m.label + '=[' + pr.left + ',' + pr.right + ']');
+        }
+        await closeAllMenus();
+
+        /* 並び順（🐞 は 💬 の直前に入る設計）。ずれていても押せるなら不合格にはしない。 */
+        var dbg = document.getElementById('topDebugBtn');
+        var cmt = document.getElementById('topCommentBtn');
+        var order = '(片方なし)';
+        if (dbg && cmt) {
+            var a = dbg.closest('.topmenu-anchor'), b = cmt.closest('.topmenu-anchor');
+            order = (a && b && a.nextElementSibling === b) ? '🐞 の直後が 💬' : '離れている';
+        }
+        note('🐞 の挿入位置', order);
+        note('各パネルの左右', details.join(' / '));
+        note('画面幅', window.innerWidth + 'px');
     }
 
     /* --- D-R1: 既存操作への非干渉（回帰）--------------------------------- */
@@ -3669,6 +3729,7 @@
         { id: 'D-N3', name: '履歴の中身', run: testN3 },
         { id: 'D-N4', name: '履歴の縦スクロール', run: testN4 },
         { id: 'D-N5', name: 'バッジの既存の役割が変わっていない', run: testN5 },
+        { id: 'D-N6', name: '全メニューのパネルが画面内に収まる', run: testN6 },
         { id: 'D-R1', name: '既存操作への非干渉（回帰）', run: testR1 },
         { id: 'D-M2', name: 'トップメニューの排他制御（全遷移・5枚）', run: testM2 },
         { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
