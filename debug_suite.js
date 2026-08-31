@@ -23,7 +23,8 @@
                 hasAdvanced / breakdownOf / normalizeChoices / expect / pc / note）
      ブロック3  UI生成（CSS注入・トップバーのボタン・ドロップダウン・ログ・ask / メモ）
      ブロック4  テスト登録（D-X1 / D-X2 / D-V1 / D-M2 / D-M7 / D-E1 / D-P1〜D-P5 /
-                ★v1.4.2: D-C1〜D-C11 ＝ チャット取得（v2.7.5 の検証用））
+                ★v1.4.2: D-C1〜D-C11 ＝ チャット取得（v2.7.5 の検証用）/
+                ★v1.7.0: D-G1〜D-G6 ＝ コメント配列の破棄（v2.8.3 の検証用））
 
    ★v1.4.0 の方針
      🔴 人に「ログのどこを読め」と言わせない。判定はすべてコードが出し、
@@ -38,10 +39,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.6.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.7.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.2';
+    var EXPECT_APP_VERSION = '2.8.3';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -774,6 +775,22 @@
                     + 'このタブを閉じずにお待ちください。');
             }));
         panel.appendChild(row4);
+
+        /* ★v1.7.0: D-G（コメント配列の破棄）。
+           🔴 ボタンは1つだけにする。手順書の1項目＝ボタン1つに対応させるため（鉄則 #39）。 */
+        var row4g = document.createElement('div');
+        row4g.className = 'dbg-row';
+        row4g.appendChild(mkBtn('♻ D-G 解放一括（G1→G2→G3→G4→G5→G6）',
+            '枠の削除・空にする・枠数減・流しだけON の各経路で、コメント配列が正しく捨てられる／捨てられないことを測ります（8〜15分）',
+            function () {
+                runChatGroup('♻ D-G 解放一括',
+                    ['D-G1', 'D-G2', 'D-G3', 'D-G4', 'D-G5', 'D-G6'],
+                    'このあと D-G1 〜 D-G6 を続けて実行します（8〜15分）。\n'
+                    + '枠の追加・削除・動画の読み込みはテストのコードが自動で行います。\n'
+                    + '途中で枠や設定を操作せず、そのままお待ちください。\n'
+                    + 'キャッシュもテストのコードが必要なところで自動的に捨てます。');
+            }));
+        panel.appendChild(row4g);
 
         /* ★v1.5.0: D-L（ライブ配信）。動画IDは最初の1回だけ聞き、以降は持ち回す。
            🔴 ボタンは2つだけにする。手順書の1項目＝ボタン1つに対応させるため。 */
@@ -2743,7 +2760,10 @@
         MEMBERS: 'AoaL9zbPAkA',   /* メンバー限定 / 7307秒。★本命 */
         SAMECH:  'NshKf1Pw9nA',   /* MEMBERS と同一チャンネルの公開 / 3:13:09 */
         REGULAR: 'J-TXiDsIdv0',   /* ライブではない通常の投稿動画（9分31秒） */
-        HEAVY:   'q176a2krHbg'    /* 52,362件 / 129.5分。所要時間の参考値用 */
+        HEAVY:   'q176a2krHbg',   /* 52,362件 / 129.5分。所要時間の参考値用 */
+        /* ★v1.7.0: D-G2 の「別の動画」側。902件 / 101.3分 ＝ 0.15件/秒。
+           ⚠️ 薄いので流しの検証には使わない（鉄則 #14）。 */
+        MID:     'd3bgw8r84mA'
     };
     function ytUrl(id) { return 'https://www.youtube.com/watch?v=' + id; }
 
@@ -3753,6 +3773,547 @@
             ['ずっと流れていた', '途中で止まった', '見ていなかった']);
     }
 
+    /* ======================================================================
+       ★v1.7.0: D-G ─ 参照されなくなったコメント配列の破棄（v2.8.3）
+
+       🔴 この群でいちばん起こりやすい誤判定は「無かったものを『消えた』と読む」ことである。
+          そのため、どの項目でも
+            ・chatStore を名前で読めていること
+            ・測る前にその videoId が実在したこと
+          を positive control として必ず先に出す。
+       🔴 「残っていること」を見る項目（D-G2 / D-G5）は、それだけでは
+          「解放処理が動いていない」場合でも合格に見える。
+          参照の無いダミーを1件置き、それが消えたことを PC にして
+          「解放処理が実際に走った」ことを担保する。
+       ⚠️ chatStore / chatState / chatError / chatInflight は本体の let（グローバル
+          レキシカル環境）なので window からは読めない。名前で直接参照し TDZ 対策で try/catch。
+       ====================================================================== */
+
+    var ORPHAN_ID = '__debug_orphan_g__';   /* どの枠も参照しない、捨てられるべきダミー */
+
+    function storeKeys() {
+        try { return (typeof chatStore !== 'undefined') ? Object.keys(chatStore) : null; }
+        catch (e) { return null; }
+    }
+    function hasStore(vid) {
+        var k = storeKeys();
+        return !!(k && k.indexOf(vid) >= 0);
+    }
+    function inflightOf(vid) {
+        try { return (typeof chatInflight !== 'undefined') ? (chatInflight[vid] || null) : null; }
+        catch (e) { return null; }
+    }
+    function loadedVidOf(cid) {
+        try { return (typeof chatLoadedVideoId !== 'undefined') ? (chatLoadedVideoId[cid] || null) : null; }
+        catch (e) { return null; }
+    }
+    function chatOpenOf(cid) {
+        try { return !!(typeof chatVisible !== 'undefined' && chatVisible[cid]); }
+        catch (e) { return false; }
+    }
+    function flowOnOf(cid) {
+        try { return !!(typeof flowVisible !== 'undefined' && flowVisible[cid]); }
+        catch (e) { return false; }
+    }
+    function cardCount() {
+        try { return (typeof activeCardIds !== 'undefined') ? activeCardIds.length : 0; }
+        catch (e) { return 0; }
+    }
+    function lastCard() {
+        try {
+            if (typeof activeCardIds !== 'undefined' && activeCardIds.length) {
+                return activeCardIds[activeCardIds.length - 1];
+            }
+        } catch (e) { }
+        return null;
+    }
+
+    /* 参照の無いダミーを置く。解放処理が走ったかどうかの唯一の裏づけになる。 */
+    function seedOrphan() {
+        try {
+            chatStore[ORPHAN_ID] = {
+                comments: [], emoji: {}, source: 'debug_suite',
+                complete: true, truncated: false, gap: false,
+                videoMs: 0, lastT: 0, nextSeq: 0, live: false
+            };
+            chatState[ORPHAN_ID] = 'ready';
+        } catch (e) { }
+        return hasStore(ORPHAN_ID);
+    }
+    function dropOrphan() {
+        try { delete chatStore[ORPHAN_ID]; delete chatState[ORPHAN_ID]; } catch (e) { }
+    }
+
+    /* 枠を n 枠以上にする。実際に ➕ を押す（関数の直呼びで代用しない）。 */
+    async function ensureCardCount(n) {
+        var plus = document.getElementById('topCountPlus');
+        var guard = 0;
+        while (cardCount() < n && guard < 10) {
+            if (!plus) break;
+            await clickReal(plus);
+            await wait(500);
+            guard++;
+        }
+        return cardCount();
+    }
+
+    /* 枠数を1つ減らす。消えるのは activeCardIds の末尾の枠。 */
+    async function shrinkCardCount() {
+        var minus = document.getElementById('topCountMinus');
+        var r = await clickReal(minus);
+        await wait(800);
+        return r;
+    }
+
+    /* 🗑 を実際に押して枠を削除する。確認ダイアログは一時的に切る（保存はしない）。
+       ⚠️ 枠のヘッダーは押し下げ式で、マウスが枠外にあると被覆ありと出るのが正常。
+          判定は「枠が実際に消えたか」で行い、当たり判定は note に残す。 */
+    async function deleteCard(cid) {
+        var chk = document.getElementById('confirmDelete');
+        var was = chk ? chk.checked : null;
+        if (chk) chk.checked = false;
+        var btn = document.querySelector('#' + cid + ' .player-header .delete-btn');
+        var r = { blocked: true, reason: 'button-null', hit: '(ボタンが無い)', clicked: false };
+        if (btn) r = await clickReal(btn);
+        await wait(700);
+        if (chk && was !== null) chk.checked = was;
+        return { ok: !document.getElementById(cid), click: r };
+    }
+
+    /* 枠へ動画を入れ、チャット欄を開き、キャッシュを捨ててから完走まで待つ。
+       opt = { cid, videoId, skipReload, waitMs, needSettled } */
+    async function prepareChatCard(opt) {
+        var cleared = await clearCard(opt.cid);
+        pc('枠を「URL入力待ち」にできた（' + opt.cid + '）', function () { return cleared ? 'ok' : false; });
+        if (!cleared) return false;
+
+        var ld = await loadUrlIntoCard(opt.cid, ytUrl(opt.videoId));
+        expect('「読み込む」を実際に押せた（被覆なし / ' + opt.cid + '）',
+            ld.ok ? 'ok' : ('blocked:' + ld.reason), 'ok');
+
+        var pane = await openChatPane(opt.cid);
+        pc('チャット欄を開けた（' + opt.cid + '）', function () { return pane.ok ? 'ok' : false; });
+        if (!pane.ok) return false;
+
+        if (!opt.skipReload) {
+            /* 🔴 キャッシュを捨ててから測る。残っていると取得エンジンを通らない。 */
+            var rb = chatReloadBtn(opt.cid);
+            var r2 = await clickReal(rb);
+            pc('🔄（キャッシュを捨てて取り直す）を実際に押せた（' + opt.cid + '）', function () {
+                return (rb && !r2.blocked) ? 'ok' : false;
+            });
+        }
+        if (opt.needSettled !== false) {
+            var w = await waitChatSettled(opt.videoId, opt.waitMs || CHAT_WAIT_MS);
+            pc('取得が終端（ready / error）まで到達した（' + opt.videoId + '）', function () {
+                return w.ok ? (w.value + ' / ' + Math.round(w.waitedMs / 1000) + '秒') : false;
+            });
+        }
+        return true;
+    }
+
+    /* 全項目で共通の「読めていること」の裏づけ。読めていないと全部0件になり、
+       壊れていないのに全部合格に見える。 */
+    function pcStoreReadable() {
+        pc('🔴 chatStore を名前で読めている（読めないと全項目が0件になり誤って合格に見える）',
+            function () {
+                var k = storeKeys();
+                return k ? ('キー ' + k.length + '件') : false;
+            });
+    }
+
+    /* --- D-G1: 🗑 枠の削除で解放される --------------------------------------- */
+    async function testG1() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] 枠を削除したとき、その動画のコメント配列が捨てられること。');
+        pcStoreReadable();
+
+        var started = cardCount();
+        await ensureCardCount(2);
+        pc('枠が2つ以上ある（削除しても1枠残る）', function () {
+            return cardCount() >= 2 ? (cardCount() + '枠') : false;
+        });
+        var cid = lastCard();
+        pc('削除する枠を特定できた', function () { return cid || false; });
+        if (!cid || cardCount() < 2) {
+            expect('この項目の実行', '枠を2つ用意できない', '2枠以上あること');
+            return;
+        }
+
+        var okPrep = await prepareChatCard({ cid: cid, videoId: VID.LIGHT });
+        if (!okPrep) { expect('この項目の実行', '準備できない', '準備できること'); return; }
+
+        pc('🔴 削除する前に、その videoId が chatStore に実在した', function () {
+            return hasStore(VID.LIGHT) ? (countOf(VID.LIGHT) + '件') : false;
+        });
+        note('削除前の chatStore のキー数', (storeKeys() || []).length);
+        note('総件数（参考: 2026-08-31 時点の既知値は 356件）', countOf(VID.LIGHT));
+
+        var del = await deleteCard(cid);
+        pc('枠が実際に削除された', function () { return del.ok ? '枠のDOMが無くなった' : false; });
+        note('🗑 を押したときの当たり判定',
+            (del.click.blocked ? '被覆あり / ' : '被覆なし / ') + (del.click.hit || '(記録なし)'));
+        await wait(400);
+
+        expect('chatStore から消えたこと', hasStore(VID.LIGHT), false);
+        expect('chatState から消えたこと', chatStateOf(VID.LIGHT), '(未取得)');
+        expect('取得も残っていないこと（chatInflight）', inflightOf(VID.LIGHT) ? 'あり' : 'なし', 'なし');
+        note('削除後の chatStore のキー数', (storeKeys() || []).length);
+
+        await ensureCardCount(started);
+    }
+
+    /* --- D-G2: 🔴 他の枠が同じ動画を使っている間は解放しない（最重要） --------- */
+    async function testG2() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] 参照が1つでも残っていれば捨てないこと。ここを誤ると表示が壊れる。');
+        pcStoreReadable();
+
+        var started = cardCount();
+        await ensureCardCount(2);
+        var cidA = firstCard();
+        var cidB = lastCard();
+        pc('別々の2枠を確保できた', function () {
+            return (cidA && cidB && cidA !== cidB) ? (cidA + ' / ' + cidB) : false;
+        });
+        if (!cidA || !cidB || cidA === cidB) {
+            expect('この項目の実行', '枠を2つ用意できない', '2枠以上あること');
+            return;
+        }
+
+        var okA = await prepareChatCard({ cid: cidA, videoId: VID.LIGHT });
+        /* 2枠目はキャッシュから戻るので 🔄 を押さない（同じ動画を2枠で使う状態を作るのが目的）。 */
+        var okB = await prepareChatCard({ cid: cidB, videoId: VID.LIGHT, skipReload: true });
+        if (!okA || !okB) { expect('この項目の実行', '準備できない', '準備できること'); return; }
+
+        /* 🔴 順序で担保しない。2枠が同じ videoId を指していることを観測する（鉄則 #24）。 */
+        pc('🔴 2枠が同じ videoId を指している（観測で担保する）', function () {
+            var a = loadedVidOf(cidA), b = loadedVidOf(cidB);
+            return (a === VID.LIGHT && b === VID.LIGHT) ? (a + ' / ' + b) : ('A=' + a + ' / B=' + b);
+        });
+        pc('🔴 削除する前に、その videoId が chatStore に実在した', function () {
+            return hasStore(VID.LIGHT) ? (countOf(VID.LIGHT) + '件') : false;
+        });
+
+        var before = countOf(VID.LIGHT);
+        note('削除前の総件数', before);
+        note('削除前の chatStore のキー数', (storeKeys() || []).length);
+        pc('参照の無いダミーを置けた（解放処理が走ったことの裏づけに使う）', function () {
+            return seedOrphan() ? ORPHAN_ID : false;
+        });
+
+        var del = await deleteCard(cidB);
+        pc('枠Bが実際に削除された', function () { return del.ok ? '枠のDOMが無くなった' : false; });
+        await wait(400);
+
+        pc('🔴 解放処理が実際に走った（参照の無いダミーが消えた）', function () {
+            return hasStore(ORPHAN_ID) ? false : 'ダミーは捨てられた';
+        });
+        expect('🔴 もう一方の枠が使っている動画は残っていること', hasStore(VID.LIGHT), true);
+        expect('コメントの件数が減っていないこと', countOf(VID.LIGHT), before);
+        expect('chatState が ready のままであること', chatStateOf(VID.LIGHT), 'ready');
+        expect('残った枠のチャット欄が元の動画を指したままであること', loadedVidOf(cidA), VID.LIGHT);
+        note('削除後の chatStore のキー数', (storeKeys() || []).length);
+
+        dropOrphan();
+        await ensureCardCount(started);
+    }
+
+    /* --- D-G3: 🧹 枠を空にすると解放され、取得も止まる ------------------------ */
+    async function testG3() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] 枠を空にしたとき、取得を止めてから捨てること。');
+        log('  [なぜ重い動画を使うか] 軽い動画は押す前に完走してしまい、「止まった」を測れない。');
+        pcStoreReadable();
+
+        var cid = firstCard();
+        pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+        if (!cid) { expect('この項目の実行', '枠が1つも無い', '枠が1つ以上あること'); return; }
+
+        /* 完走は待たない。取得が走っている最中に 🧹 を押すのがこの項目の目的。 */
+        var okPrep = await prepareChatCard({ cid: cid, videoId: VID.HEAVY, needSettled: false });
+        if (!okPrep) { expect('この項目の実行', '準備できない', '準備できること'); return; }
+
+        var iw = await waitFor(function () {
+            return inflightOf(VID.HEAVY) ? 'あり' : false;
+        }, 60000, 500);
+        pc('🔴 押す前に取得が走っていた（走っていないと「止まった」を測れない）', function () {
+            return iw.ok ? ('chatInflight にあり / ' + Math.round(iw.waitedMs / 1000) + '秒待った') : false;
+        });
+
+        var cw = await waitFor(function () {
+            var n = countOf(VID.HEAVY);
+            return n > 0 ? n : false;
+        }, 120000, 500);
+        pc('コメントが実際に届き始めていた', function () {
+            return cw.ok ? (cw.value + '件') : false;
+        });
+        note('🧹 を押す直前の件数', countOf(VID.HEAVY));
+        note('🧹 を押す直前の chatState', chatStateOf(VID.HEAVY));
+
+        var cleared = await clearCard(cid);   /* 🧹 を実際に押す */
+        pc('🧹（枠を空にする）で枠が空になった', function () { return cleared ? 'ok' : false; });
+        await wait(400);
+
+        expect('取得が止まっていること（chatInflight から消えた）',
+            inflightOf(VID.HEAVY) ? 'あり' : 'なし', 'なし');
+        expect('chatStore から消えたこと', hasStore(VID.HEAVY), false);
+        expect('chatState から消えたこと', chatStateOf(VID.HEAVY), '(未取得)');
+
+        /* 🔴 中止のあとに届いたチャンクで store が作り直されると、断片だけが残る。 */
+        await wait(3000);
+        expect('🔴 3秒後も作り直されていないこと（遅れて届いたチャンクの再生成）',
+            hasStore(VID.HEAVY), false);
+        note('3秒後の chatStore のキー数', (storeKeys() || []).length);
+    }
+
+    /* --- D-G4: 枠数を減らすと解放される -------------------------------------- */
+    async function testG4() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] ➖ で枠数を減らした経路でも捨てられること。');
+        log('  [補足] この経路は clearChatState() をまったく通らない（別の後始末になっている）。');
+        pcStoreReadable();
+
+        var started = cardCount();
+        await ensureCardCount(2);
+        var cid = lastCard();
+        pc('枠が2つ以上ある', function () { return cardCount() >= 2 ? (cardCount() + '枠') : false; });
+        if (!cid || cardCount() < 2) {
+            expect('この項目の実行', '枠を2つ用意できない', '2枠以上あること');
+            return;
+        }
+
+        var okPrep = await prepareChatCard({ cid: cid, videoId: VID.LIGHT });
+        if (!okPrep) { expect('この項目の実行', '準備できない', '準備できること'); return; }
+
+        pc('🔴 減らす前に、その videoId が chatStore に実在した', function () {
+            return hasStore(VID.LIGHT) ? (countOf(VID.LIGHT) + '件') : false;
+        });
+        pc('対象が最後の枠である（➖ で消えるのは最後の枠）', function () {
+            return (lastCard() === cid) ? cid : false;
+        });
+        note('減らす前の枠数', cardCount());
+        note('減らす前の chatStore のキー数', (storeKeys() || []).length);
+
+        var before = cardCount();
+        await shrinkCardCount();
+        pc('枠が実際に減った', function () {
+            return (!document.getElementById(cid) && cardCount() < before)
+                ? (before + '枠 → ' + cardCount() + '枠') : false;
+        });
+
+        expect('chatStore から消えたこと', hasStore(VID.LIGHT), false);
+        expect('chatState から消えたこと', chatStateOf(VID.LIGHT), '(未取得)');
+        expect('取得も残っていないこと（chatInflight）', inflightOf(VID.LIGHT) ? 'あり' : 'なし', 'なし');
+        note('減らした後の chatStore のキー数', (storeKeys() || []).length);
+
+        await ensureCardCount(started);
+    }
+
+    /* --- D-G5: 🔴 流しだけONの枠の動画は解放しない（罠の検出） ----------------- */
+    async function testG5() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] チャット欄を閉じ 🌊 だけONにした枠のコメントを捨てないこと。');
+        log('  [なぜ重い動画を使うか] 薄い素材だと正常でも画面上0件になり、判定が成立しない。');
+        pcStoreReadable();
+
+        var started = cardCount();
+        await ensureCardCount(2);
+        var cidA = firstCard();   /* 流しだけONにする枠（守られる側） */
+        var cidB = lastCard();    /* 削除して解放処理を走らせる枠 */
+        pc('別々の2枠を確保できた', function () {
+            return (cidA && cidB && cidA !== cidB) ? (cidA + ' / ' + cidB) : false;
+        });
+        if (!cidA || !cidB || cidA === cidB) {
+            expect('この項目の実行', '枠を2つ用意できない', '2枠以上あること');
+            return;
+        }
+
+        /* 🔴 ここでは 🔄 を押さない。キャッシュがあればそのまま使う（測るのは解放であって取得ではない）。 */
+        var okPrep = await prepareChatCard({
+            cid: cidA, videoId: VID.HEAVY, skipReload: true, needSettled: false
+        });
+        if (!okPrep) { expect('この項目の実行', '準備できない', '準備できること'); return; }
+
+        var w = await waitFor(function () {
+            var n = countOf(VID.HEAVY);
+            return n >= 2000 ? n : false;
+        }, 240000, 1000);
+        pc('流しを測れるだけコメントが届いた（2000件以上）', function () {
+            return w.ok ? (w.value + '件') : false;
+        });
+        var store = chatStoreOf(VID.HEAVY);
+        if (!store || store.comments.length < 2000) {
+            expect('この項目の実行', 'コメントが足りず流しを測れない', '2000件以上届くこと');
+            await ensureCardCount(started);
+            return;
+        }
+        note('取得の状態 chatState', chatStateOf(VID.HEAVY));
+        note('手元の総件数', countOf(VID.HEAVY));
+
+        /* 🔴 素材の密度を先に確かめる（鉄則 #14）。 */
+        var dense = densestWindow(store.comments, 20000);
+        note('最も密な20秒の窓（開始位置ms / 件数）', dense.startMs + ' / ' + dense.count);
+        pc('20秒あたり3件以上ある区間を選べた', function () {
+            return (dense.count >= 3) ? (dense.count + '件/20秒') : false;
+        });
+
+        /* 💬 を閉じ、🌊 だけONにする。これがこの項目の条件そのもの。 */
+        var chatBtn = document.getElementById('chatToggleBtn_' + cidA);
+        if (chatOpenOf(cidA)) { await clickReal(chatBtn); await wait(400); }
+        pc('🔴 チャット欄を閉じられた（流しだけONの状態を作れた）', function () {
+            return chatOpenOf(cidA) ? false : 'chatVisible = false';
+        });
+        var fb = document.getElementById('flowToggleBtn_' + cidA);
+        pc('🌊 ボタンを特定できた', function () { return fb ? describe(fb) : false; });
+        /* ⚠️ 🌊 はトグル。前の実行がオンのまま終わっていると押した結果オフになる。 */
+        var flowWas = flowOnOf(cidA);
+        note('🌊 を押す前の状態', flowWas ? 'すでにオン（押さない）' : 'オフ（これから押す）');
+        if (!flowWas) { await clickReal(fb); await wait(400); }
+        pc('🌊（コメントを流す）がオンになった', function () {
+            return flowOnOf(cidA) ? 'flowVisible = true' : false;
+        });
+
+        var seekSec = Math.max(0, Math.round(dense.startMs / 1000) - 1);
+        try { ytPlayers[cidA].seekTo(seekSec, true); } catch (e) { }
+        log('  [操作] 濃い区間へシークした: ' + seekSec + '秒');
+        var sk = await waitFor(function () {
+            var t = 0;
+            try { t = ytPlayers[cidA].getCurrentTime() || 0; } catch (e) { t = 0; }
+            return (Math.abs(t - seekSec) < 5) ? t : false;
+        }, 20000, 500);
+        pc('シークが完了した（要求位置の±5秒以内）', function () {
+            return sk.ok ? ('現在位置 = ' + sk.value + '秒') : false;
+        });
+
+        await clickReal(document.getElementById('playPauseBtn'));
+        var startPos = 0;
+        try { startPos = ytPlayers[cidA].getCurrentTime() || 0; } catch (e) { startPos = 0; }
+        var adv = await waitFor(function () {
+            var s = 'ERR', c = 0;
+            try { s = ytPlayers[cidA].getPlayerState(); } catch (e) { s = 'ERR'; }
+            try { c = ytPlayers[cidA].getCurrentTime() || 0; } catch (e) { c = 0; }
+            return hasAdvanced(startPos, c, s) ? ('位置 ' + c + ' / state ' + s) : false;
+        }, 30000, 500);
+        pc('動画が実際に再生された（再生しないと流しは進まない）', function () {
+            return adv.ok ? adv.value : false;
+        });
+
+        function layerCount() {
+            var l = document.getElementById('flowLayer_' + cidA);
+            return l ? l.childElementCount : 0;
+        }
+
+        /* 🔴 解放の前に、実際に描画されていることを確かめる（鉄則 #11）。
+           これが無いと「元から流れていなかった」のか「解放で消えた」のかを区別できない。 */
+        var s1 = await sample(250, 12, layerCount);
+        note('解放前の画面上コメント数（250ms × 12回）',
+            'min=' + s1.min + ' / max=' + s1.max + ' / avg=' + s1.avg + ' / 0件だった回数=' + s1.zeros);
+        pc('🔴 解放の前に流しが実際に描画されていた（件数を数えるだけでは画面に出ているか分からない）',
+            function () { return s1.max > 0 ? ('最大 ' + s1.max + '件') : false; });
+
+        var beforeN = countOf(VID.HEAVY);
+        note('解放前の総件数', beforeN);
+        pc('参照の無いダミーを置けた（解放処理が走ったことの裏づけに使う）', function () {
+            return seedOrphan() ? ORPHAN_ID : false;
+        });
+
+        /* 解放処理を実際の経路で走らせる（枠Bを削除する）。 */
+        var del = await deleteCard(cidB);
+        pc('枠Bが実際に削除された（解放処理の契機）', function () {
+            return del.ok ? '枠のDOMが無くなった' : false;
+        });
+        await wait(400);
+        pc('🔴 解放処理が実際に走った（参照の無いダミーが消えた）', function () {
+            return hasStore(ORPHAN_ID) ? false : 'ダミーは捨てられた';
+        });
+
+        expect('🔴 流しだけONの枠の動画が残っていること', hasStore(VID.HEAVY), true);
+        expect('コメントの件数が減っていないこと', countOf(VID.HEAVY) >= beforeN, true);
+
+        var s2 = await sample(250, 12, layerCount);
+        note('解放後の画面上コメント数（250ms × 12回）',
+            'min=' + s2.min + ' / max=' + s2.max + ' / avg=' + s2.avg + ' / 0件だった回数=' + s2.zeros);
+        expect('🔴 解放のあとも流れているコメントが0件にならないこと', s2.max, gtZero);
+
+        /* 止まっていないことの補足。合否は付けない。 */
+        function firstX() {
+            var l = document.getElementById('flowLayer_' + cidA);
+            var c = l && l.firstElementChild;
+            if (!c) return null;
+            try { return Math.round(c.getBoundingClientRect().left); } catch (e) { return null; }
+        }
+        var x1 = firstX();
+        await wait(500);
+        var x2 = firstX();
+        note('流しの要素が動いているか（500ms間隔の左端px）', x1 + ' → ' + x2);
+
+        await stopAllIfPlaying();
+        dropOrphan();
+        /* 🔴 後始末: 次の実行が「すでにオン」から始まらないようオフへ戻す。 */
+        if (flowOnOf(cidA)) { await clickReal(fb); await wait(300); }
+        note('後始末: 流しの状態', flowOnOf(cidA) ? '★オンのまま残った' : 'オフへ戻した');
+        await ensureCardCount(started);
+    }
+
+    /* --- D-G6: 既存機能の回帰（解放が効きすぎていないこと） -------------------- */
+    async function testG6() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] この版で増えたリスクは「捨てすぎ」である。通常の使い方で消えないことを見る。');
+        pcStoreReadable();
+
+        var started = cardCount();
+        await ensureCardCount(2);
+        var cidA = firstCard();
+        var cidB = lastCard();
+        pc('別々の2枠を確保できた', function () {
+            return (cidA && cidB && cidA !== cidB) ? (cidA + ' / ' + cidB) : false;
+        });
+        if (!cidA || !cidB || cidA === cidB) {
+            expect('この項目の実行', '枠を2つ用意できない', '2枠以上あること');
+            return;
+        }
+
+        var okA = await prepareChatCard({ cid: cidA, videoId: VID.LIGHT });
+        expect('軽いアーカイブの取得が完走したこと', chatStateOf(VID.LIGHT), 'ready');
+        note('軽いアーカイブの総件数（参考: 既知値 356件）', countOf(VID.LIGHT));
+
+        var okB = await prepareChatCard({ cid: cidB, videoId: VID.MID });
+        expect('別の動画の取得が完走したこと', chatStateOf(VID.MID), 'ready');
+        expect('別の動画の総件数が0でないこと', countOf(VID.MID), gtZero);
+        note('別の動画の総件数（参考: 2026-08 時点で 902件）', countOf(VID.MID));
+
+        expect('🔴 2本のコメントが同時に手元へ残ること（解放が効きすぎていないこと）',
+            (hasStore(VID.LIGHT) && hasStore(VID.MID)), true);
+        note('この時点の chatStore のキー数', (storeKeys() || []).length);
+
+        /* 💬 を閉じただけでは捨てない（意図的な設計）。 */
+        var chatBtn = document.getElementById('chatToggleBtn_' + cidA);
+        if (chatOpenOf(cidA)) { await clickReal(chatBtn); await wait(500); }
+        pc('チャット欄を閉じられた', function () {
+            return chatOpenOf(cidA) ? false : 'chatVisible = false';
+        });
+        expect('🔴 チャット欄を閉じても捨てられないこと（意図的な設計）', hasStore(VID.LIGHT), true);
+
+        /* 開き直したときに取り直しになっていないこと。 */
+        await clickReal(chatBtn);
+        await wait(1200);
+        pc('チャット欄を開き直せた', function () {
+            return chatOpenOf(cidA) ? 'chatVisible = true' : false;
+        });
+        expect('開き直しても取り直しになっていないこと（chatState が ready のまま）',
+            chatStateOf(VID.LIGHT), 'ready');
+        expect('チャット欄が元の動画を指していること', loadedVidOf(cidA), VID.LIGHT);
+
+        await ensureCardCount(started);
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -3798,7 +4359,16 @@
         { id: 'D-L4', name: '一括シークの対象外 / ▶一括再生は効く', run: testL4, manual: true },
         { id: 'D-L5', name: 'ライブの流し（到着順）', run: testL5, manual: true },
         { id: 'D-L6', name: '取得タブの維持と設定値の不変', run: testL6, manual: true },
-        { id: 'D-L7', name: '長時間の継続（30分・記録のみ）', run: testL7, manual: true }
+        { id: 'D-L7', name: '長時間の継続（30分・記録のみ）', run: testL7, manual: true },
+        /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
+           🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
+              （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
+        { id: 'D-G1', name: '🗑 枠の削除で解放される', run: testG1, manual: true },
+        { id: 'D-G2', name: '★他の枠が同じ動画を使っている間は解放しない', run: testG2, manual: true },
+        { id: 'D-G3', name: '🧹 枠を空にすると解放され、取得も止まる', run: testG3, manual: true },
+        { id: 'D-G4', name: '枠数を減らすと解放される', run: testG4, manual: true },
+        { id: 'D-G5', name: '★流しだけONの枠の動画は解放しない', run: testG5, manual: true },
+        { id: 'D-G6', name: '既存機能の回帰（捨てすぎていないこと）', run: testG6, manual: true }
     ];
 
     var running = false;

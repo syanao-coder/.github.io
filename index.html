@@ -691,7 +691,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.2';
+        const APP_VERSION = '2.8.3';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1264,6 +1264,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.3', d: '2026-08-31', t: [
+                '枠を削除・空にする・動画を差し替えたときに、使わなくなったコメントを破棄するようにした',
+                'あわせて、どの枠からも参照されなくなったコメントの取得を止めるようにした'] },
             { v: '2.8.2', d: '2026-08-16', t: [
                 '設定の横に ?マークを追加し、ホバーで解説が出るようにした',
                 '版数バッジのクリックで更新履歴を表示'] },
@@ -1496,9 +1499,15 @@
             }
             while (activeCardIds.length > playerCount) {
                 const removeId = activeCardIds.pop();
+                /* ★v2.8.3: 枠ごと消えるので、流しの状態も道連れにする。
+                   ⚠️ この経路は clearChatState() をまったく通らない。 */
+                try { clearFlowState(removeId); } catch (e) { }
                 try { destroyPlayerCard(removeId); } catch (e) { console.error(e); }
             }
             updateCardOrder();
+            /* ★v2.8.3: 🔴 ループの中では呼ばない。
+               枠が減っている途中の集合で判定してしまう。抜けたあとに1回だけ呼ぶ。 */
+            releaseUnusedChatData('枠数の変更');
             updateLayout();
             updateChatLayout();
             updateSkipDisplays();
@@ -1762,6 +1771,17 @@
                 return;
             }
 
+            /* ★v2.8.3: 別の動画へ差し替えるときは、枠ごとの参照を先に切る。
+               ⚠️ loadSingleYT() は updateChatContent() を呼ばない（onReady の 200ms 後に走る）。
+                  そのため、切らずに解放を呼ぶと chatLoadedVideoId が旧 videoId のままで、
+                  「参照あり」と判定されて旧動画は永久に解放されない。
+               ⚠️ 同じ動画の読み直し（🔄 reloadPlayer）では切らない。 */
+            const prevChatVid = chatLoadedVideoId[cardId];
+            if (videoId && prevChatVid && prevChatVid !== videoId) {
+                chatLoadedVideoId[cardId] = null;   // pumpChatProgress が拾って描画し直す
+                flowVideoId[cardId] = null;         // 次のtickで新しい動画から流し直す
+            }
+
             // 重複判定用のキーを記録
             cardVideoKeys[cardId] = playlistId ? ('list:' + playlistId) : videoId;
             cardUrls[cardId] = url;          // ★v2.7.1: 入力欄が消えても残る情報源
@@ -1797,6 +1817,8 @@
                     'onStateChange': (event) => { notePlayerState(cardId, event.data); }
                 }
             });
+            /* ★v2.8.3: 前の動画のコメントを、参照が無くなっていれば止めて捨てる。 */
+            releaseUnusedChatData('動画の差し替え');
             resaveUrlsBasedOnOrder();
         }
 
@@ -1938,6 +1960,9 @@
             delete cardUrls[cardId];      // ★v2.7.1: URLの情報源も破棄
             resetPlayerDiagnostics(cardId); // ★v2.7.4: 確定タイマー・通知・onReady済みフラグも道連れ
             closeChat(cardId);            // ローカル動画にチャットは存在しないので畳む
+            /* ★v2.8.3: 流しの参照も切ってから解放する（中止は closeChat の中に書かない）。 */
+            flowVideoId[cardId] = null;
+            releaseUnusedChatData('ローカル動画へ差し替え');
             localStorage.removeItem('sync_url_' + cardId);
             markSessionLineupChanged(); // 動画構成が変わったので新しい視聴セット扱い
 
@@ -2365,9 +2390,17 @@
             document.getElementById('playlistNext_' + cardId).style.display = 'none';
             document.getElementById('localOverlay_' + cardId).style.display = 'none';
             closeChat(cardId); // チャット欄を畳んでiframeも停止
+            /* ★v2.8.3: 流しの「いま流している videoId」も切る。
+               ⚠️ ここを残すと、参照集合に旧 videoId が残り続けて永久に解放できない。
+               🔴 中止処理は closeChat() の中に書かない。
+                  closeChat() は 💬 の開閉からも同種の状態変更が走っており、
+                  「チャット欄を閉じただけでは取得を止めない」のは意図的な設計である。 */
+            flowVideoId[cardId] = null;
             document.getElementById('playerContainer_' + cardId).innerHTML = generatePlaceholderHTML(cardId);
             markSessionLineupChanged();
             resaveUrlsBasedOnOrder(); checkLocalVideoExists(); updateMasterOptions();
+            /* ★v2.8.3: この枠はもう動画を持たないので、参照が無くなったものを止めて捨てる。 */
+            releaseUnusedChatData('枠を空にする');
         }
         function deletePlayer(cardId) {
             const needsConfirm = document.getElementById('confirmDelete').checked;
@@ -2381,6 +2414,9 @@
                残り、再読み込みで消したはずの動画が復活していた。
                （URL永続化の修正で表面化するため同時に直す） */
             updateCardOrder(); resaveUrlsBasedOnOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists(); updateMasterOptions(); saveSettings();
+            /* ★v2.8.3: 🔴 updateCardOrder() の後に呼ぶ。
+               先に呼ぶと、消したはずの枠がまだ activeCardIds に残っていて解放できない。 */
+            releaseUnusedChatData('枠の削除');
         }
         /* ★v2.7.1: 情報源を DOM から cardUrls へ変えた。
            urlInput_* は loadSingleYT() が container.innerHTML で潰すため、
@@ -3179,13 +3215,104 @@
             delete chatInflight[videoId];
         }
 
-        /* その videoId を表示している枠が他に無ければ取得を止める。 */
+        /* ★v2.8.3: いま「どこかから参照されている videoId」の集合を1か所で作る。
+
+           🔴 経路ごとに「消す／消さない」を書かないこと。
+              v2.8.2 まで、枠の後始末は 5つの経路（🗑削除 / 🧹空にする / 枠数を減らす /
+              ローカル動画へ差し替え / 同じ枠に別の動画を読み込む）がそれぞれ別の
+              後始末をしており、コメント配列はどの経路でも残っていた。
+              経路ごとに書き足すと 6つ目の経路ができた瞬間にまた漏れる
+              （v2.7.1 の「URLが復活する」不具合と同じ構造）。
+              🔴 参照集合をここ1か所で定義し、「参照が無いものを捨てる」関数を1本だけ持つ。
+
+           ⚠️ chatVisible を条件に入れてはいけない。
+              「流しだけON の枠」と「チャット欄を閉じている枠」が漏れる。
+              exceptCardId は、これから消える枠を集合から外すために使う
+              （枠が activeCardIds から外れる前に呼ぶ経路があるため）。 */
+        function collectChatRefs(exceptCardId) {
+            const refs = {};
+            activeCardIds.forEach(function (id) {
+                if (id === exceptCardId) return;
+                /* ① チャット欄が描画中の videoId */
+                const a = chatLoadedVideoId[id];
+                if (a) refs[a] = true;
+                /* ② 🔴 コメント流しが読んでいる videoId。
+                      流しは chatStore[videoId].comments を直接読む。ここを落とすと
+                      「流しだけONの枠」のコメントが消える。 */
+                const b = flowVideoId[id];
+                if (b) refs[b] = true;
+                /* ③ 🔴 枠に動画は入っているがチャット欄を閉じている状態。
+                      捨てると開き直すたびに取り直しになる。
+                      「閉じても取得は止めない」という既存の設計もここが担保する。 */
+                let c = null;
+                try { c = getChatVideoId(id); } catch (e) { c = null; }
+                if (c) refs[c] = true;
+            });
+            return refs;
+        }
+
+        /* ★v2.8.3: どこからも参照されなくなったコメントを、取得ごと破棄する。
+
+           🔴 中止が先・解放が後。順序をこの関数の中で保証する。
+              先に捨てると、遅れて届いたチャンクが ensureChatStore() で store を作り直し、
+              途中からの断片だけが残る。
+           🔴 冪等。いつ何度呼んでも安全であること。呼ぶ場所を増やしても壊れない。
+           ⚠️ 枠がリストから外れたあと（updateCardOrder() の後）に呼ぶこと。
+              枠が減る途中で呼ぶと、まだ残っている枠を数えてしまう。 */
+        function releaseUnusedChatData(reason) {
+            const refs = collectChatRefs(null);
+
+            /* ① 参照が無くなった取得を止める。
+                  🔴 ここを飛ばすと解放は原理的に効かない（②で取得中は捨てないため）。
+                     とくに配信中のライブは取得が終わらないので、
+                     止めない限りコメント配列は伸び続ける。 */
+            Object.keys(chatInflight).forEach(function (videoId) {
+                if (!refs[videoId]) cancelChatRequest(videoId);
+            });
+
+            /* ② 🔴 取得中のものは捨てない。
+                  捨てると届いたチャンクで store が作り直され、断片だけが残る。
+                  cancelChatRequest() が chatPending / chatInflight を消したあとに数えること。 */
+            Object.keys(chatInflight).forEach(function (videoId) { refs[videoId] = true; });
+            Object.keys(chatPending).forEach(function (requestId) {
+                const v = chatPending[requestId];
+                if (v) refs[v] = true;
+            });
+
+            const dropped = [];
+            Object.keys(chatStore).forEach(function (videoId) {
+                if (refs[videoId]) return;
+                dropped.push(videoId);
+                delete chatStore[videoId];
+            });
+            Object.keys(chatState).forEach(function (videoId) {
+                if (!refs[videoId]) delete chatState[videoId];
+            });
+            Object.keys(chatError).forEach(function (videoId) {
+                if (!refs[videoId]) delete chatError[videoId];
+            });
+            /* ⭐ ついでに掃除する。実害は無いが残す理由も無い。
+               ⚠️ 参照が残っている枠のライブ判定は消さない（一括シークの除外が効かなくなる）。 */
+            Object.keys(liveVideoIds).forEach(function (videoId) {
+                if (!refs[videoId]) delete liveVideoIds[videoId];
+            });
+
+            if (dropped.length) {
+                console.log('【コントローラー】参照されなくなったコメントを破棄しました（'
+                    + (reason || '-') + '）: ' + dropped.length + '件 / 残り '
+                    + Object.keys(chatStore).length + '件');
+            }
+            return dropped;
+        }
+
+        /* その videoId をどこも参照していなければ取得を止める。
+           ★v2.8.3: 判定を releaseUnusedChatData() と同じ参照集合に揃えた。
+           ⚠️ v2.8.2 までは「チャット欄を表示している枠」だけを数えていたため、
+              流しだけONの枠・チャット欄を閉じている枠が使っている取得まで止めていた。 */
         function maybeCancelChat(videoId, exceptCardId) {
             if (!videoId) return;
-            const stillUsed = activeCardIds.some(function (id) {
-                return id !== exceptCardId && chatVisible[id] && chatLoadedVideoId[id] === videoId;
-            });
-            if (!stillUsed) cancelChatRequest(videoId);
+            const refs = collectChatRefs(exceptCardId);
+            if (!refs[videoId]) cancelChatRequest(videoId);
         }
 
         function ensureChatStore(videoId) {
