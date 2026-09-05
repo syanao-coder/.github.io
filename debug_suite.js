@@ -39,10 +39,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.7.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.7.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.3';
+    var EXPECT_APP_VERSION = '2.8.4';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1811,7 +1811,11 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        expect('配列の件数', hist ? hist.length : 0, 25);
+        /* 🔴 ★v1.7.1: 25 → 26（v2.8.3 で1件増えた）。
+           v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
+           正しい 26 件を不合格として報告した（2026-08-31 実測）。
+           ⚠️ 本体の版を上げたら、基盤側の固定値（EXPECT_APP_VERSION とこの件数）を必ず洗うこと。 */
+        expect('配列の件数', hist ? hist.length : 0, 27);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -3127,8 +3131,34 @@
     async function testC5() {
         log('  [目的] メンバー専用絵文字の画像が出るかを事実として記録する。');
         log('  [⚠] 表示されなくても不合格にしない（指示書 P8）。この項目に合否の判定は置かない。');
+
+        /* 🔴 ★v1.7.1: この項目で自分で読み込む（自己完結）。
+           v1.7.0 までは「D-C2 が chatStore に残した結果」を後から読んでいたが、
+           本体 v2.8.3 が「参照されなくなったコメントを捨てる」ようになったため、
+           次の D-C3 が同じ枠に別動画を読み込んだ時点で正しく捨てられ、
+           この項目だけが判定不能になった（2026-08-31 実測）。本体は仕様どおり。
+           ⚠️ 前の項目の残骸に依存してはいけない（鉄則: 項目ごとの自己完結）。
+           ⚠️ 🔄 は押さない。キャッシュがあればそれで足りる（測るのは絵文字であって取得ではない）。 */
         var store = chatStoreOf(VID.MEMBERS);
-        pc('D-C2 の取得結果が手元にある（先に D-C2 を実行すること）', function () {
+        if (!store || !store.comments.length) {
+            await closeAllMenus();
+            await stopAllIfPlaying();
+            var cid = firstCard();
+            pc('対象の枠を特定できた（activeCardIds[0]）', function () { return cid || false; });
+            if (cid) {
+                var cleared = await clearCard(cid);
+                pc('枠を「URL入力待ち」にできた', function () { return cleared ? 'ok' : false; });
+                var ld = await loadUrlIntoCard(cid, ytUrl(VID.MEMBERS));
+                expect('「読み込む」を実際に押せた（被覆なし）',
+                    ld.ok ? 'ok' : ('blocked:' + ld.reason), 'ok');
+                var pane = await openChatPane(cid);
+                pc('チャット欄を開けた', function () { return pane.ok ? 'ok' : false; });
+                var w = await waitChatSettled(VID.MEMBERS, CHAT_WAIT_MS);
+                note('取得の状態 / 待った時間', w.value + ' / ' + Math.round(w.waitedMs / 1000) + '秒');
+            }
+            store = chatStoreOf(VID.MEMBERS);
+        }
+        pc('メンバー限定のコメントが手元にある（この項目の中で取得する）', function () {
             return (store && store.comments.length) ? (store.comments.length + '件') : false;
         });
         if (!store) return;
