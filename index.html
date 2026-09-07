@@ -691,7 +691,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.4';
+        const APP_VERSION = '2.8.5';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1264,6 +1264,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.5', d: '2026-09-07', t: [
+                '枠をピン留めして拡大したとき、他の枠がずれて画面からはみ出す不具合を直した',
+                'ピン枠は常に左上へ置かれ、残りの枠がその外周（右端の列と下段）に並ぶようにした'] },
             { v: '2.8.4', d: '2026-08-31', t: [
                 'コメントを取得するたびに YouTube のタブが増えていく不具合を直した',
                 'タブを隠せない環境でも、取得用のタブは1枚だけを使い回すようにした'] },
@@ -2500,10 +2503,26 @@
             const rows = Math.ceil(logicalCount / cols);
             grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
             grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
+            /* ★v2.8.5: ピン枠にだけ「開始位置」を明示する。
+               .players-grid は grid-auto-flow: dense だが、dense は小さい項目を後から
+               穴に詰めるだけで、大きい項目を前へ動かさない。開始位置を持たないピン枠は
+               order の位置で自動配置されるため、先に 1×1 が並ぶと 2×2 の入る場所が
+               無くなり、暗黙の行へ落ちてグリッドの外へはみ出していた。
+               （先頭の枠をピンしたときは崩れない。末尾に近いほど起きる）
+               CSS Grid は位置が確定している項目を自動配置より先に置くので、
+               開始行・開始列を書くだけで order に一切触れずに左上へ固定できる。
+               残りは dense がL字（右端の列＋下段）へ自動的に埋める。
+               🔴 order を書き換えて先頭へ持ってくる案は採らないこと。order は
+                  getSortedCards() → resaveUrlsBasedOnOrder() が保存URLの並び順に
+                  使っており、ピン留めするだけで保存URLが入れ替わる
+                  （v2.7.1 で直した「消したはずの動画が復活する」の再発になる）。
+                  activeCardIds も order から作られるので枠の同定にも影響が出る。
+               ⚠️ cols が 1 のときは spanCol も 1 になり '1 / span 1' になるだけで壊れないが、
+                  ピン枠が order の位置ではなく最上段へ来る（意図した帰結）。 */
             cards.forEach(c => {
                 if (c.classList.contains('is-main')) {
                     const spanCol = Math.min(2, cols);
-                    c.style.gridColumn = 'span ' + spanCol; c.style.gridRow = 'span 2';
+                    c.style.gridColumn = '1 / span ' + spanCol; c.style.gridRow = '1 / span 2';
                 } else { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }
             });
         }

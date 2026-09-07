@@ -39,10 +39,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.7.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.8.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.4';
+    var EXPECT_APP_VERSION = '2.8.5';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -791,6 +791,22 @@
                     + 'キャッシュもテストのコードが必要なところで自動的に捨てます。');
             }));
         panel.appendChild(row4g);
+
+        /* ★v1.8.0: D-Y（ピン留め時のレイアウト）。
+           🔴 ボタンは1つだけにする（鉄則 #39）。動画の読み込みは D-Y4 の中だけ。 */
+        var row4y = document.createElement('div');
+        row4y.className = 'dbg-row';
+        row4y.appendChild(mkBtn('📐 D-Y レイアウト一括（Y1→Y2→Y3→Y4→Y5→Y6）',
+            'ピン留めしたときに枠がグリッドからはみ出さないこと、order と保存URLが動かないことを測ります（4〜8分）',
+            function () {
+                runChatGroup('📐 D-Y レイアウト一括',
+                    ['D-Y1', 'D-Y2', 'D-Y3', 'D-Y4', 'D-Y5', 'D-Y6'],
+                    'このあと D-Y1 〜 D-Y6 を続けて実行します（4〜8分）。\n'
+                    + '枠の追加・削除・ピンの付け外し・列数の変更はテストのコードが行います。\n'
+                    + '🔴 ウィンドウの大きさを測定中に変えないでください（矩形を見る判定です）。\n'
+                    + '⚠️ D-Y4 は保存URLを一時的に書き換えますが、終了時に自動で元へ戻します。');
+            }));
+        panel.appendChild(row4y);
 
         /* ★v1.5.0: D-L（ライブ配信）。動画IDは最初の1回だけ聞き、以降は持ち回す。
            🔴 ボタンは2つだけにする。手順書の1項目＝ボタン1つに対応させるため。 */
@@ -1811,11 +1827,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.7.1: 25 → 26（v2.8.3 で1件増えた）。
+        /* 🔴 ★v1.8.0: 27 → 28（v2.8.5 で1件増えた）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
-           ⚠️ 本体の版を上げたら、基盤側の固定値（EXPECT_APP_VERSION とこの件数）を必ず洗うこと。 */
-        expect('配列の件数', hist ? hist.length : 0, 27);
+           ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
+              2026-09-07 に洗った結果、版数連動の固定値は
+              EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
+        expect('配列の件数', hist ? hist.length : 0, 28);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -4344,6 +4362,644 @@
         await ensureCardCount(started);
     }
 
+
+    /* ========================================================================
+       ★v1.8.0: D-Y 群 ─ ピン留め時のレイアウト（v2.8.5 の検証）
+
+       🔴 いずれも manual: true。「▶ すべて実行」には入れない
+          （入れると ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。
+          一括ボタンは「📐 D-Y レイアウト一括」。
+
+       🔴 判定の土台について
+          getComputedStyle().gridTemplateRows が暗黙トラックを含むかはブラウザ依存で、
+          判定の土台にするには弱い。そのため主判定は次の2つに置く。
+            ・グリッド矩形からのはみ出し量が 0px であること
+            ・全カードのセル座標が「既存トラックの境界」に解決できること
+              （暗黙の行へ落ちた枠は、どの境界とも一致しないので必ず -1 になる）
+          トラック数は補助判定に留め、測定手段が反応することは
+          D-Y6（列数 3 → 5）を positive control として担保する。
+
+       🔴 ピンは必ず「末尾の枠」に付ける。
+          先頭の枠は order が 1 なので dense でも最初に置かれ、修正前でも崩れない。
+          先頭でどうなるかは D-Y1 の note に残す（判定にはしない）。
+       ====================================================================== */
+
+    var CELL_TOL = 3;              /* セル境界の許容差(px) */
+    var PIN_SPAN_TOL = 6;          /* 「2倍」の許容差(px)。gap を足して比べる */
+    var PIN_BIG_RATIO = 1.8;       /* 「実際に大きくなった」とみなす縦の倍率 */
+    var LAYOUT_SETTLE_MS = 3000;   /* .player-card は transition: all 0.3s ease */
+
+    function gridEl() { return document.getElementById('playersGrid'); }
+    function gridCards() {
+        var g = gridEl();
+        return g ? Array.prototype.slice.call(g.children) : [];
+    }
+    function pinBtnOf(cid) { return document.querySelector('#' + cid + ' .player-header .pin-btn'); }
+    function pinnedCards() {
+        return gridCards().filter(function (c) { return c.classList.contains('is-main'); });
+    }
+
+    /* 'repeat(3, ...)' は計算済みでは '343px 343px 343px' に解決される。 */
+    function parseTracks(s) {
+        if (!s || s === 'none') return [];
+        return String(s).trim().split(/\s+/).map(function (v) { return parseFloat(v); })
+            .filter(function (v) { return isFinite(v); });
+    }
+    function trackStarts(sizes, gap, origin) {
+        var out = [], x = origin, i;
+        for (i = 0; i < sizes.length; i++) { out.push(x); x += sizes[i] + gap; }
+        return out;
+    }
+    function gridGeom() {
+        var g = gridEl();
+        if (!g) return null;
+        var cs, b;
+        try { cs = window.getComputedStyle(g); } catch (e) { return null; }
+        b = g.getBoundingClientRect();
+        var padL = parseFloat(cs.paddingLeft) || 0;
+        var padT = parseFloat(cs.paddingTop) || 0;
+        var cGap = parseFloat(cs.columnGap) || 0;
+        var rGap = parseFloat(cs.rowGap) || 0;
+        var cols = parseTracks(cs.gridTemplateColumns);
+        var rows = parseTracks(cs.gridTemplateRows);
+        return {
+            cols: cols, rows: rows, colGap: cGap, rowGap: rGap,
+            colStarts: trackStarts(cols, cGap, b.left + padL),
+            rowStarts: trackStarts(rows, rGap, b.top + padT),
+            rect: rect(g),
+            colText: String(cs.gridTemplateColumns),
+            rowText: String(cs.gridTemplateRows)
+        };
+    }
+    function nearStart(starts, v) {
+        for (var i = 0; i < starts.length; i++) {
+            if (Math.abs(starts[i] - v) <= CELL_TOL) return i;
+        }
+        return -1;
+    }
+    function nearEnd(starts, sizes, v) {
+        for (var i = 0; i < starts.length; i++) {
+            if (Math.abs(starts[i] + sizes[i] - v) <= CELL_TOL) return i;
+        }
+        return -1;
+    }
+    /* 🔴 矩形からセル座標を逆算する。解決できなければ -1。
+       暗黙の行へ落ちた枠は既存トラックのどの境界とも一致しないので、
+       暗黙トラックが計算済みスタイルに出るかどうかに依存せず検出できる。 */
+    function cellOfCard(card, geom) {
+        var b = card.getBoundingClientRect();
+        var c0 = nearStart(geom.colStarts, b.left);
+        var r0 = nearStart(geom.rowStarts, b.top);
+        var c1 = nearEnd(geom.colStarts, geom.cols, b.right);
+        var r1 = nearEnd(geom.rowStarts, geom.rows, b.bottom);
+        return {
+            id: card.id,
+            pinned: card.classList.contains('is-main'),
+            r: (r0 >= 0) ? (r0 + 1) : -1,
+            c: (c0 >= 0) ? (c0 + 1) : -1,
+            rs: (r0 >= 0 && r1 >= r0) ? (r1 - r0 + 1) : -1,
+            cs: (c0 >= 0 && c1 >= c0) ? (c1 - c0 + 1) : -1,
+            rect: {
+                left: Math.round(b.left), top: Math.round(b.top),
+                width: Math.round(b.width), height: Math.round(b.height)
+            }
+        };
+    }
+
+    /* レイアウト全体を1回で測る。判定はここが返した値だけを見る。 */
+    function layoutSnapshot() {
+        var geom = gridGeom();
+        if (!geom) return null;
+        var cards = gridCards();
+        var cells = [], used = {}, tops = {};
+        var unresolved = 0, overlap = 0, outside = 0;
+        cards.forEach(function (c) {
+            var q = cellOfCard(c, geom);
+            cells.push(q);
+            var o = outsideOf(rect(c), geom.rect);
+            if (o > outside) outside = o;
+            tops[q.rect.top] = 1;
+            if (q.r < 0 || q.c < 0 || q.rs < 0 || q.cs < 0) { unresolved++; return; }
+            for (var i = 0; i < q.rs; i++) {
+                for (var j = 0; j < q.cs; j++) {
+                    var k = (q.r + i) + '-' + (q.c + j);
+                    if (used[k]) overlap++;
+                    used[k] = 1;
+                }
+            }
+        });
+        var keys = Object.keys(used).sort();
+        var total = geom.rows.length * geom.cols.length;
+        return {
+            geom: geom, cells: cells, n: cards.length,
+            outside: Math.round(outside), unresolved: unresolved, overlap: overlap,
+            occupied: keys.length, total: total, holes: total - keys.length,
+            usedKeys: keys, topsCount: Object.keys(tops).length,
+            colCount: geom.cols.length, rowCount: geom.rows.length
+        };
+    }
+
+    /* 🔴 矩形が落ち着いてから測る（鉄則 #27）。
+       グリッド自身は大きさが変わらないので、基準にするのは「枠のほう」。 */
+    async function settledSnapshot(cid) {
+        var el = cid ? document.getElementById(cid) : null;
+        var w = await waitRectSettled(el || gridEl(), LAYOUT_SETTLE_MS);
+        return { settled: w.settled, ms: w.ms, snap: layoutSnapshot() };
+    }
+
+    /* 枠数をちょうど n にする。➕ / ➖ を実際に押す。 */
+    async function setCardCount(n) {
+        await ensureCardCount(n);
+        var guard = 0;
+        while (cardCount() > n && guard < 12) { await shrinkCardCount(); guard++; }
+        await wait(300);
+        return cardCount();
+    }
+
+    /* 📌 を実際に押す。
+       ⚠️ 枠のヘッダーは押し下げ式なので、マウスが枠外にあると被覆ありと出るのが正常
+          （/get-debug-suite 8節）。判定は「is-main が付いたか」で行い、当たり判定は note。 */
+    async function pinCardId(cid) {
+        var btn = pinBtnOf(cid);
+        var r = { blocked: true, reason: 'button-null', hit: '(ボタンが無い)', clicked: false };
+        if (btn) r = await clickReal(btn);
+        await wait(350);
+        var el = document.getElementById(cid);
+        return { ok: !!(el && el.classList.contains('is-main')), click: r };
+    }
+    async function clearPins() {
+        var ps = pinnedCards(), i;
+        for (i = 0; i < ps.length; i++) {
+            var b = ps[i].querySelector('.pin-btn');
+            if (b) { await clickReal(b); await wait(300); }
+        }
+        await wait(200);
+        return pinnedCards().length;
+    }
+
+    /* 🔴 「クラスは付いたが見た目が変わっていない」を捕まえる（鉄則 #38）。
+       cols が 1 のときは横は広がらないので、縦の倍率だけで見る。 */
+    function biggerCheck(snap) {
+        if (!snap) return null;
+        var pin = null, small = null;
+        snap.cells.forEach(function (q) {
+            if (q.pinned) { if (!pin) pin = q; }
+            else if (!small) small = q;
+        });
+        if (!pin || !small || small.rect.height <= 0) return null;
+        var ratio = pin.rect.height / small.rect.height;
+        if (ratio < PIN_BIG_RATIO) return null;
+        return {
+            pin: pin, small: small, ratio: ratio,
+            text: 'ピン ' + pin.rect.width + '×' + pin.rect.height
+                + ' / 1×1 ' + small.rect.width + '×' + small.rect.height
+                + '（縦 ' + ratio.toFixed(2) + '倍）'
+        };
+    }
+    function pinCellOf(snap) {
+        var pin = null;
+        if (snap) snap.cells.forEach(function (q) { if (q.pinned && !pin) pin = q; });
+        return pin;
+    }
+    function smallCellsOf(snap) {
+        return snap ? snap.cells.filter(function (q) { return !q.pinned; }) : [];
+    }
+
+    function noteLayout(snap, tag) {
+        var p = tag ? ('（' + tag + '）') : '';
+        if (!snap) { note('レイアウトの実測' + p, '(測れず)'); return; }
+        note('gridTemplateColumns の実測' + p, snap.geom.colText);
+        note('gridTemplateRows の実測' + p, snap.geom.rowText);
+        note('列数 / 行数 / セル総数 / 占有 / 空き' + p,
+            snap.colCount + ' / ' + snap.rowCount + ' / ' + snap.total
+            + ' / ' + snap.occupied + ' / ' + snap.holes);
+        note('logicalCount の実測（枠数 + ピンがあれば3）' + p,
+            snap.n + ' + ' + (pinCellOf(snap) ? 3 : 0) + ' = ' + (snap.n + (pinCellOf(snap) ? 3 : 0)));
+        note('各カードの矩形とセル座標' + p, snap.cells.map(function (q) {
+            return (q.pinned ? '📌' : '') + q.id
+                + ' [r' + q.r + 'c' + q.c + ' ' + q.rs + '×' + q.cs + '] '
+                + q.rect.left + ',' + q.rect.top + ' ' + q.rect.width + '×' + q.rect.height;
+        }).join(' / '));
+        note('占有セル' + p, snap.usedKeys.join(','));
+    }
+
+    /* --- 保存URLの退避と復元（D-Y4 / D-Y5 / D-Y6 が枠数を触るため） ---------- */
+    function urlKeys() {
+        var out = [];
+        try {
+            for (var i = 0; i < localStorage.length; i++) {
+                var k = localStorage.key(i);
+                if (k && k.indexOf('sync_url_') === 0) out.push(k);
+            }
+        } catch (e) { }
+        return out.sort();
+    }
+    function urlSnapshot() {
+        var o = {};
+        urlKeys().forEach(function (k) {
+            try { o[k] = localStorage.getItem(k); } catch (e) { o[k] = null; }
+        });
+        return o;
+    }
+    function urlSnapText(o) {
+        return Object.keys(o).sort().map(function (k) {
+            return k + '=' + (o[k] === null || o[k] === undefined ? '' : o[k]);
+        }).join(' | ');
+    }
+    function indexUrlText() {
+        var L = [];
+        for (var i = 1; i <= 20; i++) {
+            var v = null;
+            try { v = localStorage.getItem('sync_url_' + i); } catch (e) { }
+            if (v) L.push(i + ':' + v);
+        }
+        return L.join(' | ');
+    }
+    function indexUrlCount() {
+        var n = 0;
+        for (var i = 1; i <= 20; i++) {
+            try { if (localStorage.getItem('sync_url_' + i)) n++; } catch (e) { }
+        }
+        return n;
+    }
+    /* 🔴 退避したスナップショットへ完全に戻す（余計なキーは消す）。 */
+    function restoreUrlSnapshot(snap) {
+        try {
+            urlKeys().forEach(function (k) { localStorage.removeItem(k); });
+            Object.keys(snap).forEach(function (k) {
+                if (snap[k] !== null && snap[k] !== undefined) localStorage.setItem(k, snap[k]);
+            });
+        } catch (e) { }
+        return urlSnapText(urlSnapshot());
+    }
+    function orderText() {
+        return gridCards().map(function (c) {
+            return c.id + ':' + (c.style.order || '(なし)');
+        }).sort().join(' | ');
+    }
+
+    /* 枠を n 枠にして末尾の枠へピンを付け、矩形が落ち着いてから測る。
+       🔴 各項目は前の項目が残した状態に依存しない（鉄則 #1）。毎回ここから作る。
+       ⚠️ ピンを付ける前の「穴」は枠数によって出る（3枠なら1つ）。
+          これは既存の設計であり不具合ではないので、PC の条件には入れず note に残す
+          （入れると 3枠 の項目が「測れていない」になってしまう）。 */
+    async function setupPinned(n, tag) {
+        var p = tag ? (tag + ' ') : '';
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        await clearPins();
+        var got = await setCardCount(n);
+        pc(p + '枠を' + n + 'つにできた', function () {
+            return got === n ? (got + '枠') : false;
+        });
+
+        var g0 = gridGeom();
+        pc(p + 'グリッドの幾何を読めている（列×行のトラック）', function () {
+            return (g0 && g0.cols.length && g0.rows.length)
+                ? (g0.cols.length + '列 × ' + g0.rows.length + '行') : false;
+        });
+
+        var pre = await settledSnapshot(lastCard());
+        pc(p + '🔴 ピンを付ける前の矩形が収束した', function () {
+            return pre.settled ? (pre.ms + 'ms') : false;
+        });
+        pc(p + '🔴 矩形が 0 でない', function () {
+            var s = pre.snap;
+            return (s && s.cells.length && s.cells[0].rect.width > 0 && s.cells[0].rect.height > 0)
+                ? (s.cells[0].rect.width + '×' + s.cells[0].rect.height) : false;
+        });
+        pc(p + '🔴 ピンを付ける前の状態が正常（はみ出し0 / 未解決0 / 重なり0）', function () {
+            var s = pre.snap;
+            if (!s) return false;
+            var t = 'はみ出し' + s.outside + 'px / 未解決' + s.unresolved + ' / 重なり' + s.overlap;
+            return (s.outside === 0 && s.unresolved === 0 && s.overlap === 0) ? t : false;
+        });
+        note(p + '（参考）ピンを付ける前の空きセル数 ─ 枠数によって出るのは既存の設計',
+            pre.snap ? pre.snap.holes : '(測れず)');
+
+        var cid = lastCard();
+        var pin = await pinCardId(cid);
+        pc(p + '🔴 末尾の枠にピンを付けられた（is-main がちょうど1枚）', function () {
+            return (pin.ok && pinnedCards().length === 1) ? cid : false;
+        });
+        note(p + '📌 を押したときの当たり判定（押し下げ式ヘッダーなので被覆ありが正常）',
+            (pin.click.blocked ? '被覆あり / ' : '被覆なし / ') + (pin.click.hit || '(記録なし)'));
+
+        var post = await settledSnapshot(cid);
+        pc(p + 'ピンを付けた後の矩形が収束した', function () {
+            return post.settled ? (post.ms + 'ms') : false;
+        });
+        var big = biggerCheck(post.snap);
+        pc(p + '🔴 ピン枠が実際に大きくなった（縦が 1×1 の '
+            + PIN_BIG_RATIO + '倍以上 ─ クラスが付いただけの状態を弾く）', function () {
+            return big ? big.text : false;
+        });
+        return { cid: cid, pre: pre.snap, snap: post.snap, big: big };
+    }
+
+    /* 「グリッド列数」を退避して自動へ倒す道具。
+       🔴 判定は自動列数を前提にしているので、利用者の設定が手動のままだと成立しない。
+          各項目の冒頭で自動へ倒し、終わったら必ず元へ戻す。 */
+    function layoutColsEl() { return document.getElementById('layoutCols'); }
+    async function forceAutoCols() {
+        var sel = layoutColsEl();
+        var was = sel ? sel.value : null;
+        if (sel) await setLayoutCols('auto');
+        pc('「グリッド列数」を自動にできた（判定は自動列数を前提にする / 元の設定 = '
+            + (was === null ? '(欄が無い)' : was) + '）', function () {
+            return (sel && sel.value === 'auto') ? 'auto' : false;
+        });
+        return was;
+    }
+    async function restoreCols(was) {
+        var sel = layoutColsEl();
+        if (sel && was !== null && was !== undefined) await setLayoutCols(was);
+    }
+
+    /* --- D-Y1: 🔴 6枠＋ピンでグリッドからはみ出さない（本命） ---------------- */
+    async function testY1() {
+        log('  [目的] 6枠のうち末尾の枠をピン留めしても、枠がグリッドの外へはみ出さないこと。');
+        log('  ⚠️ 先頭の枠をピンすると修正前でも崩れない。判定は必ず末尾の枠で行う。');
+        var started = cardCount();
+        var wasCols = await forceAutoCols();
+        try {
+            var st = await setupPinned(6, '');
+            var s = st.snap;
+
+            expect('グリッドからのはみ出し量（全カードの最大 / px）', s ? s.outside : -1, 0);
+            expect('セル座標を解決できなかったカード（＝暗黙の行へ落ちた枠）', s ? s.unresolved : -1, 0);
+            expect('セルの重なり', s ? s.overlap : -1, 0);
+            expect('行トラック数（補助判定）', s ? s.rowCount : -1, 3);
+
+            noteLayout(s, '6枠＋末尾ピン');
+            note('カードの top 座標のユニーク数'
+                + '（⚠️ この枠数では崩れても3のままなので判定には使えない。だから観測に留める）',
+                s ? s.topsCount : '(測れず)');
+
+            /* ⭐ 先頭の枠をピンした場合を記録に残す。判定は増やさない。
+               修正前は「末尾に近い枠をピンしたときだけ」崩れるので、
+               先頭で測っていたら検出できなかったことが後から分かるようにする。 */
+            await clearPins();
+            var f = firstCard();
+            var pf = await pinCardId(f);
+            var sf = (await settledSnapshot(f)).snap;
+            note('⭐ 先頭の枠をピンしたとき（はみ出しpx / 穴 / 未解決）',
+                (pf.ok && sf) ? (sf.outside + ' / ' + sf.holes + ' / ' + sf.unresolved) : '(測れず)');
+        } finally {
+            try { await clearPins(); } catch (e) { }
+            await restoreCols(wasCols);
+            try { await setCardCount(started); } catch (e) { }
+        }
+    }
+
+    /* --- D-Y2: ピン枠が左上に置かれ 2×2 を占める ---------------------------- */
+    async function testY2() {
+        log('  [目的] ピン枠が必ずグリッドの左上に置かれ、2列×2行を占めること。');
+        var started = cardCount();
+        var wasCols = await forceAutoCols();
+        var st = await setupPinned(6, '');
+        var s = st.snap;
+        var p = pinCellOf(s);
+        pc('ピン枠のセル座標を読めている', function () { return p ? ('r' + p.r + 'c' + p.c) : false; });
+
+        expect('ピン枠の開始行', p ? p.r : -1, 1);
+        expect('ピン枠の開始列', p ? p.c : -1, 1);
+        expect('ピン枠の占有（行×列）', p ? (p.rs + '×' + p.cs) : '(測れず)', '2×2');
+
+        var small = smallCellsOf(s)[0];
+        var wOk = (p && small && s)
+            ? (Math.abs(p.rect.width - (small.rect.width * 2 + s.geom.colGap)) <= PIN_SPAN_TOL) : false;
+        var hOk = (p && small && s)
+            ? (Math.abs(p.rect.height - (small.rect.height * 2 + s.geom.rowGap)) <= PIN_SPAN_TOL) : false;
+        expect('ピン枠の幅が 1×1 の2倍＋gap（許容 ' + PIN_SPAN_TOL + 'px）',
+            wOk ? 'ok' : (p && small ? (p.rect.width + ' vs ' + (small.rect.width * 2 + s.geom.colGap)) : '(測れず)'),
+            'ok');
+        expect('ピン枠の高さが 1×1 の2倍＋gap（許容 ' + PIN_SPAN_TOL + 'px）',
+            hOk ? 'ok' : (p && small ? (p.rect.height + ' vs ' + (small.rect.height * 2 + s.geom.rowGap)) : '(測れず)'),
+            'ok');
+
+        noteLayout(s, '6枠＋末尾ピン');
+        await clearPins();
+        await restoreCols(wasCols);
+        await setCardCount(started);
+    }
+
+    /* --- D-Y3: 🔴 穴が空いていない（他5枠がL字に張り付く） ------------------- */
+    async function testY3() {
+        log('  [目的] 6枠＋ピンで空きセルが無く、他5枠が右端の列3つ＋下段の2つに並ぶこと。');
+        var started = cardCount();
+        var wasCols = await forceAutoCols();
+        var st = await setupPinned(6, '');
+        var s = st.snap;
+
+        var got = smallCellsOf(s).map(function (q) { return q.r + '-' + q.c; }).sort().join(',');
+        var want = ['1-3', '2-3', '3-1', '3-2', '3-3'].sort().join(',');
+        pc('1×1 のカードを5枚とも読めている', function () {
+            var n = smallCellsOf(s).length;
+            return n === 5 ? (n + '枚') : false;
+        });
+
+        expect('空きセル数', s ? s.holes : -1, 0);
+        expect('セルの重なり', s ? s.overlap : -1, 0);
+        expect('1×1 の5枚のセル集合（右端の列3つ＋下段の2つ）', got, want);
+
+        noteLayout(s, '6枠＋末尾ピン');
+        await clearPins();
+        await restoreCols(wasCols);
+        await setCardCount(started);
+    }
+
+    /* --- D-Y4: 🔴 order と保存URLが変わらない（退行検出の本命） -------------- */
+    async function testY4() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] ピン留め／解除で order と保存URL（sync_url_*）が1文字も動かないこと。');
+        log('  ⚠️ この項目は保存URLを一時的に書き換える。終了時に必ず元へ戻す。');
+
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        pc('🔴 保存URLを退避できた', function () {
+            return 'キー ' + Object.keys(backup).length + '件';
+        });
+        note('退避した保存URLのキー', Object.keys(backup).sort().join(', ') || '(なし)');
+
+        try {
+            await clearPins();
+            var got = await setCardCount(7);
+            pc('枠を7つにできた（末尾を削除して6枠に戻すため）', function () {
+                return got === 7 ? '7枠' : false;
+            });
+
+            /* 🔴 sync_url_1..N（連番キー）は URL を読み込むだけでは書かれない。
+               書くのは resaveUrlsBasedOnOrder()＝🗑 と ◀▶ の経路だけなので、
+               3本を読み込んでから末尾の枠を 🗑 で消して連番キーを成立させる。
+               こうしないと「変わっていない」が空欄どうしの比較で自明に成立する。 */
+            var ids = [];
+            try { ids = activeCardIds.slice(0, 3); } catch (e) { ids = []; }
+            var vids = [VID.LIGHT, VID.MID, VID.SAMECH];
+            var loaded = 0;
+            for (var i = 0; i < ids.length; i++) {
+                await clearCard(ids[i]);
+                var ld = await loadUrlIntoCard(ids[i], ytUrl(vids[i]));
+                if (ld.ok) loaded++;
+            }
+            pc('3本のURLを枠1〜3へ読み込めた（再生はしない）', function () {
+                return loaded === 3 ? (loaded + '本') : (loaded + '本');
+            });
+
+            var del = await deleteCard(lastCard());
+            pc('🗑 で末尾の枠を削除して6枠になった', function () {
+                return (del.ok && cardCount() === 6) ? (cardCount() + '枠') : false;
+            });
+            pc('🔴 sync_url_1..N に値が3件以上入った（判定が空振りしないこと）', function () {
+                var n = indexUrlCount();
+                return n >= 3 ? (n + '件') : false;
+            });
+
+            var ord0 = orderText();
+            var idx0 = indexUrlText();
+            var all0 = urlSnapText(urlSnapshot());
+            note('基準の order', ord0);
+            note('基準の sync_url_1..N の件数', indexUrlCount());
+
+            var cid = lastCard();
+            var pin = await pinCardId(cid);
+            var s1 = (await settledSnapshot(cid)).snap;
+            var big = biggerCheck(s1);
+            pc('🔴 ピンが実際に付いて大きくなった（縦が 1×1 の '
+                + PIN_BIG_RATIO + '倍以上）', function () {
+                return (pin.ok && big) ? big.text : false;
+            });
+
+            expect('ピン留めの前後で order が完全一致', orderText(), ord0);
+            expect('ピン留めの前後で sync_url_1..N が完全一致', indexUrlText(), idx0);
+            expect('ピン留めの前後で sync_url_* の全キーが完全一致', urlSnapText(urlSnapshot()), all0);
+
+            await clearPins();
+            await wait(400);
+            pc('ピンを解除できた（is-main が0枚）', function () {
+                return pinnedCards().length === 0 ? '0枚' : false;
+            });
+            var el = document.getElementById(cid);
+            expect('ピン解除の後も order が完全一致', orderText(), ord0);
+            expect('解除後の gridColumn が span 1 に戻っている',
+                el ? String(el.style.gridColumn) : '(枠が無い)', 'span 1');
+            expect('解除後の gridRow が span 1 に戻っている',
+                el ? String(el.style.gridRow) : '(枠が無い)', 'span 1');
+
+        } finally {
+            /* 🔴 枠数を先に戻す。➖ は compactSavedUrls() を呼んで連番キーを書き換えるので、
+                  保存URLの復元は必ず「枠数を戻したあと」に行う。 */
+            try { await clearPins(); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            expect('🔴 後始末: 保存URL（sync_url_*）を元どおり復元できた', restored, backupText);
+            note('復元後のキー数', Object.keys(urlSnapshot()).length);
+            log('  ⚠️ 枠に読み込んだ動画は画面には残るが、保存URLは元に戻した。'
+                + 'ページを再読み込みすると元の構成に戻る。');
+        }
+    }
+
+    /* --- D-Y5: 他の枠数（3枠 / 9枠）でも崩れない ---------------------------- */
+    async function testY5() {
+        log('  [目的] 3枠（3列2行）と9枠（4列3行）でも、ピン留めで崩れないこと。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var wasCols = await forceAutoCols();
+        try {
+            var st3 = await setupPinned(3, '【3枠】');
+            var s3 = st3.snap;
+            expect('【3枠】グリッドからのはみ出し量（px）', s3 ? s3.outside : -1, 0);
+            expect('【3枠】セル座標を解決できなかったカード', s3 ? s3.unresolved : -1, 0);
+            expect('【3枠】セルの重なり', s3 ? s3.overlap : -1, 0);
+            note('【3枠】列数 × 行数（参考: 3×2 の想定）',
+                s3 ? (s3.colCount + ' × ' + s3.rowCount) : '(測れず)');
+            noteLayout(s3, '3枠＋末尾ピン');
+
+            var st9 = await setupPinned(9, '【9枠】');
+            var s9 = st9.snap;
+            expect('【9枠】グリッドからのはみ出し量（px）', s9 ? s9.outside : -1, 0);
+            expect('【9枠】セル座標を解決できなかったカード', s9 ? s9.unresolved : -1, 0);
+            expect('【9枠】セルの重なり', s9 ? s9.overlap : -1, 0);
+            note('【9枠】列数 × 行数（参考: 4×3 の想定）',
+                s9 ? (s9.colCount + ' × ' + s9.rowCount) : '(測れず)');
+            noteLayout(s9, '9枠＋末尾ピン');
+        } finally {
+            try { await clearPins(); } catch (e) { }
+            await restoreCols(wasCols);
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
+    /* --- D-Y6: 手動でグリッド列数を変えても崩れない ------------------------- */
+    async function testY6() {
+        log('  [目的] 「グリッド列数」を手動で 2 にしても、ピン留めで崩れないこと。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var sel = layoutColsEl();
+        var wasCols = sel ? sel.value : null;
+        pc('「グリッド列数」の選択欄を読めている', function () {
+            return sel ? ('現在 = ' + wasCols) : false;
+        });
+
+        try {
+            await setLayoutCols('auto');
+            var st = await setupPinned(6, '');
+            var before = st.snap;
+            note('列数を変える前の 列数 × 行数', before ? (before.colCount + ' × ' + before.rowCount) : '(測れず)');
+
+            await setLayoutCols('2');
+            var after = (await settledSnapshot(st.cid)).snap;
+
+            /* 🔴 positive control: 設定が実際に効いたこと。
+               これが無いと「効いていないまま崩れていない」を合格と読んでしまう。
+               あわせて、トラック数を読む手段が変化に反応することの担保にもなる。 */
+            pc('🔴 列数の変更が実際に効いた（行トラック数 3 → 5 / 列トラック数 → 2）', function () {
+                if (!before || !after) return false;
+                var t = before.rowCount + '→' + after.rowCount + ' 行 / '
+                    + before.colCount + '→' + after.colCount + ' 列';
+                return (before.rowCount === 3 && after.rowCount === 5 && after.colCount === 2) ? t : false;
+            });
+            var big2 = biggerCheck(after);
+            pc('🔴 列数を変えた後もピン枠が大きいまま', function () { return big2 ? big2.text : false; });
+
+            expect('グリッドからのはみ出し量（px）', after ? after.outside : -1, 0);
+            expect('セル座標を解決できなかったカード', after ? after.unresolved : -1, 0);
+            expect('セルの重なり', after ? after.overlap : -1, 0);
+            expect('行トラック数（補助判定 / 6枠＋ピンで2列なら5行）', after ? after.rowCount : -1, 5);
+
+            noteLayout(after, '6枠＋末尾ピン / 手動2列');
+
+        } finally {
+            /* ⚠️ 測定後に必ず元の設定へ戻す。 */
+            if (sel && wasCols !== null) await setLayoutCols(wasCols);
+            expect('🔴 後始末: グリッド列数の設定を元へ戻せた',
+                sel ? String(sel.value) : '(欄が無い)', String(wasCols));
+            try { await clearPins(); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
+    /* select は clickReal では変えられない。実際の change イベントを送る
+       （onchange="updateLayout(); saveSettings();" は属性のハンドラなので届く）。 */
+    async function setLayoutCols(v) {
+        var sel = document.getElementById('layoutCols');
+        if (!sel) return false;
+        sel.value = String(v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(500);
+        return sel.value === String(v);
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -4398,7 +5054,16 @@
         { id: 'D-G3', name: '🧹 枠を空にすると解放され、取得も止まる', run: testG3, manual: true },
         { id: 'D-G4', name: '枠数を減らすと解放される', run: testG4, manual: true },
         { id: 'D-G5', name: '★流しだけONの枠の動画は解放しない', run: testG5, manual: true },
-        { id: 'D-G6', name: '既存機能の回帰（捨てすぎていないこと）', run: testG6, manual: true }
+        { id: 'D-G6', name: '既存機能の回帰（捨てすぎていないこと）', run: testG6, manual: true },
+        /* ★v1.8.0: v2.8.5（ピン留め時のレイアウト崩れ）。
+           🔴 いずれも manual。枠数とピンを付け外しするため「すべて実行」からは外す
+              （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
+        { id: 'D-Y1', name: '★6枠＋ピンでグリッドからはみ出さない', run: testY1, manual: true },
+        { id: 'D-Y2', name: 'ピン枠が左上に置かれ 2×2 を占める', run: testY2, manual: true },
+        { id: 'D-Y3', name: '穴が空いていない（他5枠がL字に張り付く）', run: testY3, manual: true },
+        { id: 'D-Y4', name: '★order と保存URLが変わらない（退行検出）', run: testY4, manual: true },
+        { id: 'D-Y5', name: '他の枠数（3枠 / 9枠）でも崩れない', run: testY5, manual: true },
+        { id: 'D-Y6', name: '手動でグリッド列数を変えても崩れない', run: testY6, manual: true }
     ];
 
     var running = false;
