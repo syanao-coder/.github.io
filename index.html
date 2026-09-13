@@ -241,6 +241,14 @@
 
         .main-view {
             width: 100vw; flex: 1; position: relative; background-color: #000;
+            /* ★v2.8.6: flex アイテムの自動最小サイズ(min-height:auto)を切る。
+               これが無いと .players-grid の min-content 高さで下から突き上げられ、
+               行数が増えた構成でグリッドが画面より高くなって下の枠が切れる。
+               （高さが未確定のグリッドでは 1fr の行トラックがアイテムのコンテンツ高で
+                 決まるため、.player-card の min-height:0 も minmax(0,1fr) も効かない）
+               🔴 トップバー高を別途引く案(D')は 35px の二重管理になり、
+                  controller-active の padding-bottom: 55px も考慮できないので採らない。 */
+            min-height: 0;
             transition: padding-bottom 0.3s cubic-bezier(0.25, 1, 0.5, 1); box-sizing: border-box;
         }
         .main-view.controller-active { padding-bottom: 55px; }
@@ -691,7 +699,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.5';
+        const APP_VERSION = '2.8.6';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1264,8 +1272,11 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.6', d: '2026-09-13', t: [
+                '枠数が多いときにグリッドが画面より高くなり、下の枠が切れる不具合を直した',
+                '枠が薄いとき、カーソルを合わせると URL 入力欄が隠れて入力できなくなる不具合を直した'] },
             { v: '2.8.5', d: '2026-09-07', t: [
-                '枠をピン留めして拡大したとき、他の枠がずれて画面からはみ出す不具合を直した',
+                '枠をピン留めして拡大したとき、他の枠がずれて穴が空く不具合を直した',
                 'ピン枠は常に左上へ置かれ、残りの枠がその外周（右端の列と下段）に並ぶようにした'] },
             { v: '2.8.4', d: '2026-08-31', t: [
                 'コメントを取得するたびに YouTube のタブが増えていく不具合を直した',
@@ -1549,9 +1560,17 @@
             '</div>';
         }
         function generatePlaceholderHTML(cardId) {
-            return '<div style="width: 100%; height: 100%; display: flex; flex-direction: column; background-color: #121218; box-sizing: border-box; padding: 20px; overflow-y: auto;">' +
+            /* ★v2.8.6: 薄い枠で URL 入力欄が隠れて入力できなくなる不具合の修正。
+               ・上下の padding を 20px → 8px。枠高 93.78px でホバー時にヘッダー(37.5px)が
+                 開いても入力欄(約28px)が可視領域に収まる。左右は 20px のまま。
+               ・中央寄せ領域を flex: 1 1 auto; min-height: 0 → flex: 1 0 auto。
+                 🔴 縮める指定のままだと領域が 0 まで潰れ、justify-content: center の
+                    上方向のはみ出しがスクロールでは到達できない（scrollTop は負にできない）ため、
+                    入力欄が上へ消える。縮めなければ入力欄は必ず可視領域の先頭に来る。
+               ⚠️ 空枠だけの話。動画を読み込んだ枠の見た目は変わらない。 */
+            return '<div style="width: 100%; height: 100%; display: flex; flex-direction: column; background-color: #121218; box-sizing: border-box; padding: 8px 20px; overflow-y: auto;">' +
                 // 入力欄と操作ボタンを flex:1 の領域に入れ、justify-content:center で枠内の垂直中央へ寄せる
-                '<div style="flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%;">' +
+                '<div style="flex: 1 0 auto; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%;">' +
                     '<div style="text-align:center; margin-bottom:10px; width:100%;">' +
                         '<input type="text" id="urlInput_' + cardId + '" placeholder="YouTube URLを入力、または検索ワード" style="width:80%; max-width:350px;">' +
                     '</div>' +

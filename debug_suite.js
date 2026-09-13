@@ -39,10 +39,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.8.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.8.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.5';
+    var EXPECT_APP_VERSION = '2.8.6';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -796,17 +796,34 @@
            🔴 ボタンは1つだけにする（鉄則 #39）。動画の読み込みは D-Y4 の中だけ。 */
         var row4y = document.createElement('div');
         row4y.className = 'dbg-row';
-        row4y.appendChild(mkBtn('📐 D-Y レイアウト一括（Y1→Y2→Y3→Y4→Y5→Y6）',
-            'ピン留めしたときに枠がグリッドからはみ出さないこと、order と保存URLが動かないことを測ります（4〜8分）',
+        row4y.appendChild(mkBtn('📐 D-Y レイアウト一括（Y1→Y2→Y3→Y4→Y5→Y6→Y7→Y8）',
+            'ピン留めしたときに枠が画面やグリッドからはみ出さないこと、薄い枠でURL入力欄を押せること、'
+            + 'order と保存URLが動かないことを測ります（6〜11分）',
             function () {
                 runChatGroup('📐 D-Y レイアウト一括',
-                    ['D-Y1', 'D-Y2', 'D-Y3', 'D-Y4', 'D-Y5', 'D-Y6'],
-                    'このあと D-Y1 〜 D-Y6 を続けて実行します（4〜8分）。\n'
+                    ['D-Y1', 'D-Y2', 'D-Y3', 'D-Y4', 'D-Y5', 'D-Y6', 'D-Y7', 'D-Y8'],
+                    'このあと D-Y1 〜 D-Y8 を続けて実行します（6〜11分）。\n'
                     + '枠の追加・削除・ピンの付け外し・列数の変更はテストのコードが行います。\n'
                     + '🔴 ウィンドウの大きさを測定中に変えないでください（矩形を見る判定です）。\n'
+                    + '🔴 測定中はマウスを動かさないでください（枠のヘッダーと一括コントローラーが反応します）。\n'
                     + '⚠️ D-Y4 は保存URLを一時的に書き換えますが、終了時に自動で元へ戻します。');
             }));
         panel.appendChild(row4y);
+
+        /* ★v1.8.1: D-Y9 は動画を1本読み込むので別のボタンにする（鉄則 #39: 1項目1ボタン）。 */
+        var row4y2 = document.createElement('div');
+        row4y2.className = 'dbg-row';
+        row4y2.appendChild(mkBtn('🎬 D-Y9 動画領域とチャット欄（単独）',
+            '動画を1本読み込み、動画領域とチャット欄（右配置・下配置）が潰れないことを測ります（1〜3分）',
+            function () {
+                runChatGroup('🎬 D-Y9 動画領域とチャット欄',
+                    ['D-Y9'],
+                    'このあと D-Y9 を実行します（1〜3分）。\n'
+                    + '動画を1本だけ読み込みます（コメントの取得は行いません）。\n'
+                    + '🔴 ウィンドウの大きさを測定中に変えないでください。\n'
+                    + '⚠️ 「最近使った動画」の履歴が1件増えます。');
+            }));
+        panel.appendChild(row4y2);
 
         /* ★v1.5.0: D-L（ライブ配信）。動画IDは最初の1回だけ聞き、以降は持ち回す。
            🔴 ボタンは2つだけにする。手順書の1項目＝ボタン1つに対応させるため。 */
@@ -1827,13 +1844,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.8.0: 27 → 28（v2.8.5 で1件増えた）。
+        /* 🔴 ★v1.8.1: 28 → 29（v2.8.6 で1件増えた）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 28);
+        expect('配列の件数', hist ? hist.length : 0, 29);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -4473,11 +4490,22 @@
         var cards = gridCards();
         var cells = [], used = {}, tops = {};
         var unresolved = 0, overlap = 0, outside = 0;
+        /* 🔴 ★v1.8.1: ビューポート基準のはみ出し（/get-dev-workflow 鉄則 #41）。
+           親要素（グリッド）自身が伸びる崩れ方では、グリッド基準の outside は
+           原理的に常に 0 を返す。v2.8.5 では D-Y5【9枠】と D-Y6【手動2列】が
+           実際には画面外へ 102px / 435px 出ていたのに outside = 0 で合格した。
+           🔴 利用者が「はみ出した」と言う対象は画面であって親要素ではない。
+           ⚠️ グリッド基準の outside は残す。どちらが伸びているかの切り分けに使える。 */
+        var vpOut = 0, vpH = window.innerHeight || 0, vpList = [];
         cards.forEach(function (c) {
             var q = cellOfCard(c, geom);
             cells.push(q);
-            var o = outsideOf(rect(c), geom.rect);
+            var rc = rect(c);
+            var o = outsideOf(rc, geom.rect);
             if (o > outside) outside = o;
+            var vo = Math.max(0, rc.bottom - vpH);
+            vpList.push(c.id + ':' + Math.round(vo));
+            if (vo > vpOut) vpOut = vo;
             tops[q.rect.top] = 1;
             if (q.r < 0 || q.c < 0 || q.rs < 0 || q.cs < 0) { unresolved++; return; }
             for (var i = 0; i < q.rs; i++) {
@@ -4492,7 +4520,10 @@
         var total = geom.rows.length * geom.cols.length;
         return {
             geom: geom, cells: cells, n: cards.length,
-            outside: Math.round(outside), unresolved: unresolved, overlap: overlap,
+            outside: Math.round(outside),
+            viewportOutside: Math.round(vpOut), viewportH: vpH,
+            viewportList: vpList.join(' / '),
+            unresolved: unresolved, overlap: overlap,
             occupied: keys.length, total: total, holes: total - keys.length,
             usedKeys: keys, topsCount: Object.keys(tops).length,
             colCount: geom.cols.length, rowCount: geom.rows.length
@@ -4580,6 +4611,10 @@
                 + ' [r' + q.r + 'c' + q.c + ' ' + q.rs + '×' + q.cs + '] '
                 + q.rect.left + ',' + q.rect.top + ' ' + q.rect.width + '×' + q.rect.height;
         }).join(' / '));
+        note('🔴 画面からのはみ出し量' + p
+            + '（全カードの bottom − innerHeight の最大 / innerHeight = ' + snap.viewportH + '）',
+            snap.viewportOutside + 'px');
+        note('カードごとの画面外はみ出し' + p, snap.viewportList);
         note('占有セル' + p, snap.usedKeys.join(','));
     }
 
@@ -4716,6 +4751,37 @@
         if (sel && was !== null && was !== undefined) await setLayoutCols(was);
     }
 
+    /* 🔴 ★v1.8.1: ビューポート基準の測定が「反応する」ことの positive control（鉄則 #22）。
+       末尾の枠を一時的に下へずらし、viewportOutside がそれを検出し、戻すと元へ戻ることを見る。
+       ⚠️ 「案A（.main-view の min-height:0）を外す」方式はここでは使わない。
+          6枠3×3 のように修正前でもはみ出さない構成があり、そこでは反応しないため
+          positive control が落ちて項目が丸ごと判定不能になる。案Aの検証は D-Y8 で行う。 */
+    var VP_PROBE_PX = 300;
+    async function pcViewportProbe(tag) {
+        var p = tag ? (tag + ' ') : '';
+        var el = document.getElementById(lastCard());
+        var base = layoutSnapshot();
+        if (!el || !base) {
+            pc(p + '🔴 ビューポート基準の測定が反応する', function () { return false; });
+            return;
+        }
+        var was = el.style.transform;
+        el.style.transform = 'translateY(' + VP_PROBE_PX + 'px)';
+        await wait(400);
+        var probed = layoutSnapshot();
+        el.style.transform = was || '';
+        await wait(400);
+        var back = layoutSnapshot();
+        pc(p + '🔴 ビューポート基準の測定が反応する（末尾の枠を ' + VP_PROBE_PX
+            + 'px 下へずらすと検出でき、戻すと元へ戻る）', function () {
+            if (!probed || !back) return false;
+            var t = base.viewportOutside + ' → ' + probed.viewportOutside
+                + ' → ' + back.viewportOutside + ' px';
+            return (probed.viewportOutside > base.viewportOutside
+                && back.viewportOutside === base.viewportOutside) ? t : false;
+        });
+    }
+
     /* --- D-Y1: 🔴 6枠＋ピンでグリッドからはみ出さない（本命） ---------------- */
     async function testY1() {
         log('  [目的] 6枠のうち末尾の枠をピン留めしても、枠がグリッドの外へはみ出さないこと。');
@@ -4725,7 +4791,11 @@
         try {
             var st = await setupPinned(6, '');
             var s = st.snap;
+            await pcViewportProbe('');
 
+            /* 🔴 ★v1.8.1: 主判定はビューポート基準（鉄則 #41）。グリッド基準も残す。 */
+            expect('🔴 画面（ビューポート）からのはみ出し量（全カードの最大 / px）',
+                s ? s.viewportOutside : -1, 0);
             expect('グリッドからのはみ出し量（全カードの最大 / px）', s ? s.outside : -1, 0);
             expect('セル座標を解決できなかったカード（＝暗黙の行へ落ちた枠）', s ? s.unresolved : -1, 0);
             expect('セルの重なり', s ? s.overlap : -1, 0);
@@ -4911,6 +4981,8 @@
         try {
             var st3 = await setupPinned(3, '【3枠】');
             var s3 = st3.snap;
+            await pcViewportProbe('【3枠】');
+            expect('【3枠】🔴 画面からのはみ出し量（px）', s3 ? s3.viewportOutside : -1, 0);
             expect('【3枠】グリッドからのはみ出し量（px）', s3 ? s3.outside : -1, 0);
             expect('【3枠】セル座標を解決できなかったカード', s3 ? s3.unresolved : -1, 0);
             expect('【3枠】セルの重なり', s3 ? s3.overlap : -1, 0);
@@ -4920,6 +4992,10 @@
 
             var st9 = await setupPinned(9, '【9枠】');
             var s9 = st9.snap;
+            await pcViewportProbe('【9枠】');
+            /* ⚠️ v2.8.5 ではこの構成（自動4列＋ピン）で画面外へ 148px 出ていたが、
+                  グリッド基準では 0 だったため合格していた（2026-09-08 実測）。 */
+            expect('【9枠】🔴 画面からのはみ出し量（px）', s9 ? s9.viewportOutside : -1, 0);
             expect('【9枠】グリッドからのはみ出し量（px）', s9 ? s9.outside : -1, 0);
             expect('【9枠】セル座標を解決できなかったカード', s9 ? s9.unresolved : -1, 0);
             expect('【9枠】セルの重なり', s9 ? s9.overlap : -1, 0);
@@ -4968,7 +5044,11 @@
             });
             var big2 = biggerCheck(after);
             pc('🔴 列数を変えた後もピン枠が大きいまま', function () { return big2 ? big2.text : false; });
+            await pcViewportProbe('');
 
+            /* ⚠️ v2.8.5 ではこの構成で画面外へ 435px 出ていたが、
+                  グリッド基準では 0 だったため合格していた（2026-09-08 実測）。 */
+            expect('🔴 画面からのはみ出し量（px）', after ? after.viewportOutside : -1, 0);
             expect('グリッドからのはみ出し量（px）', after ? after.outside : -1, 0);
             expect('セル座標を解決できなかったカード', after ? after.unresolved : -1, 0);
             expect('セルの重なり', after ? after.overlap : -1, 0);
@@ -4986,6 +5066,407 @@
             var restored = restoreUrlSnapshot(backup);
             note('後始末: 保存URLの復元（枠数を変えたため）',
                 restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
+
+    /* ========================================================================
+       ★v1.8.1: D-Y7 / D-Y8 / D-Y9 ─ v2.8.6 の検証
+
+       D-Y7  薄い枠で URL 入力欄を実際に押せる（修正②）
+       D-Y8  一括コントローラーの表示／非表示の両方で画面からはみ出さない（修正①）
+       D-Y9  案Aの下で動画領域とチャット欄が潰れない（スパイク 7-A の未回収 #2・#3）
+       ====================================================================== */
+
+    var THIN_N = 9;              /* 手動1列 × 9枠 ＝ 枠高が最小になる構成 */
+
+    /* 🔴 CSS の :hover は合成イベントでは作れない（/get-debug-suite 8節）。
+       .player-card:hover .player-header と同じ宣言をクラスで再現して「ホバー相当」を作る。
+       ⚠️ 実際のマウスホバーそのものは目視項目で担保する（この方法では作れない）。 */
+    function ensureHoverStyle() {
+        if (document.getElementById('dbgHoverStyle')) return;
+        var s = document.createElement('style');
+        s.id = 'dbgHoverStyle';
+        s.textContent = '.dbg-force-hover .player-header{height:var(--header-height);'
+            + 'border-bottom:1px solid var(--border-color);}';
+        document.head.appendChild(s);
+    }
+    function forceHeaderOpen(cid, on) {
+        ensureHoverStyle();
+        var el = document.getElementById(cid);
+        if (!el) return false;
+        if (on) el.classList.add('dbg-force-hover');
+        else el.classList.remove('dbg-force-hover');
+        return true;
+    }
+    function headerHeightOf(cid) {
+        var h = document.querySelector('#' + cid + ' .player-header');
+        return h ? rect(h).height : -1;
+    }
+    /* 空枠の中身。⚠️ .placeholder-box クラスではない（インラインスタイルの div）。
+       input → (中央寄せの行) → (flex の中央寄せ領域) → (overflow-y:auto の外箱) */
+    function phEls(cid) {
+        var input = document.getElementById('urlInput_' + cid);
+        var row = input ? input.parentElement : null;
+        var mid = row ? row.parentElement : null;
+        var box = mid ? mid.parentElement : null;
+        return (input && mid && box) ? { input: input, mid: mid, box: box } : null;
+    }
+    /* 可視領域（外箱）から上下へ出ている量。0 なら完全に見えている。 */
+    function clipYOf(inner, outer) {
+        if (!inner || !outer) return -1;
+        return Math.round(Math.max(0, outer.top - inner.top) + Math.max(0, inner.bottom - outer.bottom));
+    }
+    /* v2.8.5 の指定（padding:20px / flex:1 1 auto; min-height:0）をその場で再現する。 */
+    function applyPreFix(ph) {
+        ph.box.style.padding = '20px';
+        ph.mid.style.flex = '1 1 auto';
+        ph.mid.style.minHeight = '0';
+    }
+    function restorePh(ph, orig) {
+        ph.box.style.padding = orig.pad;
+        ph.mid.style.flex = orig.flex;
+        ph.mid.style.minHeight = orig.mh;
+        ph.box.scrollTop = 0;
+    }
+
+    /* --- D-Y7: 🔴 薄い枠で URL 入力欄を押せる ------------------------------- */
+    async function testY7() {
+        log('  [目的] 枠が薄いとき、ヘッダーが開いた状態でも URL 入力欄を実際に押せること。');
+        log('  ⚠️ 動画が入っている枠では症状が出ない。必ず「URL入力待ち」の枠で測る。');
+        log('  ⚠️ ホバーは CSS の :hover なので合成イベントでは作れない。同じ宣言のクラスで再現する。');
+        var started = cardCount();
+        var sel = layoutColsEl();
+        var wasCols = sel ? sel.value : null;
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var cid = null;
+        try {
+            await closeAllMenus();
+            await stopAllIfPlaying();
+            await clearPins();
+
+            var okCols = await setLayoutCols('1');
+            pc('「グリッド列数」を手動1列にできた（枠高が最小になる構成 / 元の設定 = '
+                + (wasCols === null ? '(欄が無い)' : wasCols) + '）', function () {
+                return okCols ? '1列' : false;
+            });
+            var got = await setCardCount(THIN_N);
+            pc('枠を' + THIN_N + 'つにできた', function () {
+                return got === THIN_N ? (got + '枠') : false;
+            });
+
+            cid = lastCard();
+            var cleared = await clearCard(cid);
+            pc('🔴 対象の枠が「URL入力待ち」になっている（動画が入っていると症状が消える）',
+                function () { return cleared ? '入力欄と読み込むボタンあり' : false; });
+
+            var card = document.getElementById(cid);
+            var w0 = await waitRectSettled(card, LAYOUT_SETTLE_MS);
+            pc('🔴 枠の矩形が収束した', function () { return w0.settled ? (w0.ms + 'ms') : false; });
+            pc('🔴 矩形が 0 でない', function () {
+                var r = rect(card);
+                return (r && r.width > 0 && r.height > 0) ? (r.width + '×' + r.height) : false;
+            });
+
+            var ph = phEls(cid);
+            pc('空枠の中身（外箱と中央寄せ領域）を読めている', function () {
+                return ph ? describe(ph.box) + ' / ' + describe(ph.mid) : false;
+            });
+            if (!ph) return;
+            var orig = { pad: ph.box.style.padding, flex: ph.mid.style.flex, mh: ph.mid.style.minHeight };
+
+            var hist = 0;
+            try { hist = (JSON.parse(localStorage.getItem('sync_video_history')) || []).length; } catch (ex) { }
+            note('枠の高さ（この構成で最も薄い枠）', rect(card).height + 'px');
+            note('動画の履歴件数（履歴帯は flex:0 0 auto で縮まないため症状に効く）', hist);
+            note('ホバー前の入力欄の矩形', JSON.stringify(rect(ph.input)));
+
+            /* --- ホバー相当を作る --- */
+            forceHeaderOpen(cid, true);
+            var w1 = await waitRectSettled(ph.input, LAYOUT_SETTLE_MS);
+            pc('🔴 ヘッダーを開いた状態を作れた（高さ > 0）', function () {
+                var h = headerHeightOf(cid);
+                return h > 0 ? (h + 'px') : false;
+            });
+            pc('ホバー相当にした後の矩形が収束した', function () {
+                return w1.settled ? (w1.ms + 'ms') : false;
+            });
+            note('ホバー相当のときの 枠高 / ヘッダー高 / 可視領域高',
+                rect(card).height + ' / ' + headerHeightOf(cid) + ' / ' + rect(ph.box).height);
+            note('ホバー相当のときの入力欄の矩形', JSON.stringify(rect(ph.input)));
+
+            /* --- 🔴 原因の確定: v2.8.5 の指定を再現すると押せなくなること --- */
+            applyPreFix(ph);
+            await wait(400);
+            var clipPre = clipYOf(rect(ph.input), rect(ph.box));
+            var rPre = await clickReal(ph.input);
+            note('v2.8.5 の指定を再現したときの 入力欄のはみ出し / 当たり判定',
+                clipPre + 'px / ' + (rPre.blocked ? ('blocked:' + rPre.reason + ' / ' + rPre.hit) : 'ok'));
+            pc('🔴 v2.8.5 の指定（padding:20px / flex:1 1 auto）を再現すると入力欄が使えなくなる'
+                + '（＝症状の原因の確定。再現できなければ原因は別にある）', function () {
+                return (clipPre > 0 || rPre.blocked)
+                    ? ('はみ出し' + clipPre + 'px / '
+                        + (rPre.blocked ? rPre.reason : '当たり判定は通る')) : false;
+            });
+            restorePh(ph, orig);
+            await wait(400);
+
+            /* --- 本命の判定（v2.8.6 の状態） --- */
+            var csMid = null;
+            try { csMid = window.getComputedStyle(ph.mid); } catch (ex) { }
+            expect('🔴 本体の空枠が v2.8.6 の指定になっている（中央寄せ領域の flex-shrink）',
+                csMid ? csMid.flexShrink : '(読めず)', '0');
+
+            var clipFix = clipYOf(rect(ph.input), rect(ph.box));
+            expect('🔴 ホバー相当の状態で 入力欄が枠の可視領域からはみ出していない（px）', clipFix, 0);
+
+            var rFix = await clickReal(ph.input);
+            expect('🔴 ホバー相当の状態で 入力欄を実際に押せた（被覆なし）',
+                rFix.blocked ? ('blocked:' + rFix.reason) : 'ok', 'ok');
+
+            var typed = false, wasVal = ph.input.value;
+            try {
+                ph.input.focus();
+                ph.input.value = 'dbg';
+                ph.input.dispatchEvent(new Event('input', { bubbles: true }));
+                typed = (document.activeElement === ph.input && ph.input.value === 'dbg');
+            } catch (ex) { }
+            ph.input.value = wasVal;
+            try { ph.input.blur(); } catch (ex) { }
+            expect('🔴 ホバー相当の状態で 入力欄が文字を受け付けた（フォーカス＋値）', typed, true);
+            note('判定時の 入力欄の矩形 / 可視領域の矩形',
+                JSON.stringify(rect(ph.input)) + ' / ' + JSON.stringify(rect(ph.box)));
+
+            /* --- 枠高ごとの閾値（観測のみ / 合否は付けない） --- */
+            forceHeaderOpen(cid, false);
+            var sweep = [], ns = [3, 6, 9], i;
+            for (i = 0; i < ns.length; i++) {
+                await setCardCount(ns[i]);
+                var c2 = lastCard();
+                await clearCard(c2);
+                var p2 = phEls(c2);
+                if (!p2) { sweep.push(ns[i] + '枠:(測れず)'); continue; }
+                var o2 = { pad: p2.box.style.padding, flex: p2.mid.style.flex, mh: p2.mid.style.minHeight };
+                forceHeaderOpen(c2, true);
+                await waitRectSettled(p2.input, LAYOUT_SETTLE_MS);
+                var hFix = clipYOf(rect(p2.input), rect(p2.box));
+                applyPreFix(p2);
+                await wait(300);
+                var hPre = clipYOf(rect(p2.input), rect(p2.box));
+                restorePh(p2, o2);
+                forceHeaderOpen(c2, false);
+                sweep.push(ns[i] + '枠(枠高' + rect(document.getElementById(c2)).height + 'px): '
+                    + 'v2.8.5相当=' + hPre + 'px / v2.8.6=' + hFix + 'px');
+                await wait(200);
+            }
+            note('⭐ 枠高ごとの入力欄のはみ出し（手動1列 / ホバー相当 / 0 なら完全に見えている）',
+                sweep.join(' ｜ '));
+        } finally {
+            if (cid) forceHeaderOpen(cid, false);
+            if (sel && wasCols !== null) await setLayoutCols(wasCols);
+            try { await setCardCount(started); } catch (ex) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
+    /* --- D-Y8: 一括コントローラーの表示／非表示の両方で画面からはみ出さない --- */
+    async function testY8() {
+        log('  [目的] 一括コントローラー（.main-view.controller-active / padding-bottom:55px）が');
+        log('         出ている状態でも隠れている状態でも、枠が画面の外へ出ないこと。');
+        log('  ⚠️ 構成は「6枠＋末尾ピン＋手動2列」＝ v2.8.5 で画面外へ 435px 出ていた構成。');
+        var started = cardCount();
+        var sel = layoutColsEl();
+        var wasCols = sel ? sel.value : null;
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var mv = document.getElementById('mainView');
+        var wasLocked = null, unlocked = false;
+        try {
+            try {
+                wasLocked = (typeof isControllerLocked !== 'undefined') ? !!isControllerLocked : null;
+            } catch (ex) { }
+            note('測定開始時の一括コントローラーの固定（🔒）',
+                wasLocked === null ? '(読めず)' : (wasLocked ? '固定されている' : '固定されていない'));
+            if (wasLocked === true) {
+                try { toggleControllerLock(); unlocked = true; } catch (ex) { }
+            }
+
+            pc('.main-view を取得できている', function () { return mv ? describe(mv) : false; });
+            pc('showController / hideController を呼べる', function () {
+                var a = false, b = false;
+                try { a = (typeof showController === 'function'); } catch (ex) { }
+                try { b = (typeof hideController === 'function'); } catch (ex) { }
+                return (a && b) ? 'どちらもあり' : false;
+            });
+
+            await setLayoutCols('2');
+            var st = await setupPinned(6, '');
+            pc('🔴 手動2列になっている', function () {
+                return (sel && sel.value === '2') ? '2列' : false;
+            });
+
+            /* 🔴 案A（.main-view の min-height:0）を一時的に外すと画面外へ出ること。
+               測定手段が反応することと、案Aが効いていることを同時に担保する（鉄則 #22）。 */
+            var withFix = (await settledSnapshot(st.cid)).snap;
+            if (mv) mv.style.minHeight = 'auto';
+            await wait(700);
+            var noFix = layoutSnapshot();
+            if (mv) mv.style.minHeight = '';
+            await wait(700);
+            var backFix = (await settledSnapshot(st.cid)).snap;
+            pc('🔴 案A（.main-view の min-height:0）を外すと画面外へはみ出し、戻すと収まる'
+                + '（案Aが効いていることの確認）', function () {
+                if (!withFix || !noFix || !backFix) return false;
+                var t = withFix.viewportOutside + ' → ' + noFix.viewportOutside
+                    + ' → ' + backFix.viewportOutside + ' px';
+                return (noFix.viewportOutside > 0 && backFix.viewportOutside === 0) ? t : false;
+            });
+            note('案Aを外したときの行トラック', noFix ? noFix.geom.rowText : '(測れず)');
+
+            /* --- 出した状態 --- */
+            try { showController(); } catch (ex) { }
+            await wait(700);
+            var shown = !!(mv && mv.classList.contains('controller-active'));
+            pc('🔴 一括コントローラーが出ている（.main-view に controller-active が付いた）',
+                function () { return shown ? 'controller-active あり' : false; });
+            var sOn = (await settledSnapshot(st.cid)).snap;
+            expect('🔴 コントローラーを出した状態での 画面からのはみ出し量（px）',
+                sOn ? sOn.viewportOutside : -1, 0);
+            expect('（同）グリッドからのはみ出し量（px）', sOn ? sOn.outside : -1, 0);
+            noteLayout(sOn, '6枠＋末尾ピン / 手動2列 / コントローラー表示');
+
+            /* --- 隠した状態 --- */
+            try { hideController(); } catch (ex) { }
+            await wait(700);
+            var hidden = !(mv && mv.classList.contains('controller-active'));
+            pc('🔴 一括コントローラーが隠れている（controller-active が外れた）',
+                function () { return hidden ? 'controller-active なし' : false; });
+            var sOff = (await settledSnapshot(st.cid)).snap;
+            expect('🔴 コントローラーを隠した状態での 画面からのはみ出し量（px）',
+                sOff ? sOff.viewportOutside : -1, 0);
+            note('コントローラーの表示／非表示での 1枚目の枠の高さ',
+                (sOn && sOff && sOn.cells.length && sOff.cells.length)
+                    ? (sOn.cells[0].rect.height + 'px → ' + sOff.cells[0].rect.height + 'px') : '(測れず)');
+        } finally {
+            try { if (unlocked) toggleControllerLock(); } catch (ex) { }
+            if (mv) mv.style.minHeight = '';
+            try { await clearPins(); } catch (ex) { }
+            if (sel && wasCols !== null) await setLayoutCols(wasCols);
+            try { await setCardCount(started); } catch (ex) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
+    async function setChatPosition(v) {
+        var sel = document.getElementById('chatPosition');
+        if (!sel) return false;
+        sel.value = String(v);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(500);
+        return sel.value === String(v);
+    }
+
+    /* --- D-Y9: 案Aの下で動画領域とチャット欄が潰れない --------------------- */
+    async function testY9() {
+        log('  [目的] .main-view { min-height: 0 } を入れた状態で、動画領域とチャット欄が潰れないこと。');
+        log('  ⚠️ チャットの取得は行わない。欄は「動画が入っていない枠」で開く（取得が始まらない経路）。');
+        var started = cardCount();
+        var sel = layoutColsEl();
+        var wasCols = sel ? sel.value : null;
+        var posEl = document.getElementById('chatPosition');
+        var wasPos = posEl ? posEl.value : null;
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var cidV = null, cidC = null;
+        try {
+            await closeAllMenus();
+            await stopAllIfPlaying();
+            await clearPins();
+            await setLayoutCols('auto');
+            var got = await setCardCount(6);
+            pc('枠を6つにできた（自動列数）', function () {
+                return got === 6 ? (got + '枠') : false;
+            });
+            pc('「チャット配置方向」の選択欄を読めている（元の設定 = '
+                + (wasPos === null ? '(欄が無い)' : wasPos) + '）', function () {
+                return posEl ? ('現在 = ' + posEl.value) : false;
+            });
+
+            cidV = firstCard();
+            cidC = lastCard();
+            await clearCard(cidV);
+            var ld = await loadUrlIntoCard(cidV, 'https://www.youtube.com/watch?v=' + VID.LIGHT);
+            await wait(1500);
+            pc('🔴 動画を読み込めた（' + VID.LIGHT + ' / iframe が入った）', function () {
+                var f = document.querySelector('#' + cidV + ' .player-container iframe');
+                return (ld.ok && f) ? 'iframe あり' : false;
+            });
+
+            var cont = document.querySelector('#' + cidV + ' .player-container');
+            var cardV = document.getElementById(cidV);
+            var wv = await waitRectSettled(cont, LAYOUT_SETTLE_MS);
+            pc('動画領域の矩形が収束した', function () { return wv.settled ? (wv.ms + 'ms') : false; });
+            var rc = rect(cont), rk = rect(cardV);
+            var ratio = (rk && rk.height > 0) ? (rc.height / rk.height) : 0;
+            var ratioPred = function (v) { return Number(v) >= 0.5; };
+            ratioPred.label = '0.50 以上';
+            expect('🔴 動画領域の高さが枠の高さに対して潰れていない（割合）',
+                ratio.toFixed(2), ratioPred);
+            note('動画領域 / 枠 の矩形', JSON.stringify(rc) + ' / ' + JSON.stringify(rk));
+
+            /* --- チャット欄（右配置） --- */
+            await setChatPosition('right');
+            var op = await openChatPane(cidC);
+            pc('🔴 チャット欄を開けた（動画が入っていない枠なので取得は始まらない）', function () {
+                return op.ok ? '開いた' : false;
+            });
+            var chat = document.getElementById('chatContainer_' + cidC);
+            var wc = await waitRectSettled(chat, LAYOUT_SETTLE_MS);
+            pc('チャット欄の矩形が収束した', function () { return wc.settled ? (wc.ms + 'ms') : false; });
+            var rr = rect(chat);
+            var wPred = function (v) { return Number(v) >= 40; };
+            wPred.label = '40px 以上';
+            var hPred = function (v) { return Number(v) >= 30; };
+            hPred.label = '30px 以上';
+            expect('🔴 チャット欄（右配置）の幅（px）', rr ? rr.width : -1, wPred);
+            expect('🔴 チャット欄（右配置）の高さ（px）', rr ? rr.height : -1, hPred);
+            note('チャット欄（右配置）の矩形', JSON.stringify(rr));
+
+            /* --- チャット欄（下配置） --- */
+            await setChatPosition('bottom');
+            await wait(600);
+            var wb = await waitRectSettled(chat, LAYOUT_SETTLE_MS);
+            pc('下配置にしたあとの矩形が収束した', function () { return wb.settled ? (wb.ms + 'ms') : false; });
+            var rb = rect(chat);
+            expect('🔴 チャット欄（下配置）の高さ（px）', rb ? rb.height : -1, hPred);
+            note('チャット欄（下配置）の矩形', JSON.stringify(rb));
+
+            var s = layoutSnapshot();
+            expect('🔴 この構成（動画あり＋チャット欄あり）での 画面からのはみ出し量（px）',
+                s ? s.viewportOutside : -1, 0);
+            noteLayout(s, '6枠 / 動画1本＋チャット欄（下配置）');
+        } finally {
+            /* チャット欄を閉じる（開けたままにしない）。 */
+            try {
+                var btn = cidC ? document.getElementById('chatToggleBtn_' + cidC) : null;
+                var vis = false;
+                try { vis = !!(typeof chatVisible !== 'undefined' && chatVisible[cidC]); } catch (ex2) { }
+                if (btn && vis) { await clickReal(btn); await wait(400); }
+            } catch (ex) { }
+            if (posEl && wasPos !== null) await setChatPosition(wasPos);
+            try { if (cidV) await clearCard(cidV); } catch (ex) { }
+            if (sel && wasCols !== null) await setLayoutCols(wasCols);
+            try { await setCardCount(started); } catch (ex) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（動画を読み込んだため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+            note('⚠️ この項目は動画を1本読み込むので「最近使った動画」の履歴が1件増える',
+                VID.LIGHT);
         }
     }
 
@@ -5063,7 +5544,11 @@
         { id: 'D-Y3', name: '穴が空いていない（他5枠がL字に張り付く）', run: testY3, manual: true },
         { id: 'D-Y4', name: '★order と保存URLが変わらない（退行検出）', run: testY4, manual: true },
         { id: 'D-Y5', name: '他の枠数（3枠 / 9枠）でも崩れない', run: testY5, manual: true },
-        { id: 'D-Y6', name: '手動でグリッド列数を変えても崩れない', run: testY6, manual: true }
+        { id: 'D-Y6', name: '手動でグリッド列数を変えても崩れない', run: testY6, manual: true },
+        /* ★v1.8.1: v2.8.6 の検証 */
+        { id: 'D-Y7', name: '★薄い枠で URL 入力欄を押せる', run: testY7, manual: true },
+        { id: 'D-Y8', name: '★一括コントローラーの表示／非表示でも画面からはみ出さない', run: testY8, manual: true },
+        { id: 'D-Y9', name: '動画領域とチャット欄が潰れない', run: testY9, manual: true }
     ];
 
     var running = false;
