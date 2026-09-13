@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.8.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.8.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.6';
@@ -4756,23 +4756,44 @@
        ⚠️ 「案A（.main-view の min-height:0）を外す」方式はここでは使わない。
           6枠3×3 のように修正前でもはみ出さない構成があり、そこでは反応しないため
           positive control が落ちて項目が丸ごと判定不能になる。案Aの検証は D-Y8 で行う。 */
-    var VP_PROBE_PX = 300;
+    var VP_PROBE_MARGIN = 100;     /* 画面の下端をこれだけ超えるまでずらす */
+
+    /* 🔴 ★v1.8.2: ずらす対象は「最も下にある枠」。ずらす量は固定値にしない。
+       ⚠️ v1.8.1 は lastCard()（＝末尾の枠）を 300px 固定でずらしていたが、
+          ピン留めのあと末尾の枠は左上(r1c1)へ移動しているため下端に届かず、
+          D-Y1 / D-Y5【9枠】/ D-Y6 の3本が「反応しない」＝判定不能になった
+          （2026-09-13 実測: ピン枠の bottom 644 + 300 = 944 < innerHeight 954。
+            D-Y5【3枠】だけ通ったのはピン枠が 907px と高く偶然下端を越えたため）。
+       🔴 「どの部品が画面のいちばん下にあるか」は構成で変わる。対象は毎回測って決める。 */
+    function bottomMostCard() {
+        var best = null, bestB = -Infinity;
+        gridCards().forEach(function (c) {
+            var r = rect(c);
+            if (r && r.bottom > bestB) { bestB = r.bottom; best = c; }
+        });
+        return best;
+    }
     async function pcViewportProbe(tag) {
         var p = tag ? (tag + ' ') : '';
-        var el = document.getElementById(lastCard());
+        var el = bottomMostCard();
         var base = layoutSnapshot();
         if (!el || !base) {
             pc(p + '🔴 ビューポート基準の測定が反応する', function () { return false; });
             return;
         }
+        var vpH = window.innerHeight || 0;
+        var r0 = rect(el);
+        var shift = Math.max(120, Math.round(vpH - r0.bottom + VP_PROBE_MARGIN));
         var was = el.style.transform;
-        el.style.transform = 'translateY(' + VP_PROBE_PX + 'px)';
+        el.style.transform = 'translateY(' + shift + 'px)';
         await wait(400);
         var probed = layoutSnapshot();
         el.style.transform = was || '';
         await wait(400);
         var back = layoutSnapshot();
-        pc(p + '🔴 ビューポート基準の測定が反応する（末尾の枠を ' + VP_PROBE_PX
+        note(p + 'ビューポート基準の測定の自己診断（動かした枠 / 元の bottom / ずらした量）',
+            el.id + ' / ' + r0.bottom + ' / ' + shift + 'px（innerHeight = ' + vpH + '）');
+        pc(p + '🔴 ビューポート基準の測定が反応する（最も下にある枠を ' + shift
             + 'px 下へずらすと検出でき、戻すと元へ戻る）', function () {
             if (!probed || !back) return false;
             var t = base.viewportOutside + ' → ' + probed.viewportOutside
