@@ -39,10 +39,10 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.8.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.9.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.6';
+    var EXPECT_APP_VERSION = '2.8.7';
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -796,17 +796,18 @@
            🔴 ボタンは1つだけにする（鉄則 #39）。動画の読み込みは D-Y4 の中だけ。 */
         var row4y = document.createElement('div');
         row4y.className = 'dbg-row';
-        row4y.appendChild(mkBtn('📐 D-Y レイアウト一括（Y1→Y2→Y3→Y4→Y5→Y6→Y7→Y8）',
+        row4y.appendChild(mkBtn('📐 D-Y レイアウト一括（Y1→Y8 / Y10→Y12）',
             'ピン留めしたときに枠が画面やグリッドからはみ出さないこと、薄い枠でURL入力欄を押せること、'
-            + 'order と保存URLが動かないことを測ります（6〜11分）',
+            + 'ピン位置を4隅へ動かしても order と保存URLが動かないことを測ります（9〜15分）',
             function () {
                 runChatGroup('📐 D-Y レイアウト一括',
-                    ['D-Y1', 'D-Y2', 'D-Y3', 'D-Y4', 'D-Y5', 'D-Y6', 'D-Y7', 'D-Y8'],
-                    'このあと D-Y1 〜 D-Y8 を続けて実行します（6〜11分）。\n'
+                    ['D-Y1', 'D-Y2', 'D-Y3', 'D-Y4', 'D-Y5', 'D-Y6', 'D-Y7', 'D-Y8',
+                        'D-Y10', 'D-Y11', 'D-Y12'],
+                    'このあと D-Y1 〜 D-Y8 と D-Y10 〜 D-Y12 を続けて実行します（9〜15分）。\n'
                     + '枠の追加・削除・ピンの付け外し・列数の変更はテストのコードが行います。\n'
                     + '🔴 ウィンドウの大きさを測定中に変えないでください（矩形を見る判定です）。\n'
                     + '🔴 測定中はマウスを動かさないでください（枠のヘッダーと一括コントローラーが反応します）。\n'
-                    + '⚠️ D-Y4 は保存URLを一時的に書き換えますが、終了時に自動で元へ戻します。');
+                    + '⚠️ D-Y4 と D-Y10 は保存URLを一時的に書き換えますが、終了時に自動で元へ戻します。');
             }));
         panel.appendChild(row4y);
 
@@ -887,7 +888,10 @@
             + '★v1.6.1: 🐞 の挿入位置をボタンIDから引くよう直し、'
             + 'パネルが画面外へはみ出していないかを D-N6 で測るようにしました。'
             + '★v1.6.2: 押し下げ式（📂 / ▼）は 0.3秒かけて滑るため、'
-            + 'D-N6 は矩形が動かなくなるまで待ってから測るようにしました。';
+            + 'D-N6 は矩形が動かなくなるまで待ってから測るようにしました。'
+            + '★v1.9.0: v2.8.7（ピン枠の位置を4隅から選ぶ）の判定 D-Y10 / D-Y11 / D-Y12 を'
+            + '「📐 D-Y レイアウト一括」へ追加しました。D-Y10 は保存URLを一時的に書き換えますが、'
+            + '終了時に自動で元へ戻します。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1844,13 +1848,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.8.1: 28 → 29（v2.8.6 で1件増えた）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 29);
+        expect('配列の件数', hist ? hist.length : 0, 30);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -4412,6 +4416,25 @@
         return g ? Array.prototype.slice.call(g.children) : [];
     }
     function pinBtnOf(cid) { return document.querySelector('#' + cid + ' .player-header .pin-btn'); }
+    /* ★v1.9.0: ヘッダーの ◀▶。専用クラスを持たないので onclick 属性の向きから引く。
+       🔴 DOM の並び順に依存させない（並びが変わっても壊れないようにする）。 */
+    function moveBtnOf(cid, dir) {
+        var list = document.querySelectorAll('#' + cid + ' .player-header button[onclick*="moveCard"]');
+        for (var i = 0; i < list.length; i++) {
+            var a = list[i].getAttribute('onclick') || '';
+            if (dir > 0 ? /,\s*1\s*\)/.test(a) : /,\s*-1\s*\)/.test(a)) return list[i];
+        }
+        return null;
+    }
+    /* ⚠️ 枠のヘッダーは押し下げ式なので、マウスが枠外にあると被覆ありと出るのが正常
+          （/get-debug-suite 8節）。判定は「効果が出たか」で行い、当たり判定は note に残す。 */
+    async function pressMove(cid, dir) {
+        var b = moveBtnOf(cid, dir);
+        var r = { blocked: true, reason: 'button-null', hit: '(ボタンが無い)', clicked: false };
+        if (b) r = await clickReal(b);
+        await wait(350);
+        return r;
+    }
     function pinnedCards() {
         return gridCards().filter(function (c) { return c.classList.contains('is-main'); });
     }
@@ -5491,6 +5514,276 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.9.0: D-Y10 / D-Y11 / D-Y12 ─ v2.8.7（ピン枠の位置を4隅から選ぶ）
+
+       🔴 D-Y10 が退行検出の本命。ピン中の ◀▶ が moveCard() の本体へ入ると
+          resaveUrlsBasedOnOrder() が走り、保存URLの並びが入れ替わる。
+       🔴 鉄則 #42: 期待座標は固定値で書かず、構成（列数・行数）から毎回計算する。
+       ⚠️ 空きセルは枠数によって出るのが既存の設計なので、判定には入れない。
+       ====================================================================== */
+
+    /* --- D-Y10: 🔴 ピン中の ◀▶ で order と保存URLが動かない（本命） --------- */
+    async function testY10() {
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        log('  [目的] ピン中に ◀▶ を押しても order と保存URL（sync_url_*）が1文字も動かないこと。');
+        log('  ⚠️ この項目は保存URLを一時的に書き換える。終了時に必ず元へ戻す。');
+
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var wasCols = await forceAutoCols();
+        pc('🔴 保存URLを退避できた', function () {
+            return 'キー ' + Object.keys(backup).length + '件';
+        });
+        note('退避した保存URLのキー', Object.keys(backup).sort().join(', ') || '(なし)');
+
+        try {
+            await clearPins();
+            var got = await setCardCount(7);
+            pc('枠を7つにできた（末尾を削除して6枠に戻すため）', function () {
+                return got === 7 ? '7枠' : false;
+            });
+
+            /* 🔴 sync_url_1..N（連番キー）は URL を読み込むだけでは書かれない。
+               書くのは resaveUrlsBasedOnOrder()＝🗑 と ◀▶ の経路だけなので、
+               3本を読み込んでから末尾の枠を 🗑 で消して連番キーを成立させる。
+               こうしないと「変わっていない」が空欄どうしの比較で自明に成立する。 */
+            var ids = [];
+            try { ids = activeCardIds.slice(0, 3); } catch (e) { ids = []; }
+            var vids = [VID.LIGHT, VID.MID, VID.SAMECH];
+            var loaded = 0;
+            for (var i = 0; i < ids.length; i++) {
+                await clearCard(ids[i]);
+                var ld = await loadUrlIntoCard(ids[i], ytUrl(vids[i]));
+                if (ld.ok) loaded++;
+            }
+            pc('3本のURLを枠1〜3へ読み込めた（再生も取得もしない）', function () {
+                return loaded === 3 ? (loaded + '本') : (loaded + '本');
+            });
+
+            var del = await deleteCard(lastCard());
+            pc('🗑 で末尾の枠を削除して6枠になった', function () {
+                return (del.ok && cardCount() === 6) ? (cardCount() + '枠') : false;
+            });
+            pc('🔴 sync_url_1..N に値が3件以上入った（判定が空振りしないこと）', function () {
+                var n = indexUrlCount();
+                return n >= 3 ? (n + '件') : false;
+            });
+
+            /* 🔴 positive control: ピンを外した状態なら ◀▶ が実際に order を変える。
+               これが無いと「押しても何も起きない実装」でも合格してしまう。 */
+            var cid = lastCard();
+            var ordPre = orderText();
+            var mv1 = await pressMove(cid, -1);
+            var ordMoved = orderText();
+            await pressMove(cid, 1);
+            var ordBack = orderText();
+            note('◀ を押したときの当たり判定（押し下げ式ヘッダーなので被覆ありが正常）',
+                (mv1.blocked ? '被覆あり / ' : '被覆なし / ') + (mv1.hit || '(記録なし)'));
+            pc('🔴 ピンが無い状態では ◀▶ が実際に order を変える（◀▶ が生きていることの証明）',
+                function () {
+                    return (ordMoved !== ordPre && ordBack === ordPre)
+                        ? '変化あり → 元へ復帰' : false;
+                });
+
+            var pin = await pinCardId(cid);
+            var s1 = (await settledSnapshot(cid)).snap;
+            var big = biggerCheck(s1);
+            pc('🔴 末尾の枠にピンが付いて実際に大きくなった（縦が 1×1 の '
+                + PIN_BIG_RATIO + '倍以上）', function () {
+                    return (pin.ok && big) ? big.text : false;
+                });
+
+            var ord0 = orderText();
+            var idx0 = indexUrlText();
+            var all0 = urlSnapText(urlSnapshot());
+            var cell0 = pinCellOf(s1);
+            note('基準の order', ord0);
+            note('基準の sync_url_1..N の件数', indexUrlCount());
+            note('基準のピン枠のセル', cell0 ? ('r' + cell0.r + 'c' + cell0.c) : '(測れず)');
+
+            /* ▶▶▶ ◀◀ と前後あわせて5回押す。 */
+            var seq = [1, 1, 1, -1, -1];
+            var cells = [];
+            for (var k = 0; k < seq.length; k++) {
+                await pressMove(cid, seq[k]);
+                var sk = (await settledSnapshot(cid)).snap;
+                var q = pinCellOf(sk);
+                cells.push((seq[k] > 0 ? '▶' : '◀') + (q ? ('r' + q.r + 'c' + q.c) : '?'));
+            }
+            note('◀▶ を押すたびのピン枠のセル', cells.join(' → '));
+            pc('🔴 ◀▶ でピン位置が実際に動いた（押しても何も起きない実装を弾く）', function () {
+                var u = {};
+                cells.forEach(function (t) { u[t.slice(1)] = 1; });
+                var ks = Object.keys(u);
+                return ks.length >= 2 ? ks.join(' / ') : false;
+            });
+
+            expect('🔴 ◀▶ の前後で order が完全一致', orderText(), ord0);
+            expect('🔴 ◀▶ の前後で sync_url_1..N が完全一致', indexUrlText(), idx0);
+            expect('🔴 ◀▶ の前後で sync_url_* の全キーが完全一致', urlSnapText(urlSnapshot()), all0);
+            expect('◀▶ の前後で is-main の枚数が1枚のまま', pinnedCards().length, 1);
+
+        } finally {
+            /* 🔴 枠数を先に戻す。➖ は compactSavedUrls() を呼んで連番キーを書き換えるので、
+                  保存URLの復元は必ず「枠数を戻したあと」に行う。 */
+            try { await clearPins(); } catch (e) { }
+            await restoreCols(wasCols);
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            expect('🔴 後始末: 保存URL（sync_url_*）を元どおり復元できた', restored, backupText);
+            note('復元後のキー数', Object.keys(urlSnapshot()).length);
+            log('  ⚠️ 枠に読み込んだ動画は画面には残るが、保存URLは元に戻した。'
+                + 'ページを再読み込みすると元の構成に戻る。');
+        }
+    }
+
+    /* 選べる隅を構成から計算する（鉄則 #42）。本体の canPinRight / canPinBottom と同じ式。 */
+    function cornerPlanOf(snap) {
+        if (!snap) return null;
+        var colN = snap.colCount, rowN = snap.rowCount;
+        var spanCol = Math.min(2, colN);
+        var rightCol = colN - spanCol + 1;
+        var bottomRow = rowN - 1;
+        return {
+            colN: colN, rowN: rowN, spanCol: spanCol,
+            rightCol: rightCol, bottomRow: bottomRow,
+            canRight: rightCol > 1, canBottom: bottomRow > 1,
+            count: (rightCol > 1 ? 2 : 1) * (bottomRow > 1 ? 2 : 1)
+        };
+    }
+
+    /* --- D-Y11: 4隅それぞれで配置が破綻しない ------------------------------ */
+    async function testY11() {
+        log('  [目的] 選べる隅すべてで、画面外はみ出し0 / 未解決0 / 重なり0 であること。');
+        log('  ⚠️ 空きセルは枠数によって出るのが既存の設計なので判定に入れない。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var wasCols = await forceAutoCols();
+        try {
+            var st = await setupPinned(6, '');
+            var cid = st.cid;
+            await pcViewportProbe('');
+
+            var plan = cornerPlanOf(st.snap);
+            pc('🔴 選べる隅の数を構成から計算できた（'
+                + (plan ? (plan.colN + '列 × ' + plan.rowN + '行 → ' + plan.count + 'か所') : '(測れず)')
+                + '）', function () {
+                    return (plan && plan.count === 4) ? '4か所' : false;
+                });
+
+            var labels = ['左上', '右上', '左下', '右下'];
+            var seen = [];
+            for (var i = 0; i < 4; i++) {
+                if (i > 0) await pressMove(cid, 1);
+                var sn = (await settledSnapshot(cid)).snap;
+                var q = pinCellOf(sn);
+                seen.push(labels[i] + '=r' + (q ? q.r : '?') + 'c' + (q ? q.c : '?'));
+                expect('【' + labels[i] + '】🔴 画面（ビューポート）からのはみ出し量（px）',
+                    sn ? sn.viewportOutside : -1, 0);
+                expect('【' + labels[i] + '】セル座標を解決できなかったカード', sn ? sn.unresolved : -1, 0);
+                expect('【' + labels[i] + '】セルの重なり', sn ? sn.overlap : -1, 0);
+                note('【' + labels[i] + '】ピン枠のセル / 空きセル / グリッド基準のはみ出し',
+                    (q ? ('r' + q.r + 'c' + q.c + ' ' + q.rs + '×' + q.cs) : '(測れず)')
+                    + ' / ' + (sn ? sn.holes : '?') + ' / ' + (sn ? sn.outside : '?') + 'px');
+                if (i === 0 || i === 3) noteLayout(sn, '6枠＋末尾ピン / ' + labels[i]);
+            }
+            pc('🔴 4隅それぞれが別のセルに置かれた（隅の指定が実際に効いたことの証明）', function () {
+                var u = {};
+                seen.forEach(function (t) { u[t.split('=')[1]] = 1; });
+                return Object.keys(u).length === 4 ? seen.join(' / ') : false;
+            });
+            note('各隅のピン枠セル', seen.join(' / '));
+        } finally {
+            /* 🔴 枠数を先に戻す。➖ は compactSavedUrls() を呼ぶので順序が重要。 */
+            try { await clearPins(); } catch (e) { }
+            await restoreCols(wasCols);
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
+    /* --- D-Y12: ピン枠が指定した隅にある（期待値は構成から計算） ------------ */
+    async function testY12() {
+        log('  [目的] ピン枠の開始セル座標が、構成から計算した期待値と一致すること。');
+        log('  🔴 期待値は固定値で書かない（鉄則 #42）。列数・行数から毎回計算する。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var wasCols = await forceAutoCols();
+        try {
+            var st = await setupPinned(6, '');
+            var cid = st.cid;
+            var plan = cornerPlanOf(st.snap);
+            pc('🔴 期待座標を構成から計算できた（'
+                + (plan ? (plan.colN + '列 × ' + plan.rowN + '行 / span ' + plan.spanCol
+                    + ' → 右 = 列' + plan.rightCol + ' / 下 = 行' + plan.bottomRow) : '(測れず)')
+                + '）', function () {
+                    return (plan && plan.canRight && plan.canBottom)
+                        ? ('列' + plan.rightCol + ' / 行' + plan.bottomRow) : false;
+                });
+            if (!plan) return;
+
+            var want = [
+                { n: '左上', r: 1, c: 1 },
+                { n: '右上', r: 1, c: plan.rightCol },
+                { n: '左下', r: plan.bottomRow, c: 1 },
+                { n: '右下', r: plan.bottomRow, c: plan.rightCol }
+            ];
+            for (var i = 0; i < 4; i++) {
+                if (i > 0) await pressMove(cid, 1);
+                var sn = (await settledSnapshot(cid)).snap;
+                var q = pinCellOf(sn);
+                expect('【' + want[i].n + '】ピン枠の開始セル（構成から計算した期待値と照合）',
+                    q ? ('r' + q.r + 'c' + q.c) : '(測れず)', 'r' + want[i].r + 'c' + want[i].c);
+                expect('【' + want[i].n + '】ピン枠の占有（行×列）',
+                    q ? (q.rs + '×' + q.cs) : '(測れず)', '2×' + plan.spanCol);
+            }
+
+            /* 端では止める（循環させない）。 */
+            await pressMove(cid, 1);
+            var sEnd = (await settledSnapshot(cid)).snap;
+            var qe = pinCellOf(sEnd);
+            expect('右下でさらに ▶ を押しても動かない（端で止める）',
+                qe ? ('r' + qe.r + 'c' + qe.c) : '(測れず)',
+                'r' + plan.bottomRow + 'c' + plan.rightCol);
+
+            /* ◀ で1つ戻れる。 */
+            await pressMove(cid, -1);
+            var sBk = (await settledSnapshot(cid)).snap;
+            var qb = pinCellOf(sBk);
+            expect('◀ で1つ前（左下）へ戻れる',
+                qb ? ('r' + qb.r + 'c' + qb.c) : '(測れず)', 'r' + plan.bottomRow + 'c1');
+
+            /* ピンを外して付け直すと左上へ戻る（位置を保持しない設計）。 */
+            await clearPins();
+            await wait(300);
+            var again = await pinCardId(cid);
+            var sAg = (await settledSnapshot(cid)).snap;
+            var qa = pinCellOf(sAg);
+            pc('ピンを付け直せた', function () {
+                return (again.ok && pinnedCards().length === 1) ? cid : false;
+            });
+            expect('🔴 ピンを外して付け直すと左上へ戻る（位置は保持しない）',
+                qa ? ('r' + qa.r + 'c' + qa.c) : '(測れず)', 'r1c1');
+            note('付け直し前の隅 / 付け直し後の隅',
+                (qb ? ('r' + qb.r + 'c' + qb.c) : '?') + ' → ' + (qa ? ('r' + qa.r + 'c' + qa.c) : '?'));
+        } finally {
+            /* 🔴 枠数を先に戻す。➖ は compactSavedUrls() を呼ぶので順序が重要。 */
+            try { await clearPins(); } catch (e) { }
+            await restoreCols(wasCols);
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）',
+                restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
     /* select は clickReal では変えられない。実際の change イベントを送る
        （onchange="updateLayout(); saveSettings();" は属性のハンドラなので届く）。 */
     async function setLayoutCols(v) {
@@ -5569,7 +5862,11 @@
         /* ★v1.8.1: v2.8.6 の検証 */
         { id: 'D-Y7', name: '★薄い枠で URL 入力欄を押せる', run: testY7, manual: true },
         { id: 'D-Y8', name: '★一括コントローラーの表示／非表示でも画面からはみ出さない', run: testY8, manual: true },
-        { id: 'D-Y9', name: '動画領域とチャット欄が潰れない', run: testY9, manual: true }
+        { id: 'D-Y9', name: '動画領域とチャット欄が潰れない', run: testY9, manual: true },
+        /* ★v1.9.0: v2.8.7（ピン枠の位置を4隅から選ぶ）の検証 */
+        { id: 'D-Y10', name: '★ピン中の ◀▶ で order と保存URLが動かない', run: testY10, manual: true },
+        { id: 'D-Y11', name: '4隅それぞれで配置が破綻しない', run: testY11, manual: true },
+        { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 
     var running = false;

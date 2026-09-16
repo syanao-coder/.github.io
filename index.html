@@ -699,7 +699,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.6';
+        const APP_VERSION = '2.8.7';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1272,6 +1272,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.7', d: '2026-09-14', t: [
+                'ピン留めした枠を置く位置を、左上・右上・左下・右下から選べるようにした（ピン中は ◀▶ で移動）',
+                'ピン留めボタンのアイコンを 📌 から ⤢ へ変更'] },
             { v: '2.8.6', d: '2026-09-13', t: [
                 '枠数が多いときにグリッドが画面より高くなり、下の枠が切れる不具合を直した',
                 '枠が薄いとき、カーソルを合わせると URL 入力欄が隠れて入力できなくなる不具合を直した'] },
@@ -1542,7 +1545,7 @@
             const backSec = getSkipSecBack();
             const forwardSec = getSkipSecForward();
             return '<div class="player-header">' +
-                '<button class="header-action-btn pin-btn" onclick="togglePin(\'' + cardId + '\')" title="メイン枠として拡大(ピン留め)">📌</button>' +
+                '<button class="header-action-btn pin-btn" onclick="togglePin(\'' + cardId + '\')" title="拡大表示（ピン留め）。ピン中は ◀▶ でピン枠の位置を移動できます">⤢</button>' +
                 '<button class="header-action-btn skip-back-btn" onclick="skipPlayer(\'' + cardId + '\', -getSkipSecBack())" title="' + backSec + '秒戻る">↺</button>' +
                 '<button class="header-action-btn skip-forward-btn" onclick="skipPlayer(\'' + cardId + '\', getSkipSecForward())" title="' + forwardSec + '秒進む">↻</button>' +
                 '<button class="header-action-btn playlist-nav-btn" id="playlistPrev_' + cardId + '" onclick="prevPlaylistItem(\'' + cardId + '\')" title="再生リスト: 前の動画">⏮</button>' +
@@ -1554,8 +1557,8 @@
                     '<button class="header-action-btn" onclick="reloadPlayer(\'' + cardId + '\')" title="再読み込み">🔄</button>' +
                     '<button class="header-action-btn" onclick="resetPlayer(\'' + cardId + '\')" title="空にする">🧹</button>' +
                     '<button class="delete-btn" onclick="deletePlayer(\'' + cardId + '\')" title="枠を削除して詰める">🗑</button>' +
-                    '<button class="header-action-btn" style="margin-left: 5px;" onclick="moveCard(\'' + cardId + '\', -1)" title="左(前)へ移動">◀</button>' +
-                    '<button class="header-action-btn" onclick="moveCard(\'' + cardId + '\', 1)" title="右(後)へ移動">▶</button>' +
+                    '<button class="header-action-btn" style="margin-left: 5px;" onclick="moveCard(\'' + cardId + '\', -1)" title="左(前)へ移動（ピン中はピン枠の位置を前へ）">◀</button>' +
+                    '<button class="header-action-btn" onclick="moveCard(\'' + cardId + '\', 1)" title="右(後)へ移動（ピン中はピン枠の位置を次へ）">▶</button>' +
                 '</div>' +
             '</div>';
         }
@@ -2459,7 +2462,102 @@
                 if (url) localStorage.setItem('sync_url_' + (index + 1), url);
             });
         }
+        /* ★v2.8.7: ピン枠を置く隅。
+           🔴 状態は「右か（pinAtRight）」「下か（pinAtBottom）」の2軸で持つ。
+              4状態を固定の番号で持つと、構成によっては同じ場所へ動く番号が生まれ、
+              「押しても何も起きない」操作になる（下の canPinRight / canPinBottom）。
+           ⚠️ localStorage へ保存しない。ピン状態そのものが保存されていないので
+              （togglePin() は DOM のクラスを触るだけ）、位置だけ永続化すると揃わない。 */
+        let pinAtRight = false;
+        let pinAtBottom = false;
+        function resetPinCorner() { pinAtRight = false; pinAtBottom = false; }
+
+        /* グリッドの形（列数・行数・ピン枠の列span）を1か所で決める。
+           🔴 updateLayout() と movePinCorner() の両方がここを読む。二重管理にしない。
+           🔴 logicalCount = N + 3 と cols の決め方は v2.8.6 から1文字も変えていない。
+              変えると全枠数の見た目が動く。 */
+        function computeGridShape() {
+            const grid = document.getElementById('playersGrid');
+            const cards = grid ? Array.from(grid.children) : [];
+            const N = cards.length;
+            /* N が 1・2 のときは updateLayout() の専用経路で決まる。ピンの隅は使わない。 */
+            if (N < 3) return null;
+            const hasPin = cards.some(c => c.classList.contains('is-main'));
+            const sel = document.getElementById('layoutCols');
+            const colSetting = sel ? sel.value : 'auto';
+            const logicalCount = hasPin ? N + 3 : N;
+            const parsedCols = parseInt(colSetting, 10);
+            let cols;
+            if (colSetting !== 'auto' && Number.isInteger(parsedCols) && parsedCols >= 1 && parsedCols <= 4) {
+                // 手動指定（1〜4列）が有効な場合のみそれを使用
+                cols = parsedCols;
+            } else {
+                // 'auto'、または不正な値（空文字列・NaN等）の場合は自動計算にフォールバック
+                // ※以前はここでNaNになりgrid-template-columnsが無効化され、縦1列に積まれるバグがあった
+                if (logicalCount <= 4) cols = 2;
+                else if (logicalCount <= 6) cols = 3;
+                else if (logicalCount <= 9) cols = 3;
+                else cols = 4;
+            }
+            return {
+                cols: cols,
+                rows: Math.ceil(logicalCount / cols),
+                spanCol: Math.min(2, cols),
+                logicalCount: logicalCount
+            };
+        }
+
+        /* 🔴 選べる隅は構成から毎回計算する。固定の4状態にしてはいけない。
+             ・右上の開始列は cols - spanCol + 1。spanCol = min(2, cols) なので
+               cols が 1 でも 2 でも 1 になり、左上と同じ場所になる（手動2列で必ず起きる）。
+             ・左下の開始行は rows - 1。ピンは2行を占めるので rows が 2 だと 1 になり、
+               左上と同じ場所になる（3枠＋ピン ＝ 3列2行で起きる）。
+             同じ場所へ動く操作は「押しても何も起きない」ように見えて不親切なので、
+             その軸を状態から外す。 */
+        function canPinRight(shape) { return !!shape && (shape.cols - shape.spanCol + 1) > 1; }
+        function canPinBottom(shape) { return !!shape && (shape.rows - 1) > 1; }
+        /* 0=左上 / 1=右上 / 2=左下 / 3=右下（▶ で番号が増える向き）。必ず 0 を含む。 */
+        function pinCornerList(shape) {
+            const out = [];
+            for (let i = 0; i < 4; i++) {
+                if ((i & 1) && !canPinRight(shape)) continue;
+                if ((i & 2) && !canPinBottom(shape)) continue;
+                out.push(i);
+            }
+            return out;
+        }
+        /* いま実際に描かれている隅。選べない軸は左・上へ寄せた値を返す。 */
+        function effectivePinCorner(shape) {
+            return ((pinAtBottom && canPinBottom(shape)) ? 2 : 0)
+                + ((pinAtRight && canPinRight(shape)) ? 1 : 0);
+        }
+        /* ピン中の ◀▶。端では止める（moveCard() が端で早期 return する作法に合わせる）。
+           循環させないのは、◀ で戻れるので困らないため。 */
+        function movePinCorner(direction) {
+            const shape = computeGridShape();
+            if (!shape) return;
+            const list = pinCornerList(shape);
+            const idx = list.indexOf(effectivePinCorner(shape));
+            if (idx < 0) return;
+            const next = idx + (direction > 0 ? 1 : -1);
+            if (next < 0 || next >= list.length) return;
+            const v = list[next];
+            pinAtRight = !!(v & 1);
+            pinAtBottom = !!(v & 2);
+            updateLayout();
+        }
         function moveCard(cardId, direction) {
+            const target = document.getElementById(cardId);
+            /* ★v2.8.7: ピン中の枠の ◀▶ は「ピン位置の移動」に使う。
+               🔴 order にも activeCardIds にも保存URLにも触れずにここで返すこと。
+                  本体へ進むと resaveUrlsBasedOnOrder() が走って保存URLの並びが
+                  入れ替わる（v2.7.1 で直した「消したはずの動画が復活する」の再発）。
+               ⚠️ ピンしていない枠の ◀▶ は従来どおり並べ替えとして動く。
+                  この早期分岐は「押された枠自身がピン中のとき」だけに効く。 */
+            if (target && target.classList.contains('is-main')) {
+                movePinCorner(direction);
+                return;
+            }
             const cards = getSortedCards();
             const currentIndex = cards.findIndex(c => c.id === cardId);
             if (currentIndex === -1) return;
@@ -2482,6 +2580,9 @@
                 cards.forEach(c => { c.classList.remove('is-main'); const b = c.querySelector('.pin-btn'); if (b) b.classList.remove('active'); });
                 target.classList.add('is-main'); btn.classList.add('active');
             }
+            /* ★v2.8.7: 付け直したときも外したときも位置は左上へ戻す。
+               保持すると次にピンしたとき前回の隅に出て驚く（利用者判断 2026-09-13）。 */
+            resetPinCorner();
             updateLayout();
         }
         function updateLayout() {
@@ -2494,7 +2595,6 @@
                 cards[0].style.gridColumn = 'span 1'; cards[0].style.gridRow = 'span 1'; return;
             }
             const hasPin = cards.some(c => c.classList.contains('is-main'));
-            let colSetting = document.getElementById('layoutCols') ? document.getElementById('layoutCols').value : 'auto';
             if (N === 2) {
                 const dir = document.getElementById('layout2Dir').value;
                 if (dir === 'vertical') {
@@ -2505,21 +2605,11 @@
                 }
                 cards.forEach(c => { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }); return;
             }
-            const logicalCount = hasPin ? N + 3 : N;
-            const parsedCols = parseInt(colSetting, 10);
-            let cols;
-            if (colSetting !== 'auto' && Number.isInteger(parsedCols) && parsedCols >= 1 && parsedCols <= 4) {
-                // 手動指定（1〜4列）が有効な場合のみそれを使用
-                cols = parsedCols;
-            } else {
-                // 'auto'、または不正な値（空文字列・NaN等）の場合は自動計算にフォールバック
-                // ※以前はここでNaNになりgrid-template-columnsが無効化され、縦1列に積まれるバグがあった
-                if (logicalCount <= 4) cols = 2;
-                else if (logicalCount <= 6) cols = 3;
-                else if (logicalCount <= 9) cols = 3;
-                else cols = 4;
-            }
-            const rows = Math.ceil(logicalCount / cols);
+            /* ★v2.8.7: 列数・行数の決め方は computeGridShape() に集約した。
+               中身は v2.8.6 と同一（logicalCount = N + 3 / 自動列数のしきい値）。 */
+            const shape = computeGridShape();
+            const cols = shape.cols;
+            const rows = shape.rows;
             grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
             grid.style.gridTemplateRows = 'repeat(' + rows + ', minmax(0, 1fr))';
             /* ★v2.8.5: ピン枠にだけ「開始位置」を明示する。
@@ -2537,11 +2627,17 @@
                   （v2.7.1 で直した「消したはずの動画が復活する」の再発になる）。
                   activeCardIds も order から作られるので枠の同定にも影響が出る。
                ⚠️ cols が 1 のときは spanCol も 1 になり '1 / span 1' になるだけで壊れないが、
-                  ピン枠が order の位置ではなく最上段へ来る（意図した帰結）。 */
+                  ピン枠が order の位置ではなく最上段へ来る（意図した帰結）。
+               ★v2.8.7: 開始位置を4隅から選べるようにした。状態は pinAtRight / pinAtBottom、
+                  選べるかどうかの判定は canPinRight() / canPinBottom() が持つ。
+                  🔴 隅が増えても order には引き続き一切触れない。 */
             cards.forEach(c => {
                 if (c.classList.contains('is-main')) {
-                    const spanCol = Math.min(2, cols);
-                    c.style.gridColumn = '1 / span ' + spanCol; c.style.gridRow = '1 / span 2';
+                    const spanCol = shape.spanCol;
+                    const startCol = (pinAtRight && canPinRight(shape)) ? (cols - spanCol + 1) : 1;
+                    const startRow = (pinAtBottom && canPinBottom(shape)) ? (rows - 1) : 1;
+                    c.style.gridColumn = startCol + ' / span ' + spanCol;
+                    c.style.gridRow = startRow + ' / span 2';
                 } else { c.style.gridColumn = 'span 1'; c.style.gridRow = 'span 1'; }
             });
         }
