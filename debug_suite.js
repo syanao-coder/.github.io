@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.13.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.13.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.11';
@@ -48,7 +48,7 @@
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.8.7';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.11', ids: ['D-S1', 'D-Y1', 'D-Y12', 'D-S2'] };
+    var VERSION_FOCUS = { v: '2.8.11', ids: ['D-S1', 'D-Y1', 'D-Y12', 'D-Z2', 'D-S2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -942,7 +942,8 @@
             + 'トップメニューが6枚（🔊 音量を追加）になり、D-M2 は 42遷移へ増えました。'
             + '★v1.12.0: v2.8.10 のローカル動画の拡大は D-Z1（枠を1つ足してダミーのファイルを読ませる）。「🎯 この版の回帰」から実行します。'
             + '★v1.13.0: v2.8.11 の境界線ドラッグは D-S1。D-Y / D-Z は保存した枠の比を一時的に無視して均等で測ります（保存値は消しません）。'
-            + '★v1.13.1: D-S2 はページを再読み込みして、変えた枠の比が残るかを測ります（「🎯 この版の回帰」の最後に走ります）。';
+            + '★v1.13.1: D-S2 はページを再読み込みして、変えた枠の比が残るかを測ります（「🎯 この版の回帰」の最後に走ります）。'
+            + '★v1.13.2: D-Z2 はローカル動画の履歴を押すと選択画面が開くことを測ります（選択画面そのものは開かずに止めます）。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -6554,12 +6555,16 @@
         pc('枠を4つにできた', function () { return got === 4 ? '4枠' : false; });
         await wait(400);
         var sig = currentGridSig;
-        var c0 = gridTracks('cols');
-        pc('🔴 列のトラックを読める（2列以上）', function () { return c0.length >= 2 ? trackText(c0) + ' / ' + sig : false; });
-        if (c0.length < 2) return;
-        /* 前に保存した比があっても、このテストの構成は均等から始める */
+        /* 前に保存した比があっても、このテストの構成は均等から始める。
+           🔴 ★v1.13.2: 基準の c0 は均等へ戻した「後」に読む。v1.13.1 は戻す前に読んだため、
+              利用者が比を変えていた実機で PC が不成立（判定不能）になった（2026-10-02）。 */
         if (typeof resetGridRatios === 'function') resetGridRatios(sig);
         await wait(300);
+        var c0 = gridTracks('cols');
+        pc('🔴 列のトラックを読める（2列以上・均等）', function () {
+            return (c0.length >= 2 && spreadPx(c0) <= 1) ? trackText(c0) + ' / ' + sig : false;
+        });
+        if (c0.length < 2) return;
         var v = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
         if (v) await dragSplitter(v, 70, 0);
         var c1 = gridTracks('cols');
@@ -6613,6 +6618,60 @@
         try { localStorage.removeItem(LS_RESUME); } catch (e) { }
         finishTest(current);
         openDebugMenu();
+    }
+
+    /* --- D-Z2: ローカル動画の履歴を押すと「ファイルを選択」と同じ選択画面が開く ------
+       ★v1.13.2。選択画面を本当に開くと測定が止まるので、file input の click を捕まえて preventDefault で止める
+       （click イベントを止めれば選択画面は開かない）。履歴は一時的に1件足し、終了時に元へ戻す。 */
+    async function testZ2() {
+        log('  [目的] ローカル動画の履歴を押すと、警告を出さずにそのままファイルの選択画面が開くこと。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var histRaw = null;
+        try { histRaw = localStorage.getItem('sync_video_history'); } catch (e) { }
+        var origAlert = window.alert;
+        var alerts = 0;
+        try {
+            await closeAllMenus();
+            var hist = [];
+            try { hist = JSON.parse(histRaw || '[]') || []; } catch (e) { hist = []; }
+            hist.unshift({ title: 'dbg_local.mp4', url: 'localVideo_dbg', thumbnail: '', isLocal: true, timestamp: Date.now() });
+            localStorage.setItem('sync_video_history', JSON.stringify(hist));
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            var cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            restorePlaceholderDefault(cid);
+            await wait(200);
+            var input = document.getElementById('localFile_' + cid);
+            var tile = document.querySelector('#playerContainer_' + cid + ' .history-tile.local');
+            pc('空枠に「ファイルを選択」と、ローカル動画の履歴がある', function () {
+                return (input && tile) ? describe(input) + ' / ' + describe(tile) : false;
+            });
+            if (!input || !tile) return;
+            var opened = 0;
+            var stopper = function (e) { opened++; e.preventDefault(); };
+            input.addEventListener('click', stopper, true);
+            /* 🔴 positive control: 捕まえ方が効いている（直接 click() すると数えられ、選択画面は開かない） */
+            input.click();
+            pc('🔴 file input の click を捕まえられる（直接押すと 1 回数えられる）', function () { return opened === 1 ? '1回' : false; });
+            opened = 0;
+            window.alert = function () { alerts++; };
+            tile.click();
+            await wait(100);
+            window.alert = origAlert;
+            input.removeEventListener('click', stopper, true);
+            expect('🔴 履歴を押すと file input が押される（選択画面が開く）', opened, 1);
+            expect('警告（alert）は出ない', alerts, 0);
+            expect('履歴にファイル名のヒントが出る（title）', /dbg_local\.mp4/.test(tile.title) ? 'ok' : tile.title, 'ok');
+        } finally {
+            window.alert = origAlert;
+            try { if (histRaw === null) localStorage.removeItem('sync_video_history'); else localStorage.setItem('sync_video_history', histRaw); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・履歴・保存URLの復元', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
     }
 
     var TESTS = [
@@ -6699,6 +6758,8 @@
         { id: 'D-S1', name: '★境界線のドラッグで隣り合う2本だけが変わり、構成ごとに覚える', run: testS1, manual: true },
         /* ★v1.13.1: 再読み込みをまたぐ。 */
         { id: 'D-S2', name: '★再読み込みしても変えた枠の比が残る', run: testS2, manual: true },
+        /* ★v1.13.2: 枠数と履歴を変えるので manual。 */
+        { id: 'D-Z2', name: '★ローカル動画の履歴を押すと選択画面が開く', run: testZ2, manual: true },
         { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 
