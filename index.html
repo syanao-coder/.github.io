@@ -713,7 +713,7 @@
                 </div>
                 <div class="control-row" style="margin-top:10px;">
                     <label style="font-size:0.9rem;" for="topbarTrigger">上部メニューを畳んだときの出し方:</label>
-                    <select id="topbarTrigger" onchange="setTopbarTrigger(this.value)">
+                    <select id="topbarTrigger" autocomplete="off" onchange="setTopbarTrigger(this.value)">
                         <option value="hover">マウスを画面の上端に近づける</option>
                         <option value="click">▼ メニューのクリックのみ</option>
                     </select>
@@ -5729,28 +5729,52 @@
             } catch (e) {}
             applyTopbarState();
         }
+        /* ★v2.8.12 再測2: 隠す判定は「バーの上にポインタがあるか」を mouseenter / mouseleave で持つ。
+           🔴 YouTube の枠（iframe）の上では親ページに mousemove が届かない。バーから枠へ直接下ろすと
+              mousemove が来ないまま止まり、時間が経っても隠れなかった（2026-10-02 実機）。
+              mouseleave は iframe へ入るときも発火するので、それを起点にする。 */
+        let topbarPointerInBar = false;
+        function scheduleTopbarHide(ms) {
+            clearTimeout(topbarHideTimer);
+            topbarHideTimer = setTimeout(() => {
+                if (!topbarIsCollapsed() || topbarTrigger !== 'hover') return;
+                if (!document.body.classList.contains('topbar-peek')) return;
+                const bar = document.querySelector('.top-bar');
+                const rr = bar ? bar.getBoundingClientRect() : null;
+                if (topbarPointerInBar || (rr && topbarLastY <= rr.bottom)) return;
+                /* メニューが開いている間は隠さず、閉じるまで見張る */
+                if (anyTopMenuOpen()) { scheduleTopbarHide(1000); return; }
+                hideTopbar();
+            }, ms);
+        }
         function setupTopbarHover() {
             const bar = document.querySelector('.top-bar');
-            /* 🔴 マウスを速く上へ動かすと、上端 16px の帯の中で mousemove が1回も来ないまま
-               ブラウザのツールバーへ抜けることがある（2026-10-02 実機で「出なかった」）。
-               ページの上辺から外へ出たこと（mouseout / relatedTarget なし / 上辺付近）でも出す。 */
+            if (bar) {
+                bar.addEventListener('mouseenter', () => { topbarPointerInBar = true; clearTimeout(topbarHideTimer); });
+                bar.addEventListener('mouseleave', () => {
+                    topbarPointerInBar = false;
+                    topbarLastY = 9999;   /* バーを出た。iframe の上に入ると以後 mousemove が来ないので位置を捨てる */
+                    if (topbarIsCollapsed() && topbarTrigger === 'hover') scheduleTopbarHide(1000);
+                });
+            }
+            /* 🔴 マウスを速く上へ動かすと、上端の帯の中で mousemove が1回も来ないままブラウザのツールバーへ抜ける。
+               ページの上辺から外へ出たこと（mouseout / relatedTarget なし）でも出す。
+               🔴 Firefox は iframe へ入るときも relatedTarget なしの mouseout を出す。その位置が iframe なら無視する。 */
             document.addEventListener('mouseout', (e) => {
                 if (e.relatedTarget || !topbarIsCollapsed() || topbarTrigger !== 'hover') return;
-                if (e.clientY <= 40) { clearTimeout(topbarHideTimer); topbarLastY = 0; showTopbar(); }
+                if (e.clientY > 40) return;
+                const hit = document.elementFromPoint(e.clientX, e.clientY);
+                if (hit && hit.tagName === 'IFRAME') return;
+                topbarLastY = 0; showTopbar(); scheduleTopbarHide(1500);
             });
             document.addEventListener('mousemove', (e) => {
                 topbarLastY = e.clientY;
                 if (!topbarIsCollapsed() || topbarTrigger !== 'hover') return;
-                if (e.clientY <= TOPBAR_EDGE_PX) { clearTimeout(topbarHideTimer); showTopbar(); return; }
+                if (e.clientY <= TOPBAR_EDGE_PX) { showTopbar(); scheduleTopbarHide(1500); return; }
                 if (!document.body.classList.contains('topbar-peek')) return;
                 const r = bar ? bar.getBoundingClientRect() : null;
                 if (r && e.clientY <= r.bottom) { clearTimeout(topbarHideTimer); return; }
-                clearTimeout(topbarHideTimer);
-                /* 🔴 :hover ではなく最後のマウス位置で判定する（:hover は実際のポインタ位置に依存し、合成イベントでは変わらない） */
-                topbarHideTimer = setTimeout(() => {
-                    const rr = bar ? bar.getBoundingClientRect() : null;
-                    if (!(rr && topbarLastY <= rr.bottom)) hideTopbar();
-                }, 1000);
+                scheduleTopbarHide(1000);
             });
         }
         function setupHoverController() {
