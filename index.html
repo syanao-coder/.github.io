@@ -59,11 +59,39 @@
               開いていることは box-shadow だけで示す（.ok/.warn/.ng の色を上書きしない）。 */
         .version-badge.active { box-shadow: 0 0 0 2px rgba(0, 255, 204, 0.35); }
 
+        /* ★v2.8.12: 上部メニューを縮小（padding 4px 12px → 3px 8px / 0.85rem → 0.78rem）。 */
         .settings-toggle-btn {
             background: transparent; border: 1px solid #00ffcc; color: #00ffcc;
-            padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
-            font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 5px;
+            padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;
+            font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 4px; white-space: nowrap;
         }
+        .topbar-title { color:#00ffcc; font-size:0.78rem; font-weight:bold; letter-spacing:0.5px; white-space: nowrap; }
+        /* ★v2.8.12: 窓が狭いときはラベルを段階的に省く（textContent は変えず display だけ切る。title に正式名）。 */
+        @media (max-width: 1280px) { .tb-long { display: none; } }
+        @media (max-width: 1000px) { .tb-label, .topbar-title { display: none; } }
+        /* ★v2.8.12: 上部メニューの出し入れ。
+           🔴 畳んだらバーをレイアウトから外す（position:absolute）。出すときはグリッドの上に重ねるだけで、
+              レイアウトは動かさない（出すたびに全枠の iframe が伸び縮みしないように）。 */
+        .topbar-collapse-btn {
+            background: transparent; border: 1px solid #555; color: #aaa; cursor: pointer;
+            font-size: 0.7rem; line-height: 1; padding: 3px 6px; border-radius: 4px; margin-left: 2px;
+        }
+        .topbar-collapse-btn:hover { color: #00ffcc; border-color: #00ffcc; }
+        body.topbar-collapsed .top-bar {
+            position: absolute; top: 0; left: 0; transform: translateY(-100%);
+            transition: transform 0.2s ease; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+        }
+        body.topbar-collapsed.topbar-peek .top-bar { transform: translateY(0); }
+        .topbar-tab {
+            display: none; position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 102;
+            background: rgba(20, 20, 26, 0.95); border: 1px solid var(--border-color); border-top: none;
+            padding: 1px 16px; border-radius: 0 0 8px 8px; color: #fff; font-size: 0.7rem;
+            opacity: 0.5; cursor: pointer; user-select: none;
+        }
+        .topbar-tab:hover { opacity: 1; background: #1c1c24; }
+        body.topbar-collapsed .topbar-tab { display: block; }
+        /* 出している間はタブをバーの下へずらし「▲ 隠す」にする（クリックで出し入れのときに隠す手段） */
+        body.topbar-collapsed.topbar-peek .topbar-tab { top: 35px; }
         .settings-toggle-btn:hover { background: rgba(0, 255, 204, 0.1); }
         .settings-toggle-btn.active { background: #00ffcc; color: #000; }
 
@@ -209,6 +237,9 @@
             transform: translateY(-100%);
         }
         .settings-container.open { transform: translateY(0); }
+        /* ★v2.8.12: 閉じたパネルは上へ隠れているだけで、下端の 35px ぶんが画面の上端に残る（ふだんはトップバーの裏）。
+           上部メニューを畳むとそこが露出し、▼ タブとグリッドの上端のクリックを吸う。閉じている間は当たり判定を切る。 */
+        .settings-container:not(.open) .settings-content { pointer-events: none; }
 
         .settings-content {
             background-color: var(--panel-bg); border-bottom: 2px solid #00ffcc;
@@ -498,7 +529,7 @@
 <body>
 
     <div class="top-bar">
-        <span style="color:#00ffcc; font-size:0.85rem; font-weight:bold; letter-spacing:1px;">アニメ同時視聴コントローラー</span>
+        <span class="topbar-title">アニメ同時視聴コントローラー</span>
         <!-- ★v2.8.2: 版数バッジのクリックで更新履歴を出す。
              バッジはトップバーの「左側」にあるので、パネルは .left（left:0）で開く。
              🔴 アンカーはこの span だけに持たせる（.top-bar へ position:relative を足さない）。 -->
@@ -519,7 +550,7 @@
         <!-- ★v2.7.2: コメント系設定の独立メニュー。
              パネルはこの span を基準にボタン直下へ出す（.top-bar を基準にしない）。 -->
         <span class="topmenu-anchor">
-            <button id="topCommentBtn" class="settings-toggle-btn" onclick="toggleCommentMenu()">💬 コメント設定</button>
+            <button id="topCommentBtn" class="settings-toggle-btn" onclick="toggleCommentMenu()" title="コメント設定">💬<span class="tb-label"> コメント設定</span></button>
             <div class="topmenu-dropdown" id="commentMenu">
                 <h3>💬 コメント設定</h3>
                 <!-- ★v2.7.1: コメント流しの調整。全枠共通（グローバル）。
@@ -578,7 +609,7 @@
         <!-- ★v2.8.9: 音量ミキサー。枠ごとの音量とマスター音量をまとめて操作する。
              実際の音量 ＝ マスター × 枠ごと（マスターを動かしても枠ごとの差は崩れない）。 -->
         <span class="topmenu-anchor">
-            <button id="topVolumeBtn" class="settings-toggle-btn" onclick="toggleVolumeMenu()">🔊 音量</button>
+            <button id="topVolumeBtn" class="settings-toggle-btn" onclick="toggleVolumeMenu()" title="音量">🔊<span class="tb-label"> 音量</span></button>
             <div class="topmenu-dropdown" id="volumeMenu">
                 <h3>🔊 音量</h3>
                 <div class="control-row vol-row vol-master-row">
@@ -592,9 +623,13 @@
                 </div>
             </div>
         </span>
-        <button id="topSessionBtn" class="settings-toggle-btn" onclick="toggleSessionMenu()">📂 マイリスト・セッション</button>
-        <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()"><span id="topSettingsArrow">▼</span> 設定メニュー</button>
+        <button id="topSessionBtn" class="settings-toggle-btn" onclick="toggleSessionMenu()" title="マイリスト・セッション">📂<span class="tb-label"> マイリスト<span class="tb-long">・セッション</span></span></button>
+        <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()" title="設定メニュー"><span id="topSettingsArrow">▼</span><span class="tb-label"> 設定<span class="tb-long">メニュー</span></span></button>
+        <!-- ★v2.8.12: 上部メニューを畳む（▲）／畳んでいる間は 📌 で固定に戻す -->
+        <button id="topbarCollapseBtn" class="topbar-collapse-btn" onclick="toggleTopbarCollapsed()" title="上部メニューを畳む">▲</button>
     </div>
+    <!-- ★v2.8.12: 畳んだ上部メニューを出すタブ -->
+    <div class="topbar-tab" id="topbarTab" onclick="toggleTopbarByTab()" title="上部メニューを出す">▼ メニュー</div>
 
     <div class="settings-container" id="sessionContainer">
         <div class="settings-content" style="border-bottom: 2px solid #ff9f43; max-height:450px;">
@@ -672,6 +707,14 @@
                         <option value="hover">マウスを画面の下端に近づける</option>
                         <option value="click">▲ 操作メニューのクリックのみ</option>
                     </select>
+                </div>
+                <div class="control-row" style="margin-top:10px;">
+                    <label style="font-size:0.9rem;" for="topbarTrigger">上部メニューを畳んだときの出し方:</label>
+                    <select id="topbarTrigger" onchange="setTopbarTrigger(this.value)">
+                        <option value="hover">マウスを画面の上端に近づける</option>
+                        <option value="click">▼ メニューのクリックのみ</option>
+                    </select>
+                    <span style="font-size:0.72rem; color:#888;">畳むのは上部右端の ▲、固定に戻すのは 📌</span>
                 </div>
                 <div class="control-row" style="margin-top:10px;">
                     <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="confirmReset" onchange="saveSettings()" checked> 箒アイコン（🧹）クリック時に確認表示する</label>
@@ -768,7 +811,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.11';
+        const APP_VERSION = '2.8.12';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -992,6 +1035,8 @@
             updatePlayerCountDisplay();
             initializeGrid();
             setupHoverController();
+            loadTopbarState();    // ★v2.8.12
+            setupTopbarHover();   // ★v2.8.12
             setupChatSplitters(); 
             updateSkipDisplays(); 
             startTimerTick();
@@ -1351,6 +1396,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.12', d: '2026-10-02', t: [
+                '上部メニューのボタンと文字を小さくし、窓が狭いときは名前を省いて絵文字だけにするようにした',
+                '上部メニューを ▲ で畳めるようにした（上端にマウスを寄せるか ▼ のクリックで出す。📌 で固定に戻す）'] },
             { v: '2.8.11', d: '2026-10-02', t: [
                 '枠の境界線をドラッグして、枠の大きさを変えられるようにした（つまみのダブルクリックか、上部の ⊞ で均等に戻す）',
                 'ローカル動画の履歴を押すと、そのままファイルの選択画面が開くようにした'] },
@@ -5611,6 +5659,89 @@
             clearTimeout(controllerHideTimer);
             /* ホバーのときは ▲ の上にマウスがある時点で出ているので、押しても隠さない（出すだけ）。 */
             if (controllerTrigger === 'click' && controller.classList.contains('active')) hideController(); else showController();
+        }
+        /* ============================================================
+           ★v2.8.12: 上部メニュー（トップバー）の出し入れ。
+           topbarCollapsed: 畳んでいるか（保存）/ topbarTrigger: 'hover' | 'click'（保存）
+           出している間は body.topbar-peek。🔴 メニューが開いている間は隠さない。
+           ============================================================ */
+        let topbarCollapsed = false;
+        let topbarTrigger = 'hover';
+        let topbarHideTimer = null;
+        let topbarLastY = 9999;
+        const TOPBAR_EDGE_PX = 8;
+        /* debug_suite 用: 畳んでいてもテストの間だけ出した状態にする（保存値は変えない ─ 再読み込みをまたいでも利用者の設定が残る） */
+        let topbarSuspended = false;
+        function topbarIsCollapsed() { return topbarCollapsed && !topbarSuspended; }
+        function setTopbarSuspended(on) { topbarSuspended = !!on; applyTopbarState(); setTopbarTabText(); }
+        function anyTopMenuOpen() {
+            return !!document.querySelector('.topmenu-dropdown.open, .settings-container.open');
+        }
+        function applyTopbarState() {
+            const c = topbarIsCollapsed();
+            document.body.classList.toggle('topbar-collapsed', c);
+            if (!c) document.body.classList.remove('topbar-peek');
+            const b = document.getElementById('topbarCollapseBtn');
+            if (b) {
+                b.textContent = c ? '📌' : '▲';
+                b.title = c ? '上部メニューを固定に戻す' : '上部メニューを畳む';
+            }
+            const sel = document.getElementById('topbarTrigger');
+            if (sel && sel.value !== topbarTrigger) sel.value = topbarTrigger;
+        }
+        function setTopbarTabText() {
+            const t = document.getElementById('topbarTab');
+            if (t) t.textContent = document.body.classList.contains('topbar-peek') ? '▲ 隠す' : '▼ メニュー';
+        }
+        function showTopbar() { if (topbarIsCollapsed()) document.body.classList.add('topbar-peek'); setTopbarTabText(); }
+        function hideTopbar() {
+            if (!topbarIsCollapsed()) return;
+            if (anyTopMenuOpen()) return;   /* 🔴 開いている間は隠さない */
+            document.body.classList.remove('topbar-peek');
+            setTopbarTabText();
+        }
+        function toggleTopbarCollapsed() {
+            topbarCollapsed = !topbarCollapsed;
+            clearTimeout(topbarHideTimer);
+            if (topbarCollapsed) { closeTopMenus(null); document.body.classList.remove('topbar-peek'); }
+            applyTopbarState();
+            setTopbarTabText();
+            try { localStorage.setItem('sync_topbar_collapsed', String(topbarCollapsed)); } catch (e) {}
+        }
+        function setTopbarTrigger(value) {
+            topbarTrigger = (value === 'click') ? 'click' : 'hover';
+            clearTimeout(topbarHideTimer);
+            applyTopbarState();
+            try { localStorage.setItem('sync_topbar_trigger', topbarTrigger); } catch (e) {}
+        }
+        function toggleTopbarByTab() {
+            clearTimeout(topbarHideTimer);
+            if (document.body.classList.contains('topbar-peek')) { closeTopMenus(null); hideTopbar(); }
+            else showTopbar();
+        }
+        function loadTopbarState() {
+            try {
+                topbarCollapsed = localStorage.getItem('sync_topbar_collapsed') === 'true';
+                topbarTrigger = localStorage.getItem('sync_topbar_trigger') === 'click' ? 'click' : 'hover';
+            } catch (e) {}
+            applyTopbarState();
+        }
+        function setupTopbarHover() {
+            const bar = document.querySelector('.top-bar');
+            document.addEventListener('mousemove', (e) => {
+                topbarLastY = e.clientY;
+                if (!topbarIsCollapsed() || topbarTrigger !== 'hover') return;
+                if (e.clientY <= TOPBAR_EDGE_PX) { clearTimeout(topbarHideTimer); showTopbar(); return; }
+                if (!document.body.classList.contains('topbar-peek')) return;
+                const r = bar ? bar.getBoundingClientRect() : null;
+                if (r && e.clientY <= r.bottom) { clearTimeout(topbarHideTimer); return; }
+                clearTimeout(topbarHideTimer);
+                /* 🔴 :hover ではなく最後のマウス位置で判定する（:hover は実際のポインタ位置に依存し、合成イベントでは変わらない） */
+                topbarHideTimer = setTimeout(() => {
+                    const rr = bar ? bar.getBoundingClientRect() : null;
+                    if (!(rr && topbarLastY <= rr.bottom)) hideTopbar();
+                }, 1000);
+            });
         }
         function setupHoverController() {
             const controller = document.getElementById('overlayController');

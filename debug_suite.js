@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.13.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.14.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.11';
+    var EXPECT_APP_VERSION = '2.8.12';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.8.7';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.11', ids: ['D-S1', 'D-Y1', 'D-Y12', 'D-Z2', 'D-S2'] };
+    var VERSION_FOCUS = { v: '2.8.12', ids: ['D-T1', 'D-T2', 'D-Y1', 'D-Y12', 'D-S1'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -943,7 +943,8 @@
             + '★v1.12.0: v2.8.10 のローカル動画の拡大は D-Z1（枠を1つ足してダミーのファイルを読ませる）。「🎯 この版の回帰」から実行します。'
             + '★v1.13.0: v2.8.11 の境界線ドラッグは D-S1。D-Y / D-Z は保存した枠の比を一時的に無視して均等で測ります（保存値は消しません）。'
             + '★v1.13.1: D-S2 はページを再読み込みして、変えた枠の比が残るかを測ります（「🎯 この版の回帰」の最後に走ります）。'
-            + '★v1.13.2: D-Z2 はローカル動画の履歴を押すと選択画面が開くことを測ります（選択画面そのものは開かずに止めます）。';
+            + '★v1.13.2: D-Z2 はローカル動画の履歴を押すと選択画面が開くことを測ります（選択画面そのものは開かずに止めます）。'
+            + '★v1.14.0: v2.8.12 の上部メニューの出し入れは D-T1、縮小は D-T2。D-T1 は上部メニューを畳んで戻します（終了時に元の状態へ）。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1909,13 +1910,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 34);
+        expect('配列の件数', hist ? hist.length : 0, 35);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -6674,6 +6675,164 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.14.0 : v2.8.12 の判定（上部メニューの縮小と出し入れ）
+       ==================================================================== */
+    function topBarEl() { return document.querySelector('.top-bar'); }
+    function mainViewEl() { return document.getElementById('mainView'); }
+    function topbarShown() {
+        var r = rect(topBarEl());
+        return !!(r && r.bottom > 2 && r.top > -2);
+    }
+    async function moveMouseTo(y) {
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: Math.round(window.innerWidth / 3), clientY: y }));
+    }
+    async function setTopbarTriggerUI(v) {
+        var sel = document.getElementById('topbarTrigger');
+        if (!sel) return false;
+        sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(100);
+        return sel.value === v;
+    }
+
+    /* --- D-T1: ▲ で畳む・上端で出る（レイアウトは動かない）・メニュー中は隠さない・📌 で戻す --- */
+    async function testT1() {
+        log('  [目的] 上部メニューを畳むとグリッドが広がり、出すときはグリッドの上に重なるだけで動かないこと。');
+        log('  ⚠️ 合成の mousemove で上端に寄せます。測定中はマウスを動かさないでください。');
+        var wasCollapsed = (typeof topbarCollapsed !== 'undefined') ? topbarCollapsed : false;
+        var wasTrigger = (typeof topbarTrigger !== 'undefined') ? topbarTrigger : 'hover';
+        var bar = topBarEl(), mv = mainViewEl();
+        var btn = document.getElementById('topbarCollapseBtn');
+        var tab = document.getElementById('topbarTab');
+        var sel = document.getElementById('topbarTrigger');
+        pc('トップバー・▲ ボタン・▼ タブ・出し方の欄がある', function () {
+            return (bar && mv && btn && tab && sel) ? describe(btn) + ' / ' + describe(tab) + ' / ' + describe(sel) : false;
+        });
+        if (!bar || !mv || !btn || !tab || !sel) return;
+        try {
+            await closeAllMenus();
+            if (wasCollapsed) { toggleTopbarCollapsed(); await wait(300); }
+            await setTopbarTriggerUI('hover');
+            var b0 = rect(bar), m0 = rect(mv);
+            /* 🔴 PC: 測り方の確認（畳む前はバーが流れの中にあり、#mainView はバーのすぐ下から始まる） */
+            pc('🔴 畳む前: バーの高さ > 0 で、#mainView の上端がバーの下端と一致（±1px）', function () {
+                return (b0.height > 0 && Math.abs(m0.top - b0.bottom) <= 1) ? ('バー ' + b0.top + '→' + b0.bottom + ' / mainView.top ' + m0.top) : false;
+            });
+            var barH = b0.height;
+
+            /* --- ▲ で畳む --- */
+            var c1 = await clickReal(btn);
+            expect('▲ を押せた（被覆なし）', c1.blocked ? c1.reason : 'ok', 'ok');
+            await wait(400);
+            var m1 = rect(mv);
+            expect('畳むとバーが画面の上へ隠れる', topbarShown(), false);
+            expect('🔴 畳むと #mainView の上端がバーの高さぶん上がる（±1px）', Math.abs((m0.top - m1.top) - barH) <= 1 ? 'ok' : (m0.top + ' → ' + m1.top), 'ok');
+            expect('畳むと ▼ タブが見える', rect(tab).height > 0, true);
+            expect('畳んだ状態が保存される', localStorage.getItem('sync_topbar_collapsed'), 'true');
+            /* 🔴 畳んで露出した上端（バーがあった 0〜35px）が、隠れたパネルに吸われず枠に届く */
+            var hitTop = document.elementFromPoint(Math.round(window.innerWidth / 4), Math.round(barH / 2));
+            expect('🔴 畳んだ後の上端（y=' + Math.round(barH / 2) + '）を押すと枠に届く',
+                (hitTop && mv.contains(hitTop)) ? 'ok' : describe(hitTop), 'ok');
+
+            /* --- hover: 上端で出る・レイアウトは動かない --- */
+            await moveMouseTo(2);
+            await wait(400);
+            var m2 = rect(mv);
+            expect('hover: 上端に寄せるとバーが出る', topbarShown(), true);
+            expect('🔴 出してもレイアウトは動かない（#mainView の矩形 ±1px）',
+                (Math.abs(m2.top - m1.top) <= 1 && Math.abs(m2.height - m1.height) <= 1) ? 'ok' : (JSON.stringify(m1) + ' → ' + JSON.stringify(m2)), 'ok');
+            await moveMouseTo(Math.round(window.innerHeight / 2));
+            await wait(1400);
+            expect('hover: 離れて約1秒で隠れる', topbarShown(), false);
+
+            /* --- メニューを開いている間は隠さない --- */
+            await moveMouseTo(2);
+            await wait(400);
+            var cb = document.getElementById('topCommentBtn');
+            var c2 = cb ? await clickReal(cb) : { blocked: true, reason: 'button-null' };
+            await wait(200);
+            note('💬 を押したときの当たり判定', c2.blocked ? (c2.reason + ' / ' + c2.hit) : 'ok');
+            var menuOpen = !!document.querySelector('#commentMenu.open');
+            expect('出したバーの 💬 を押してメニューを開けた', menuOpen, true);
+            await moveMouseTo(Math.round(window.innerHeight / 2));
+            await wait(1400);
+            expect('🔴 メニューを開いている間は、離れても隠れない', topbarShown(), true);
+            await closeAllMenus();
+            await moveMouseTo(Math.round(window.innerHeight / 2));
+            await wait(1400);
+            expect('メニューを閉じて離れると隠れる', topbarShown(), false);
+
+            /* --- click: 上端では出ず、▼ で出し入れ --- */
+            await setTopbarTriggerUI('click');
+            expect('出し方の設定が保存される', localStorage.getItem('sync_topbar_trigger'), 'click');
+            await moveMouseTo(2);
+            await wait(400);
+            expect('click: 上端に寄せても出ない', topbarShown(), false);
+            var c3 = await clickReal(tab);
+            await wait(400);
+            expect('click: ▼ を押すと出る', topbarShown(), true);
+            expect('出している間のタブは「▲ 隠す」', String(tab.textContent).trim(), '▲ 隠す');
+            await moveMouseTo(Math.round(window.innerHeight / 2));
+            await wait(1400);
+            expect('click: 離れても勝手に隠れない', topbarShown(), true);
+            var c4 = await clickReal(tab);
+            await wait(400);
+            expect('click: ▲ 隠す で隠れる', topbarShown(), false);
+            expect('▼ / ▲ のタブを押せた（被覆なし）', (c3.blocked ? c3.reason : 'ok') + ' / ' + (c4.blocked ? c4.reason : 'ok'), 'ok / ok');
+
+            /* --- 📌 で固定に戻す --- */
+            await clickReal(tab);
+            await wait(400);
+            expect('畳んでいる間のボタンは 📌', String(btn.textContent).trim(), '📌');
+            var c5 = await clickReal(btn);
+            await wait(400);
+            var b5 = rect(bar), m5 = rect(mv);
+            expect('📌 を押せた（被覆なし）', c5.blocked ? c5.reason : 'ok', 'ok');
+            expect('🔴 📌 で戻すとバーが流れに戻り、#mainView がバーの下から始まる（±1px）',
+                (Math.abs(m5.top - b5.bottom) <= 1 && Math.abs(m5.top - m0.top) <= 1) ? 'ok' : ('バー下端 ' + b5.bottom + ' / mainView.top ' + m5.top), 'ok');
+            expect('戻すと ▼ タブは隠れる', rect(tab).height, 0);
+            expect('戻した状態が保存される', localStorage.getItem('sync_topbar_collapsed'), 'false');
+        } finally {
+            try { await closeAllMenus(); } catch (e) { }
+            try { setTopbarTrigger(wasTrigger); } catch (e) { }
+            try { if (topbarCollapsed !== wasCollapsed) toggleTopbarCollapsed(); } catch (e) { }
+            await moveMouseTo(Math.round(window.innerHeight / 2));
+            await wait(300);
+            note('後始末: 畳んだ状態 / 出し方', String(topbarCollapsed) + ' / ' + topbarTrigger);
+        }
+    }
+
+    /* --- D-T2: 今の窓幅でトップバーの部品が重ならず、はみ出さない ------------------- */
+    async function testT2() {
+        log('  [目的] 縮小した上部メニューの部品が、今の窓幅で重ならずバーに収まること。');
+        await closeAllMenus();
+        var bar = topBarEl();
+        var br = rect(bar);
+        var kids = bar ? Array.prototype.slice.call(bar.children).map(function (c) {
+            var r = c.getBoundingClientRect();
+            return { el: c, name: (c.id || c.className || c.tagName), l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width };
+        }).filter(function (k) { return k.w > 0; }) : [];
+        pc('トップバーの部品を読める（5個以上・高さ > 0）', function () {
+            return (br && br.height > 0 && kids.length >= 5) ? (kids.length + '個 / 窓幅 ' + window.innerWidth + 'px') : false;
+        });
+        if (!br || kids.length < 5) return;
+        var overlaps = [];
+        for (var i = 0; i < kids.length; i++) for (var j = i + 1; j < kids.length; j++) {
+            var ov = Math.min(kids[i].r, kids[j].r) - Math.max(kids[i].l, kids[j].l);
+            if (ov > 1) overlaps.push(kids[i].name + '×' + kids[j].name + '(' + Math.round(ov) + 'px)');
+        }
+        var outside = kids.filter(function (k) { return k.l < br.left - 1 || k.r > br.right + 1; }).map(function (k) { return k.name; });
+        var tooTall = kids.filter(function (k) { return k.t < br.top - 1 || k.b > br.bottom + 1; }).map(function (k) { return k.name; });
+        expect('部品どうしが横に重ならない', overlaps.length ? overlaps.join(', ') : 'なし', 'なし');
+        expect('部品がバーの左右からはみ出さない', outside.length ? outside.join(', ') : 'なし', 'なし');
+        expect('部品がバーの上下からはみ出さない（高さ ' + Math.round(br.height) + 'px）', tooTall.length ? tooTall.join(', ') : 'なし', 'なし');
+        expect('バーの中で横スクロールが起きていない', bar.scrollWidth <= bar.clientWidth + 1 ? 'ok' : (bar.scrollWidth + ' > ' + bar.clientWidth), 'ok');
+        var last = kids[kids.length - 1], gap = 0;
+        for (var k = 1; k < kids.length; k++) gap = Math.max(gap, kids[k].l - kids[k - 1].r);
+        note('部品の左右（px）', kids.map(function (k) { return k.name + ':' + Math.round(k.l) + '-' + Math.round(k.r); }).join(' / '));
+        note('最も広い空き / 右端の部品', Math.round(gap) + 'px / ' + last.name);
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -6760,6 +6919,9 @@
         { id: 'D-S2', name: '★再読み込みしても変えた枠の比が残る', run: testS2, manual: true },
         /* ★v1.13.2: 枠数と履歴を変えるので manual。 */
         { id: 'D-Z2', name: '★ローカル動画の履歴を押すと選択画面が開く', run: testZ2, manual: true },
+        /* ★v1.14.0: v2.8.12。D-T1 は上部メニューを畳むので manual。D-T2 は読むだけ。 */
+        { id: 'D-T1', name: '★上部メニューを畳む・上端で出る（レイアウトは動かない）・📌 で戻す', run: testT1, manual: true },
+        { id: 'D-T2', name: '上部メニューの部品が今の窓幅で重ならずバーに収まる', run: testT2, manual: true },
         { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 
@@ -6909,6 +7071,11 @@
            利用者がドラッグで比を変えていても同じ条件で測れるよう、その間だけ保存した比を無視する。 */
         var suspendGrid = /^D-[YZ]\d/.test(def.id) && typeof setGridRatiosSuspended === 'function';
         if (suspendGrid) { try { setGridRatiosSuspended(true); await wait(300); } catch (e) { } }
+        /* ★v1.14.0: 上部メニューを畳んでいると、ほかのテストはメニューのボタンを押せない。
+           D-T 以外の間だけ出した状態にする（保存値は変えない）。 */
+        var suspendBar = !/^D-T\d/.test(def.id) && typeof setTopbarSuspended === 'function'
+            && typeof topbarCollapsed !== 'undefined' && topbarCollapsed;
+        if (suspendBar) { try { setTopbarSuspended(true); await wait(300); } catch (e) { } }
         try {
             await def.run();
         } catch (e) {
@@ -6916,6 +7083,7 @@
             log('  [❌] 実行時エラー … ' + (e && e.message || e));
         }
         if (suspendGrid) { try { setGridRatiosSuspended(false); } catch (e) { } }
+        if (suspendBar) { try { setTopbarSuspended(false); } catch (e) { } }
         finishTest(t);
         if (!keepRunning) running = false;
     }
