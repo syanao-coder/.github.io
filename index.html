@@ -704,20 +704,22 @@
                     <label style="font-size:0.9rem; margin-left:15px;">進むスキップ秒数:</label>
                     <input type="number" id="skipSecForward" value="10" min="1" max="180" step="1" class="compact-number-input" onchange="updateSkipDisplays(); saveSettings();"> 秒
                 </div>
-                <div class="control-row" style="margin-top:10px;">
-                    <label style="font-size:0.9rem;" for="controllerTrigger">一括コントローラーの出し方:</label>
-                    <select id="controllerTrigger" onchange="setControllerTrigger(this.value)">
-                        <option value="hover">マウスを画面の下端に近づける</option>
-                        <option value="click">▲ 操作メニューのクリックのみ</option>
-                    </select>
-                </div>
-                <div class="control-row" style="margin-top:10px;">
-                    <label style="font-size:0.9rem;" for="topbarTrigger">上部メニューを畳んだときの出し方:</label>
+                <!-- ★v2.8.12: 上と下の「出し方」を取り違えないよう、見出しでまとめて上下を矢印で分ける（2026-10-02 実機で取り違え） -->
+                <div class="control-row" style="margin-top:12px; font-size:0.85rem; font-weight:bold; color:#00ffcc;">メニューの出し方（上と下で別々に選べます）</div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem; width:200px;" for="topbarTrigger">⬆ <b>上部メニュー</b>（畳んだとき）:</label>
                     <select id="topbarTrigger" autocomplete="off" onchange="setTopbarTrigger(this.value)">
                         <option value="hover">マウスを画面の上端に近づける</option>
                         <option value="click">▼ メニューのクリックのみ</option>
                     </select>
                     <span style="font-size:0.72rem; color:#888;">畳むのは上部右端の ▲、固定に戻すのは 📌</span>
+                </div>
+                <div class="control-row">
+                    <label style="font-size:0.9rem; width:200px;" for="controllerTrigger">⬇ <b>下部の一括コントローラー</b>:</label>
+                    <select id="controllerTrigger" onchange="setControllerTrigger(this.value)">
+                        <option value="hover">マウスを画面の下端に近づける</option>
+                        <option value="click">▲ 操作メニューのクリックのみ</option>
+                    </select>
                 </div>
                 <div class="control-row" style="margin-top:10px;">
                     <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="confirmReset" onchange="saveSettings()" checked> 箒アイコン（🧹）クリック時に確認表示する</label>
