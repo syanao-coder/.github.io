@@ -234,7 +234,10 @@
         .settings-container {
             position: absolute; top: 35px; left: 0; width: 100%; z-index: 100;
             pointer-events: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            transform: translateY(-100%);
+            /* ★v2.8.12: 閉じたときは自分の高さ＋トップバー分（35px）＋影の余白だけ上へ逃がす。
+               -100% だと下端の 35px が画面の上端に残り、ふだんはトップバーの裏で見えないが、
+               上部メニューを畳むと「残骸」として見えていた（2026-10-02 実機）。 */
+            transform: translateY(calc(-100% - 45px));
         }
         .settings-container.open { transform: translateY(0); }
         /* ★v2.8.12: 閉じたパネルは上へ隠れているだけで、下端の 35px ぶんが画面の上端に残る（ふだんはトップバーの裏）。
@@ -5669,7 +5672,7 @@
         let topbarTrigger = 'hover';
         let topbarHideTimer = null;
         let topbarLastY = 9999;
-        const TOPBAR_EDGE_PX = 8;
+        const TOPBAR_EDGE_PX = 16;
         /* debug_suite 用: 畳んでいてもテストの間だけ出した状態にする（保存値は変えない ─ 再読み込みをまたいでも利用者の設定が残る） */
         let topbarSuspended = false;
         function topbarIsCollapsed() { return topbarCollapsed && !topbarSuspended; }
@@ -5728,6 +5731,13 @@
         }
         function setupTopbarHover() {
             const bar = document.querySelector('.top-bar');
+            /* 🔴 マウスを速く上へ動かすと、上端 16px の帯の中で mousemove が1回も来ないまま
+               ブラウザのツールバーへ抜けることがある（2026-10-02 実機で「出なかった」）。
+               ページの上辺から外へ出たこと（mouseout / relatedTarget なし / 上辺付近）でも出す。 */
+            document.addEventListener('mouseout', (e) => {
+                if (e.relatedTarget || !topbarIsCollapsed() || topbarTrigger !== 'hover') return;
+                if (e.clientY <= 40) { clearTimeout(topbarHideTimer); topbarLastY = 0; showTopbar(); }
+            });
             document.addEventListener('mousemove', (e) => {
                 topbarLastY = e.clientY;
                 if (!topbarIsCollapsed() || topbarTrigger !== 'hover') return;

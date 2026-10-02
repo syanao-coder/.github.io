@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.14.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.14.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.12';
@@ -6733,6 +6733,13 @@
             var hitTop = document.elementFromPoint(Math.round(window.innerWidth / 4), Math.round(barH / 2));
             expect('🔴 畳んだ後の上端（y=' + Math.round(barH / 2) + '）を押すと枠に届く',
                 (hitTop && mv.contains(hitTop)) ? 'ok' : describe(hitTop), 'ok');
+            /* 🔴 ★v1.14.1: 見えている「残骸」は当たり判定（elementFromPoint）では捕まらない（pointer-events:none は素通りする）。
+               閉じたパネルの矩形そのもので、画面内に残っていないことを確かめる（2026-10-02 実機で設定パネルの下端が残った）。 */
+            var leftovers = Array.prototype.slice.call(document.querySelectorAll('.settings-container:not(.open), .topmenu-dropdown:not(.open)'))
+                .map(function (el) { var r = el.getBoundingClientRect(); return { el: el, r: r }; })
+                .filter(function (x) { return x.r.width > 0 && x.r.height > 0 && x.r.bottom > 0.5 && x.r.top < window.innerHeight; })
+                .map(function (x) { return describe(x.el) + '(下端 ' + Math.round(x.r.bottom) + ')'; });
+            expect('🔴 畳んだ後、閉じたパネルが画面内に残っていない（矩形で判定）', leftovers.length ? leftovers.join(', ') : 'なし', 'なし');
 
             /* --- hover: 上端で出る・レイアウトは動かない --- */
             await moveMouseTo(2);
@@ -6744,6 +6751,12 @@
             await moveMouseTo(Math.round(window.innerHeight / 2));
             await wait(1400);
             expect('hover: 離れて約1秒で隠れる', topbarShown(), false);
+            /* ★v1.14.1: 速く上へ抜けると帯の中で mousemove が来ない。ページの上辺から外へ出たことでも出る */
+            document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: Math.round(window.innerWidth / 3), clientY: 30, relatedTarget: null }));
+            await wait(400);
+            expect('hover: 上辺からページの外へ抜けても出る（mousemove が帯に来なくても）', topbarShown(), true);
+            await moveMouseTo(Math.round(window.innerHeight / 2));
+            await wait(1400);
 
             /* --- メニューを開いている間は隠さない --- */
             await moveMouseTo(2);
