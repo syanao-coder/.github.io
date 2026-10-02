@@ -140,7 +140,7 @@ YouTube の動画・ライブを最大9枠並べて**同時に再生・シーク
 | ① | **指示書**を `docs/instructions/` に書く（読むスキル・基点・判定・素材の動画IDまで） | Claude |
 | ② | 実装・`debug_suite.js` の判定追加・`tests/test_vX_Y_Z.html` の作成 → **git commit** | Claude |
 | ② | **Floorp で用紙に従って測定し、出力を貼る** | 🔴 **利用者** |
-| ③ | **報告書**を `docs/reports/` に書く | Claude |
+| ③ | **記録**を `docs/reports/` に書く（🔴 Claude Code 自身が参照する記録。**利用者へ報告書を提示しない** ─ 2026-10-02 利用者指示。チャットでは要点だけ伝える） | Claude |
 | ④ | **利用者に確認してから**スキル更新・`APP_HISTORY`・版数を確定 → **git commit・PR・マージ** | Claude（確認後） |
 
 🔴 **バージョンの区切りとスキル更新は、生成前に利用者に確認する**（利用者の方針）。
