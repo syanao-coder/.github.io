@@ -317,6 +317,12 @@
 
         /* ★v2.8.8: 秒送りは文字（⏪10s / 10s⏩）なので 1.5倍にすると幅を食う。字面は元の大きさに戻す。 */
         .skip-back-btn, .skip-forward-btn { font-size: var(--header-font); line-height: 1; letter-spacing: -0.02em; }
+        /* ★v2.8.8: 狭い枠（9枠・3列など）では秒数を隠して記号だけにする（秒数はホバーの title で読める）。
+           2026-10-02 の実測（Floorp / 画面幅1309 / 9枠 / ヘッダー幅426px）で、秒数を出したままだと
+           右端の ▶ がヘッダーの外へ 31px はみ出した（D-Y13）。
+           🔴 container-type はヘッダーに付ける（幅は枠で決まるので inline-size の封じ込めで見た目は変わらない）。 */
+        .player-header { container-type: inline-size; }
+        @container (max-width: 500px) { .player-header .skip-sec { display: none; } }
         .playlist-nav-btn { background-color: #2e4a62; display: none; }
         .playlist-nav-btn:hover { background-color: #3f607d; }
 
@@ -1512,17 +1518,18 @@
         function getSkipSecForward() { return parseFloat(document.getElementById('skipSecForward').value) || 10; }
         /* ★v2.8.8: 秒送りボタンは一般的な記号と設定秒数を出す（枠ごとと一括コントローラーで共通）。
            ⚠️ タイマーの ↺（リセット）は別の機能なので変えない。 */
-        function skipBackLabel(sec) { return '⏪' + sec + 's'; }
-        function skipForwardLabel(sec) { return sec + 's⏩'; }
+        /* 🔴 秒数は .skip-sec に入れる。狭い枠ではヘッダーの幅が足りないので CSS（@container）で隠す。 */
+        function skipBackLabel(sec) { return '⏪<span class="skip-sec">' + sec + 's</span>'; }
+        function skipForwardLabel(sec) { return '<span class="skip-sec">' + sec + 's</span>⏩'; }
         function updateSkipDisplays() {
             const backSec = getSkipSecBack();
             const forwardSec = getSkipSecForward();
             const bb = document.getElementById('batchSkipBackBtn');
             const bf = document.getElementById('batchSkipForwardBtn');
-            bb.title = '一括' + backSec + '秒戻る'; bb.textContent = skipBackLabel(backSec);
-            bf.title = '一括' + forwardSec + '秒進む'; bf.textContent = skipForwardLabel(forwardSec);
-            document.querySelectorAll('.skip-back-btn').forEach(btn => { btn.title = backSec + '秒戻る'; btn.textContent = skipBackLabel(backSec); });
-            document.querySelectorAll('.skip-forward-btn').forEach(btn => { btn.title = forwardSec + '秒進む'; btn.textContent = skipForwardLabel(forwardSec); });
+            bb.title = '一括' + backSec + '秒戻る'; bb.innerHTML = skipBackLabel(backSec);
+            bf.title = '一括' + forwardSec + '秒進む'; bf.innerHTML = skipForwardLabel(forwardSec);
+            document.querySelectorAll('.skip-back-btn').forEach(btn => { btn.title = backSec + '秒戻る'; btn.innerHTML = skipBackLabel(backSec); });
+            document.querySelectorAll('.skip-forward-btn').forEach(btn => { btn.title = forwardSec + '秒進む'; btn.innerHTML = skipForwardLabel(forwardSec); });
         }
         function changePlayerCount(diff) {
             playerCount = Math.min(Math.max(1, playerCount + diff), MAX_TOTAL_COUNT);
