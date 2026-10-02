@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.11.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.12.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.9';
+    var EXPECT_APP_VERSION = '2.8.10';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.8.7';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.9', ids: ['D-A1', 'D-A2', 'D-N6', 'D-M2'] };
+    var VERSION_FOCUS = { v: '2.8.10', ids: ['D-Z1', 'D-Y7'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -939,7 +939,8 @@
             + '「🎯 この版の回帰」はその版で触った画面の回帰だけを流すボタンです（中身は版ごとに替わります）。'
             + '報告書用コピーに UA（ブラウザの版数）を自動で載せるようにしました。'
             + '★v1.11.0: v2.8.9 の音量の判定 D-A1 / D-A2 は「▶ すべて実行」に含まれます。'
-            + 'トップメニューが6枚（🔊 音量を追加）になり、D-M2 は 42遷移へ増えました。';
+            + 'トップメニューが6枚（🔊 音量を追加）になり、D-M2 は 42遷移へ増えました。'
+            + '★v1.12.0: v2.8.10 のローカル動画の拡大は D-Z1（枠を1つ足してダミーのファイルを読ませる）。「🎯 この版の回帰」から実行します。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1905,13 +1906,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 32);
+        expect('配列の件数', hist ? hist.length : 0, 33);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -6222,6 +6223,74 @@
         function cardVolume_restore(id, v) { try { api.setCard(id, v); } catch (e) { } }
     }
 
+    /* ======================================================================
+       ★v1.12.0 : v2.8.10（ローカル動画の拡大）の判定
+       ==================================================================== */
+    /* --- D-Z1: 動画だけが拡大され、操作バーは切れない -------------------------
+       枠を1つ足し、その枠にダミーのファイルを読ませてローカル動画の枠にする（デコードはされないが
+       <video> と操作バーは本物の経路で作られる）。終了時に枠数と保存URLを戻す。 */
+    async function testZ1() {
+        log('  [目的] 拡大で <video> だけが大きくなり、はみ出しは枠で切られ、操作バーは切れないこと。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        try {
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            var cid = lastCard();
+            var file = null;
+            try { file = new File([new Uint8Array(64)], 'dbg_zoom.mp4', { type: 'video/mp4' }); } catch (e) { }
+            try { handleLocalSelect({ target: { files: [file] } }, cid); } catch (e) { log('  handleLocalSelect: ' + e.message); }
+            await wait(300);
+            var video = document.getElementById('localVideo_' + cid);
+            var container = document.getElementById('playerContainer_' + cid);
+            var overlay = document.getElementById('localOverlay_' + cid);
+            var sel = document.getElementById('localZoomFit_' + cid);
+            var rng = document.getElementById('localZoom_' + cid);
+            pc('ローカル動画の枠になった（video / 操作バー / 拡大の欄がある）', function () {
+                return (video && overlay && sel && rng) ? describe(video) + ' / ' + describe(overlay) : false;
+            });
+            if (!video || !overlay || !sel || !rng) return;
+            /* 操作バーは .player-container の外（切られない場所）にあること */
+            expect('🔴 操作バーは拡大で切られる枠（.player-container）の外にある', container.contains(overlay), false);
+            expect('既定は 標準 / 100%', sel.value + ' / ' + rng.value, 'contain / 100');
+            expect('既定では枠で切らない（zoomed なし）', container.classList.contains('zoomed'), false);
+
+            var r0 = rect(video);
+            rng.value = '150'; rng.dispatchEvent(new Event('input', { bubbles: true }));
+            await wait(150);
+            var r1 = rect(video);
+            /* 🔴 positive control: 拡大が実際に矩形へ効いたこと（効かなければ下の判定は無意味） */
+            pc('🔴 150% にすると video の矩形が実際に大きくなる', function () {
+                return (r0.width > 0 && r1.width > r0.width * 1.4) ? (Math.round(r0.width) + ' → ' + Math.round(r1.width) + 'px') : false;
+            });
+            expect('150%: 枠で切る（zoomed）', container.classList.contains('zoomed'), true);
+            expect('150%: 枠の overflow が hidden', window.getComputedStyle(container).overflow, 'hidden');
+            var cr = rect(container);
+            expect('150%: video は枠からはみ出している（＝切られる側にある）', (r1.width > cr.width + 1) ? 'ok' : (Math.round(r1.width) + ' / ' + Math.round(cr.width)), 'ok');
+            expect('150%: 中心は動かない（±2px）', Math.abs((r1.left + r1.width / 2) - (r0.left + r0.width / 2)) <= 2 ? 'ok' : 'ずれた', 'ok');
+            var val = document.getElementById('localZoomVal_' + cid);
+            expect('表示値', val ? val.innerText : '(なし)', '150%');
+
+            sel.value = 'cover'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(100);
+            expect('枠いっぱい: object-fit が cover', window.getComputedStyle(video).objectFit, 'cover');
+
+            var dbl = document.getElementById('localZoomVal_' + cid);
+            dbl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+            await wait(100);
+            expect('ダブルクリックで 標準 / 100% に戻る', sel.value + ' / ' + rng.value, 'contain / 100');
+            expect('戻したら枠で切らない', container.classList.contains('zoomed'), false);
+            expect('戻したら transform なし', video.style.transform, '');
+            note('枠 / 操作バーの矩形', JSON.stringify(cr) + ' / ' + JSON.stringify(rect(overlay)));
+        } finally {
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数と保存URLの復元', cardCount() + '枠 / ' + (restored === backupText ? '元どおり' : '⚠ 差分あり'));
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -6301,6 +6370,7 @@
         { id: 'D-Y10', name: '★ピン中の ◀▶ で order と保存URLが動かない', run: testY10, manual: true },
         { id: 'D-Y11', name: '4隅それぞれで配置が破綻しない', run: testY11, manual: true },
         { id: 'D-Y13', name: '★ヘッダーのボタンが狭い枠でもヘッダー内に収まる（9枠）', run: testY13, manual: true },
+        { id: 'D-Z1', name: '★ローカル動画の拡大（動画だけが拡大され、操作バーは切れない）', run: testZ1, manual: true },
         { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 
