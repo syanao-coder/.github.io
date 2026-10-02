@@ -39,10 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.9.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.10.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.7';
+    var EXPECT_APP_VERSION = '2.8.8';
+    /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
+       🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
+          （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
+    var EXPECT_ADDON_REQUIRED = '2.8.7';
+    /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
+    var VERSION_FOCUS = { v: '2.8.8', ids: ['D-Y7', 'D-Y8', 'D-Y13'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -659,6 +665,10 @@
         return b;
     }
 
+    function addonRequired() {
+        try { return (typeof ADDON_REQUIRED_VERSION !== 'undefined') ? String(ADDON_REQUIRED_VERSION) : '(取得不可)'; }
+        catch (e) { return '(取得不可)'; }
+    }
     function appVersion() {
         try { return (typeof APP_VERSION !== 'undefined') ? String(APP_VERSION) : '(取得不可)'; }
         catch (e) { return '(取得不可)'; }
@@ -826,6 +836,22 @@
             }));
         panel.appendChild(row4y);
 
+        /* ★v1.10.0: この版で触った箇所の回帰だけを流すボタン。🔴 版ごとにボタンを増やさず、
+           VERSION_FOCUS の中身だけを差し替える（/get-dev-workflow 1-5節の棚卸し対策）。 */
+        var row4f = document.createElement('div');
+        row4f.className = 'dbg-row';
+        row4f.appendChild(mkBtn('🎯 この版の回帰（v' + VERSION_FOCUS.v + ': ' + VERSION_FOCUS.ids.join(' → ') + '）',
+            'この版で触った画面の部分について、既存の判定と新しい判定を続けて実行します（2〜4分）',
+            function () {
+                runChatGroup('🎯 この版の回帰',
+                    VERSION_FOCUS.ids.slice(),
+                    'このあと ' + VERSION_FOCUS.ids.join(' / ') + ' を続けて実行します（2〜4分）。\n'
+                    + '枠数・列数の変更はテストのコードが行い、終了時に元へ戻します。\n'
+                    + '🔴 ウィンドウの大きさを測定中に変えないでください。\n'
+                    + '🔴 測定中はマウスを動かさないでください。');
+            }));
+        panel.appendChild(row4f);
+
         /* ★v1.8.1: D-Y9 は動画を1本読み込むので別のボタンにする（鉄則 #39: 1項目1ボタン）。 */
         var row4y2 = document.createElement('div');
         row4y2.className = 'dbg-row';
@@ -908,7 +934,10 @@
             + '「📐 D-Y レイアウト一括」へ追加しました。D-Y10 は保存URLを一時的に書き換えますが、'
             + '終了時に自動で元へ戻します。'
             + '★v1.9.1: 個別ボタンは「▼ 個別に実行」に畳みました（再測に使うので残してあります）。'
-            + 'ビューポート基準の自己診断は固定待ちをやめ、合否によらず実測値を残します。';
+            + 'ビューポート基準の自己診断は固定待ちをやめ、合否によらず実測値を残します。'
+            + '★v1.10.0: v2.8.8 の判定 D-V2 / D-U1 / D-U2 は「▶ すべて実行」に含まれます。'
+            + '「🎯 この版の回帰」はその版で触った画面の回帰だけを流すボタンです（中身は版ごとに替わります）。'
+            + '報告書用コピーに UA（ブラウザの版数）を自動で載せるようにしました。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -967,6 +996,9 @@
         lines.push('- 実行日時: ' + new Date().toISOString());
         lines.push('- 画面: ' + window.innerWidth + ' x ' + window.innerHeight);
         lines.push('- 配信元: ' + location.origin);
+        /* ★v1.10.0: 測定環境を自動で残す（人に書かせない）。
+           ⚠️ Floorp と Firefox は UA が同じなので名前は判別できない。Gecko の版数までは取れる。 */
+        lines.push('- UA: `' + navigator.userAgent + '`');
         lines.push('- 排他制御への参加: ' + (hasExclusive ? 'TOP_MENUS.push() 成功' : '失敗（単独動作）'));
         lines.push('- ラベル: ' + (runLabel || '（未記入）'));
         lines.push('- 実施メモ: ' + (runMemo ? runMemo.replace(/\n/g, ' / ') : '（未記入）'));
@@ -1472,8 +1504,12 @@
 
         expect('APP_VERSION', appVersion(), EXPECT_APP_VERSION);
         expect('バッジのクラス', badge ? badge.className : '(要素なし)', 'version-badge ok');
+        expect('ADDON_REQUIRED_VERSION', addonRequired(), EXPECT_ADDON_REQUIRED);
+        /* ★v1.10.0: HTML とアドオンの版数が違う期間は両方を出す（v2.8.8 / アドオン v2.8.7）。 */
         expect('バッジの表示文字列', badge ? String(badge.textContent).trim() : '(要素なし)',
-            'v' + EXPECT_APP_VERSION);
+            EXPECT_APP_VERSION === EXPECT_ADDON_REQUIRED
+                ? 'v' + EXPECT_APP_VERSION
+                : 'v' + EXPECT_APP_VERSION + ' / アドオン v' + EXPECT_ADDON_REQUIRED);
         expect('debug_suite の版数', DEBUG_SUITE_VERSION, DEBUG_SUITE_VERSION);
     }
 
@@ -1865,13 +1901,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 30);
+        expect('配列の件数', hist ? hist.length : 0, 31);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -2023,8 +2059,8 @@
 
         var targets = [
             { id: 'playPauseBtn', label: '▶ 一括再生' },
-            { id: 'batchSkipBackBtn', label: '↺ 一括戻る' },
-            { id: 'batchSkipForwardBtn', label: '↻ 一括進む' },
+            { id: 'batchSkipBackBtn', label: '⏪ 一括戻る' },
+            { id: 'batchSkipForwardBtn', label: '⏩ 一括進む' },
             { id: 'topSessionBtn', label: '📂 マイリスト' },
             { id: 'topSettingsBtn', label: '▼ 設定メニュー' }
         ];
@@ -4757,7 +4793,7 @@
         pc(p + '🔴 末尾の枠にピンを付けられた（is-main がちょうど1枚）', function () {
             return (pin.ok && pinnedCards().length === 1) ? cid : false;
         });
-        note(p + '📌 を押したときの当たり判定（押し下げ式ヘッダーなので被覆ありが正常）',
+        note(p + '⤢ を押したときの当たり判定（押し下げ式ヘッダーなので被覆ありが正常）',
             (pin.click.blocked ? '被覆あり / ' : '被覆なし / ') + (pin.click.hit || '(記録なし)'));
 
         var post = await settledSnapshot(cid);
@@ -5826,10 +5862,263 @@
         return sel.value === String(v);
     }
 
+    /* ======================================================================
+       ★v1.10.0 : v2.8.8 の判定
+       ==================================================================== */
+
+    /* --- D-V2: 🔴 アドオンの版数は ADDON_REQUIRED_VERSION と完全一致で照合する ----
+       >= や範囲で照合すると、アドオンを変えた版で古いアドオンが緑になる。
+       addonVersion（本体のトップレベルの let）を一時的に書き換えて確かめ、最後に必ず戻す。 */
+    async function testV2() {
+        var badge = document.getElementById('versionBadge');
+        var req = addonRequired();
+        var app = appVersion();
+        var was;
+        try { was = addonVersion; } catch (e) { was = undefined; }
+        pc('本体の addonVersion を読める（アドオンが応答済み）', function () {
+            return (was !== undefined && was !== null) ? String(was) : false;
+        });
+        pc('ADDON_REQUIRED_VERSION を読める', function () { return req !== '(取得不可)' ? req : false; });
+        if (was === undefined || was === null || req === '(取得不可)') return;
+
+        function kindNow() {
+            return ['ok', 'warn', 'ng'].filter(function (c) { return badge.classList.contains(c); }).join(',') || '(なし)';
+        }
+        function setAddon(v) {
+            try { addonVersion = v; } catch (e) { }
+            try { updateVersionBadge(); } catch (e) { }
+            return kindNow();
+        }
+        try {
+            /* 🔴 positive control: 書き換えが実際にバッジへ効くこと（効かなければ下の判定は無意味）。 */
+            var kGarbage = setAddon('0.0.0');
+            pc('🔴 addonVersion を書き換えるとバッジが変わる（0.0.0 → warn）', function () {
+                return kGarbage === 'warn' ? 'warn' : false;
+            });
+            expect('アドオンが ADDON_REQUIRED_VERSION と一致 → 緑', setAddon(req), 'ok');
+            if (app !== req) {
+                expect('🔴 アドオンが APP_VERSION と一致しても ADDON_REQUIRED_VERSION と違えば → 橙（完全一致の照合）',
+                    setAddon(app), 'warn');
+            } else {
+                note('APP_VERSION と ADDON_REQUIRED_VERSION が同じ版のため、上の判定は省略', app);
+            }
+            var bumped = req.replace(/(\d+)$/, function (m) { return String(parseInt(m, 10) + 1); });
+            expect('🔴 アドオンの方が新しくても → 橙（>= で照合していない）', setAddon(bumped), 'warn');
+        } finally {
+            setAddon(was);
+            note('後始末: addonVersion を元へ戻した', String(was) + ' → ' + kindNow());
+        }
+    }
+
+    /* --- D-U1: 一括コントローラーの出し方（ホバー / クリックのみ） -------------- */
+    function ctlActive() {
+        var oc = document.getElementById('overlayController');
+        return !!(oc && oc.classList.contains('active'));
+    }
+    function moveMouseTo(y) {
+        try {
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: Math.round(window.innerWidth / 2), clientY: y }));
+        } catch (e) { }
+    }
+    async function setTrigger(v) {
+        var sel = document.getElementById('controllerTrigger');
+        if (!sel) return false;
+        sel.value = v;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(100);
+        var cur = null;
+        try { cur = controllerTrigger; } catch (e) { }
+        return cur === v;
+    }
+    async function testU1() {
+        await closeAllMenus();
+        var sel = document.getElementById('controllerTrigger');
+        var tab = document.getElementById('controllerTab');
+        var wasTrigger = null, wasLocked = null, wasActive = ctlActive();
+        try { wasTrigger = controllerTrigger; } catch (e) { }
+        try { wasLocked = !!isControllerLocked; } catch (e) { }
+        pc('設定欄（#controllerTrigger）と ▲ タブ（#controllerTab）がある', function () {
+            return (sel && tab) ? describe(sel) + ' / ' + describe(tab) : false;
+        });
+        if (!sel || !tab) return;
+        note('測定開始時の 出し方 / 🔒 / 表示', wasTrigger + ' / ' + wasLocked + ' / ' + wasActive);
+        try {
+            if (wasLocked) { try { toggleControllerLock(); } catch (e) { } }
+            var bottom = window.innerHeight - 10;
+
+            /* 🔴 positive control: ホバーのとき、合成 mousemove で実際に出ること。
+               これが成立しないと「クリックのみでは出ない」が自明に合格してしまう。 */
+            await setTrigger('hover');
+            hideController();
+            moveMouseTo(bottom);
+            await wait(150);
+            var hoverShown = ctlActive();
+            pc('🔴 ホバー: 下端への合成 mousemove で一括コントローラーが出る', function () {
+                return hoverShown ? '出た' : false;
+            });
+
+            var okSet = await setTrigger('click');
+            pc('設定を「クリックのみ」に切り替えられた', function () { return okSet ? 'click' : false; });
+            hideController();
+            moveMouseTo(bottom);
+            var oc = document.getElementById('overlayController');
+            try { oc.dispatchEvent(new MouseEvent('mouseenter')); } catch (e) { }
+            await wait(150);
+            expect('🔴 クリックのみ: 下端へ動かしても出ない', ctlActive(), false);
+
+            var c1 = await clickReal(tab);
+            expect('クリックのみ: ▲ タブを押すと出る', ctlActive(), true);
+            expect('▲ タブを押せた（被覆なし）', c1.blocked ? ('blocked: ' + c1.reason + ' / ' + c1.hit) : 'ok', 'ok');
+
+            moveMouseTo(100);
+            try { oc.dispatchEvent(new MouseEvent('mouseleave')); } catch (e) { }
+            await wait(1700);
+            expect('クリックのみ: マウスが離れても勝手に隠れない（1.7秒待つ）', ctlActive(), true);
+
+            await clickReal(tab);
+            expect('クリックのみ: もう一度押すと隠れる', ctlActive(), false);
+
+            var saved = null;
+            try { saved = localStorage.getItem('sync_controller_trigger'); } catch (e) { }
+            expect('設定が保存される（sync_controller_trigger）', saved, 'click');
+        } finally {
+            await setTrigger(wasTrigger === 'click' ? 'click' : 'hover');
+            if (wasLocked) { try { if (!isControllerLocked) toggleControllerLock(); } catch (e) { } }
+            if (wasActive) showController(); else hideController();
+            note('後始末: 出し方 / 🔒 / 表示', (function () {
+                var t = null, l = null;
+                try { t = controllerTrigger; } catch (e) { }
+                try { l = !!isControllerLocked; } catch (e) { }
+                return t + ' / ' + l + ' / ' + ctlActive();
+            })());
+        }
+    }
+
+    /* --- D-U2: 秒送りボタンに記号と秒数が出て、設定に追従する --------------- */
+    function skipTexts() {
+        function t(el) { return el ? String(el.textContent).trim() : '(なし)'; }
+        var cb = document.querySelectorAll('.skip-back-btn');
+        var cf = document.querySelectorAll('.skip-forward-btn');
+        return {
+            cardBack: Array.prototype.map.call(cb, t),
+            cardFwd: Array.prototype.map.call(cf, t),
+            batchBack: t(document.getElementById('batchSkipBackBtn')),
+            batchFwd: t(document.getElementById('batchSkipForwardBtn'))
+        };
+    }
+    function uniq(a) { var o = {}; a.forEach(function (x) { o[x] = 1; }); return Object.keys(o); }
+    async function testU2() {
+        await closeAllMenus();
+        var inB = document.getElementById('skipSecBack');
+        var inF = document.getElementById('skipSecForward');
+        pc('秒数の入力欄がある', function () { return (inB && inF) ? inB.value + 's / ' + inF.value + 's' : false; });
+        if (!inB || !inF) return;
+        var t0 = skipTexts();
+        pc('枠ごとの秒送りボタンが1組以上ある', function () {
+            return (t0.cardBack.length > 0 && t0.cardBack.length === t0.cardFwd.length) ? t0.cardBack.length + '組' : false;
+        });
+        var b0 = inB.value, f0 = inF.value;
+        expect('一括 戻る', t0.batchBack, '⏪' + b0 + 's');
+        expect('一括 進む', t0.batchFwd, f0 + 's⏩');
+        expect('枠ごと 戻る（全枠）', uniq(t0.cardBack).join(','), '⏪' + b0 + 's');
+        expect('枠ごと 進む（全枠）', uniq(t0.cardFwd).join(','), f0 + 's⏩');
+        var b1 = String((parseInt(b0, 10) || 10) + 3), f1 = String((parseInt(f0, 10) || 10) + 7);
+        try {
+            inB.value = b1; inB.dispatchEvent(new Event('change', { bubbles: true }));
+            inF.value = f1; inF.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(100);
+            pc('🔴 秒数を実際に変えられた（getSkipSecBack / Forward）', function () {
+                var gb = null, gf = null;
+                try { gb = getSkipSecBack(); gf = getSkipSecForward(); } catch (e) { }
+                return (String(gb) === b1 && String(gf) === f1) ? (gb + 's / ' + gf + 's') : false;
+            });
+            var t1 = skipTexts();
+            expect('変更後: 一括 戻る', t1.batchBack, '⏪' + b1 + 's');
+            expect('変更後: 一括 進む', t1.batchFwd, f1 + 's⏩');
+            expect('変更後: 枠ごと 戻る（全枠）', uniq(t1.cardBack).join(','), '⏪' + b1 + 's');
+            expect('変更後: 枠ごと 進む（全枠）', uniq(t1.cardFwd).join(','), f1 + 's⏩');
+            var timerReset = document.querySelector('.timer-reset-btn');
+            expect('タイマーのリセット（↺）は変えていない', timerReset ? String(timerReset.textContent).trim() : '(なし)', '↺');
+        } finally {
+            inB.value = b0; inB.dispatchEvent(new Event('change', { bubbles: true }));
+            inF.value = f0; inF.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(100);
+            note('後始末: 秒数を戻した', inB.value + 's / ' + inF.value + 's');
+        }
+    }
+
+    /* --- D-Y13: ヘッダーのボタンが狭い枠でもヘッダー内に収まる（9枠） ---------
+       v2.8.8 でアイコンを 1.5倍にし、秒送りを文字（⏪10s）にした。
+       🔴 ヘッダー自身の高さは --header-height の固定値で伸びない。壊れ方は「ボタンがヘッダーの外へ
+          はみ出して切れる」になる。横は狭い枠ほど厳しいので、最も狭い枠（9枠・自動）で測る。 */
+    async function testY13() {
+        log('  [目的] 9枠（最も狭い枠）で、ホバー相当のヘッダーに全ボタンが収まること。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var wasCols = await forceAutoCols();
+        var cid = null;
+        try {
+            await closeAllMenus();
+            await clearPins();
+            var got = await setCardCount(9);
+            pc('枠を9つにできた', function () { return got === 9 ? '9枠' : false; });
+            cid = lastCard();
+            var card = document.getElementById(cid);
+            await waitRectSettled(card, LAYOUT_SETTLE_MS);
+            forceHeaderOpen(cid, true);
+            var hdr = document.querySelector('#' + cid + ' .player-header');
+            await waitRectSettled(hdr, LAYOUT_SETTLE_MS);
+            var hr = rect(hdr);
+            pc('🔴 ヘッダーを開いた状態を作れた（高さ > 0）', function () {
+                return hr && hr.height > 0 ? Math.round(hr.height) + 'px' : false;
+            });
+            var scale = parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 0;
+            pc('--ui-scale を読めている', function () { return scale > 0 ? String(scale) : false; });
+            expect('ヘッダー高が --header-height（30px × --ui-scale）のまま（±1px）',
+                Math.abs(hr.height - 30 * scale) <= 1 ? 'ok' : (Math.round(hr.height * 10) / 10 + 'px'), 'ok');
+
+            var btns = Array.prototype.filter.call(hdr.querySelectorAll('button'), function (b) { return b.offsetWidth > 0; });
+            pc('ヘッダーに表示中のボタンがある', function () { return btns.length > 0 ? btns.length + '個' : false; });
+            var out = [];
+            btns.forEach(function (b) {
+                var r = rect(b);
+                var dx = Math.max(0, r.right - hr.right), dl = Math.max(0, hr.left - r.left);
+                var dt = Math.max(0, hr.top - r.top), db = Math.max(0, r.bottom - hr.bottom);
+                var m = Math.max(dx, dl, dt, db);
+                if (m > 0.5) out.push(String(b.textContent).trim() + ' ' + Math.round(m) + 'px');
+            });
+            expect('🔴 ヘッダーからはみ出したボタン（9枠 / ホバー相当）', out.length ? out.join(' / ') : 'なし', 'なし');
+
+            var chat = hdr.querySelector('.chat-toggle-btn');
+            var fBtn = chat ? parseFloat(window.getComputedStyle(chat).fontSize) : 0;
+            var fHdr = parseFloat(window.getComputedStyle(hdr).fontSize) || 0;
+            pc('字の大きさを読めている（ボタン / 見出し）', function () {
+                return (fBtn > 0 && fHdr > 0) ? fBtn + 'px / ' + fHdr + 'px' : false;
+            });
+            expect('アイコンの字が見出しの文字の 1.5倍（±0.05）',
+                (fHdr > 0 && Math.abs(fBtn / fHdr - 1.5) <= 0.05) ? 'ok' : (fHdr > 0 ? (fBtn / fHdr).toFixed(2) + '倍' : '(測れず)'), 'ok');
+            note('枠幅 / ヘッダー幅 / ボタンの幅（左から）', Math.round(rect(card).width) + ' / ' + Math.round(hr.width) + ' / '
+                + btns.map(function (b) { return Math.round(rect(b).width); }).join(','));
+            note('ボタンの右端の最大 − ヘッダーの右端（負なら余裕）',
+                Math.round(Math.max.apply(null, btns.map(function (b) { return rect(b).right; })) - hr.right) + 'px');
+        } finally {
+            if (cid) forceHeaderOpen(cid, false);
+            await restoreCols(wasCols);
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 保存URLの復元（枠数を変えたため）', restored === backupText ? '元どおり' : '⚠ 差分あり');
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
         { id: 'D-V1', name: '版数バッジ', run: testV1 },
+        /* ★v1.10.0: v2.8.8。準備が要らないので manual にしない。 */
+        { id: 'D-V2', name: '★アドオンの版数は ADDON_REQUIRED_VERSION と完全一致で照合する', run: testV2 },
+        { id: 'D-U1', name: '一括コントローラーの出し方（ホバー / クリックのみ）', run: testU1 },
+        { id: 'D-U2', name: '秒送りボタンに記号と秒数が出て、設定に追従する', run: testU2 },
         /* ★v1.6.0: v2.8.2（設定の解説と更新履歴）。準備が要らないので manual にしない。 */
         { id: 'D-H1', name: '?マークが11項目に付いている', run: testH1 },
         { id: 'D-H2', name: 'ホバーでツールチップが出る', run: testH2 },
@@ -5897,6 +6186,7 @@
         /* ★v1.9.0: v2.8.7（ピン枠の位置を4隅から選ぶ）の検証 */
         { id: 'D-Y10', name: '★ピン中の ◀▶ で order と保存URLが動かない', run: testY10, manual: true },
         { id: 'D-Y11', name: '4隅それぞれで配置が破綻しない', run: testY11, manual: true },
+        { id: 'D-Y13', name: '★ヘッダーのボタンが狭い枠でもヘッダー内に収まる（9枠）', run: testY13, manual: true },
         { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 

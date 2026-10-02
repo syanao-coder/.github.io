@@ -293,9 +293,15 @@
             color: #00ebc7; font-weight: bold;
         }
 
+        /* ★v2.8.8: アイコンが小さいという指摘を受け、ヘッダーのボタンの字面を 1.5倍にした。
+           🔴 line-height を 1/1.5 にして、ボタンの箱の高さ（＝行ボックス＋上下の padding）を元と同じに保つ。
+              ヘッダー自身の高さは var(--header-height) の固定値なので伸びないが、
+              ボタンが高くなるとヘッダーの外へはみ出して切れる（debug_suite の D-Y13 が測る）。
+           🔴 左右の padding は 0.4倍に詰めて、ボタンの幅を元とほぼ同じに保つ。
+              幅が増えると狭い枠（9枠・4列など）で右端の ◀▶ がヘッダーの外へ押し出されて切れる。 */
         .header-action-btn {
-            background-color: #31313e; color: #fff; border: none; padding: var(--btn-pad-y) var(--btn-pad-x);
-            font-size: var(--header-font); border-radius: 4px; cursor: pointer; line-height: 1;
+            background-color: #31313e; color: #fff; border: none; padding: var(--btn-pad-y) calc(var(--btn-pad-x) * 0.4);
+            font-size: calc(var(--header-font) * 1.5); border-radius: 4px; cursor: pointer; line-height: 0.667;
             display: flex; align-items: center; justify-content: center;
         }
         .header-action-btn:hover { background-color: #52526e; }
@@ -304,17 +310,19 @@
            🔴 line-height を 1/1.3 にして行ボックスの高さを元と同じに保つこと。
               font-size だけ上げるとボタンが高くなり、ヘッダー高が変わって
               薄い枠の可視領域（D-Y7 が測っている 54px）が減る。 */
-        .pin-btn { background-color: transparent; border: none; color: #666;
-            font-size: 1.3em; line-height: 0.77; }
+        /* ★v2.8.8: 字面の拡大は .header-action-btn（1.5倍）へまとめた。ここでは大きさを持たない。 */
+        .pin-btn { background-color: transparent; border: none; color: #666; }
         .pin-btn.active { background-color: #00ffcc; color: #000; }
         .pin-btn:hover { background-color: rgba(255, 255, 255, 0.1); color: #ccc; }
 
+        /* ★v2.8.8: 秒送りは文字（⏪10s / 10s⏩）なので 1.5倍にすると幅を食う。字面は元の大きさに戻す。 */
+        .skip-back-btn, .skip-forward-btn { font-size: var(--header-font); line-height: 1; letter-spacing: -0.02em; }
         .playlist-nav-btn { background-color: #2e4a62; display: none; }
         .playlist-nav-btn:hover { background-color: #3f607d; }
 
         .delete-btn {
-            background-color: #31313e; color: #ff4757; border: none; padding: var(--btn-pad-y) var(--btn-pad-x);
-            font-size: var(--header-font); border-radius: 4px; cursor: pointer; line-height: 1;
+            background-color: #31313e; color: #ff4757; border: none; padding: var(--btn-pad-y) calc(var(--btn-pad-x) * 0.4);
+            font-size: calc(var(--header-font) * 1.5); border-radius: 4px; cursor: pointer; line-height: 0.667;
             display: flex; align-items: center; justify-content: center; margin-left: 5px;
         }
         .delete-btn:hover { background-color: #52526e; color: #ff6b81; }
@@ -609,6 +617,13 @@
                     <input type="number" id="skipSecForward" value="10" min="1" max="180" step="1" class="compact-number-input" onchange="updateSkipDisplays(); saveSettings();"> 秒
                 </div>
                 <div class="control-row" style="margin-top:10px;">
+                    <label style="font-size:0.9rem;" for="controllerTrigger">一括コントローラーの出し方:</label>
+                    <select id="controllerTrigger" onchange="setControllerTrigger(this.value)">
+                        <option value="hover">マウスを画面の下端に近づける</option>
+                        <option value="click">▲ 操作メニューのクリックのみ</option>
+                    </select>
+                </div>
+                <div class="control-row" style="margin-top:10px;">
                     <label style="display:flex; align-items:center; gap:4px; cursor:pointer; font-size:0.9rem;"><input type="checkbox" id="confirmReset" onchange="saveSettings()" checked> 箒アイコン（🧹）クリック時に確認表示する</label>
                 </div>
                 <div class="control-row">
@@ -665,7 +680,7 @@
     </div>
 
     <div class="overlay-controller" id="overlayController">
-        <div class="controller-tab">▲ 操作メニュー</div>
+        <div class="controller-tab" id="controllerTab" onclick="toggleControllerByTab()" title="クリックで一括コントローラーを出し入れ">▲ 操作メニュー</div>
         <button id="lockControllerBtn" class="lock-btn" onclick="toggleControllerLock()" title="コントローラーを常に表示 (ロック)">🔓</button>
         <div class="sync-timer-container">
             <div class="sync-timer" id="mainTimer" onclick="editTimer()" title="クリックで手動入力(全動画をその時間へ同期)">00:00:00</div>
@@ -675,9 +690,8 @@
         </div>
         <button class="primary" id="playPauseBtn" onclick="togglePlayPauseAll()" style="font-size:0.95rem; padding:6px 12px;">▶ 一括再生</button>
         <div style="display:flex; align-items:center; background:rgba(0,0,0,0.4); padding:4px 6px; border-radius:8px;">
-            <button id="batchSkipBackBtn" onclick="skipAll(-getSkipSecBack())" title="一括戻る" style="font-size:1rem;">↺</button>
-            <span id="skipSecDisplay" style="font-size:0.75rem; margin:0 4px; color:#aaa; font-family:monospace;">[10s / 10s]</span>
-            <button id="batchSkipForwardBtn" onclick="skipAll(getSkipSecForward())" title="一括進む" style="font-size:1rem;">↻</button>
+            <button id="batchSkipBackBtn" onclick="skipAll(-getSkipSecBack())" title="一括戻る" style="font-size:1rem;">⏪10s</button>
+            <button id="batchSkipForwardBtn" onclick="skipAll(getSkipSecForward())" title="一括進む" style="font-size:1rem; margin-left:4px;">10s⏩</button>
         </div>
         <div style="display:flex; align-items:center; gap:2px; background:rgba(0,0,0,0.4); padding:4px 6px; border-radius:8px;">
             <span style="font-size:0.75rem; color:#aaa;">速度:</span>
@@ -704,7 +718,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.7';
+        const APP_VERSION = '2.8.8';
+        /* ★v2.8.8: このページが必要とするアドオンの版数。
+           🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
+              （アドオンを触らない版で再登録させないため）。
+           🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
+        const ADDON_REQUIRED_VERSION = '2.8.7';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -715,6 +734,10 @@
             const el = document.getElementById('versionBadge');
             if (!el) return;
             el.classList.remove('ok', 'warn', 'ng');
+            /* ★v2.8.8: HTML とアドオンの版数が違う期間は両方を出す（例: v2.8.8 / アドオン v2.8.7）。 */
+            const shown = (APP_VERSION === ADDON_REQUIRED_VERSION)
+                ? 'v' + APP_VERSION
+                : 'v' + APP_VERSION + ' / アドオン v' + ADDON_REQUIRED_VERSION;
             if (!addonVersion) {
                 el.innerText = 'v' + APP_VERSION + ' / アドオン未検出';
                 el.classList.add('ng');
@@ -722,26 +745,27 @@
                          + '・about:debugging でアドオンが読み込まれているか\n'
                          + '・拡張機能アイコンからこのサイトでの実行を許可しているか\n'
                          + 'を確認してください。';
-            } else if (addonVersion === APP_VERSION) {
+            } else if (addonVersion === ADDON_REQUIRED_VERSION) {
                 if (ytPermission === false) {
                     /* ★v2.7.0: 版数は合っているのに YouTube の許可が無い状態。
                        これを緑で出すと、チャットが取れない理由が画面から読めない。
                        ⚠️ ytPermission === null（未応答）は緑のままにする。=== false だけ橙。 */
-                    el.innerText = 'v' + APP_VERSION + ' / YouTube権限なし';
+                    el.innerText = shown + ' / YouTube権限なし';
                     el.classList.add('warn');
                     el.title = 'アドオンは動いていますが、YouTube への実行許可がありません。\n'
                              + 'YouTubeのタブでツールバーの拡張機能アイコン →\n'
                              + '「このサイトでの実行を許可」を選んでください。\n'
                              + '許可したあとこのタブに戻ると自動で緑に戻ります。';
                 } else {
-                    el.innerText = 'v' + APP_VERSION;
+                    el.innerText = shown;
                     el.classList.add('ok');
-                    el.title = 'HTML と アドオン のバージョンが一致しています。';
+                    el.title = 'アドオンの版数が、このページが必要とする版数（v' + ADDON_REQUIRED_VERSION + '）と一致しています。';
                 }
             } else {
                 el.innerText = 'HTML v' + APP_VERSION + ' ⇔ アドオン v' + addonVersion;
                 el.classList.add('warn');
-                el.title = 'バージョンが一致していません。\n'
+                el.title = 'アドオンの版数が、このページが必要とする版数と一致していません。\n'
+                         + '必要なアドオン: v' + ADDON_REQUIRED_VERSION + ' / 入っているアドオン: v' + addonVersion + '\n'
                          + '古い方を差し替えてから動作確認してください。';
             }
         }
@@ -1277,6 +1301,11 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.8', d: '2026-10-02', t: [
+                '下部の一括コントローラーを「▲ 操作メニュー」のクリックだけで出し入れする設定を追加した（▼ 設定メニュー）',
+                '枠のヘッダーのボタンのアイコンを大きくした',
+                '秒送りボタンに記号と秒数を表示するようにした（例: ⏪10s / 10s⏩）',
+                'アドオンを変えていない版ではアドオンの入れ直しを不要にした（版数バッジにアドオンの版数も表示）'] },
             { v: '2.8.7', d: '2026-09-14', t: [
                 'ピン留めした枠を置く位置を、左上・右上・左下・右下から選べるようにした（ピン中は ◀▶ で移動）',
                 'ピン留めボタンのアイコンを 📌 から ⤢ へ変更し、字面を一回り大きくした'] },
@@ -1481,15 +1510,19 @@
         }
         function getSkipSecBack() { return parseFloat(document.getElementById('skipSecBack').value) || 10; }
         function getSkipSecForward() { return parseFloat(document.getElementById('skipSecForward').value) || 10; }
+        /* ★v2.8.8: 秒送りボタンは一般的な記号と設定秒数を出す（枠ごとと一括コントローラーで共通）。
+           ⚠️ タイマーの ↺（リセット）は別の機能なので変えない。 */
+        function skipBackLabel(sec) { return '⏪' + sec + 's'; }
+        function skipForwardLabel(sec) { return sec + 's⏩'; }
         function updateSkipDisplays() {
             const backSec = getSkipSecBack();
             const forwardSec = getSkipSecForward();
-            const display = document.getElementById('skipSecDisplay');
-            if (display) display.innerText = '[' + backSec + 's / ' + forwardSec + 's]';
-            document.getElementById('batchSkipBackBtn').title = '一括' + backSec + '秒戻る';
-            document.getElementById('batchSkipForwardBtn').title = '一括' + forwardSec + '秒進む';
-            document.querySelectorAll('.skip-back-btn').forEach(btn => btn.title = backSec + '秒戻る');
-            document.querySelectorAll('.skip-forward-btn').forEach(btn => btn.title = forwardSec + '秒進む');
+            const bb = document.getElementById('batchSkipBackBtn');
+            const bf = document.getElementById('batchSkipForwardBtn');
+            bb.title = '一括' + backSec + '秒戻る'; bb.textContent = skipBackLabel(backSec);
+            bf.title = '一括' + forwardSec + '秒進む'; bf.textContent = skipForwardLabel(forwardSec);
+            document.querySelectorAll('.skip-back-btn').forEach(btn => { btn.title = backSec + '秒戻る'; btn.textContent = skipBackLabel(backSec); });
+            document.querySelectorAll('.skip-forward-btn').forEach(btn => { btn.title = forwardSec + '秒進む'; btn.textContent = skipForwardLabel(forwardSec); });
         }
         function changePlayerCount(diff) {
             playerCount = Math.min(Math.max(1, playerCount + diff), MAX_TOTAL_COUNT);
@@ -1551,8 +1584,8 @@
             const forwardSec = getSkipSecForward();
             return '<div class="player-header">' +
                 '<button class="header-action-btn pin-btn" onclick="togglePin(\'' + cardId + '\')" title="拡大表示（ピン留め）。ピン中は ◀▶ でピン枠の位置を移動できます">⤢</button>' +
-                '<button class="header-action-btn skip-back-btn" onclick="skipPlayer(\'' + cardId + '\', -getSkipSecBack())" title="' + backSec + '秒戻る">↺</button>' +
-                '<button class="header-action-btn skip-forward-btn" onclick="skipPlayer(\'' + cardId + '\', getSkipSecForward())" title="' + forwardSec + '秒進む">↻</button>' +
+                '<button class="header-action-btn skip-back-btn" onclick="skipPlayer(\'' + cardId + '\', -getSkipSecBack())" title="' + backSec + '秒戻る">' + skipBackLabel(backSec) + '</button>' +
+                '<button class="header-action-btn skip-forward-btn" onclick="skipPlayer(\'' + cardId + '\', getSkipSecForward())" title="' + forwardSec + '秒進む">' + skipForwardLabel(forwardSec) + '</button>' +
                 '<button class="header-action-btn playlist-nav-btn" id="playlistPrev_' + cardId + '" onclick="prevPlaylistItem(\'' + cardId + '\')" title="再生リスト: 前の動画">⏮</button>' +
                 '<button class="header-action-btn playlist-nav-btn" id="playlistNext_' + cardId + '" onclick="nextPlaylistItem(\'' + cardId + '\')" title="再生リスト: 次の動画">⏭</button>' +
                 '<span class="player-title" id="title_' + cardId + '">未ロード</span>' +
@@ -5109,15 +5142,32 @@
             const mainView = document.getElementById('mainView');
             controller.classList.remove('active'); mainView.classList.remove('controller-active'); 
         }
+        /* ★v2.8.8: 一括コントローラーの出し方。'hover'（既定 / 下端に近づけると出る）か 'click'（▲ のクリックのみ）。
+           🔒（isControllerLocked ＝ 常時表示）とは独立。ロック中はどちらでも隠れない。 */
+        let controllerTrigger = 'hover';
+        let controllerHideTimer = null;
+        function setControllerTrigger(value) {
+            controllerTrigger = (value === 'click') ? 'click' : 'hover';
+            const sel = document.getElementById('controllerTrigger');
+            if (sel && sel.value !== controllerTrigger) sel.value = controllerTrigger;
+            clearTimeout(controllerHideTimer);
+            saveSettings();
+        }
+        function toggleControllerByTab() {
+            const controller = document.getElementById('overlayController');
+            clearTimeout(controllerHideTimer);
+            /* ホバーのときは ▲ の上にマウスがある時点で出ているので、押しても隠さない（出すだけ）。 */
+            if (controllerTrigger === 'click' && controller.classList.contains('active')) hideController(); else showController();
+        }
         function setupHoverController() {
             const controller = document.getElementById('overlayController');
-            let hideTimer;
             document.addEventListener('mousemove', (e) => {
-                if (e.clientY > window.innerHeight - 80) { showController(); clearTimeout(hideTimer); } 
-                else { clearTimeout(hideTimer); hideTimer = setTimeout(() => { if (!controller.matches(':hover')) hideController(); }, 1500); }
+                if (controllerTrigger !== 'hover') return;
+                if (e.clientY > window.innerHeight - 80) { showController(); clearTimeout(controllerHideTimer); } 
+                else { clearTimeout(controllerHideTimer); controllerHideTimer = setTimeout(() => { if (controllerTrigger === 'hover' && !controller.matches(':hover')) hideController(); }, 1500); }
             });
-            controller.addEventListener('mouseenter', () => { showController(); clearTimeout(hideTimer); });
-            controller.addEventListener('mouseleave', () => { clearTimeout(hideTimer); hideTimer = setTimeout(() => { hideController(); }, 1000); });
+            controller.addEventListener('mouseenter', () => { if (controllerTrigger !== 'hover') return; showController(); clearTimeout(controllerHideTimer); });
+            controller.addEventListener('mouseleave', () => { if (controllerTrigger !== 'hover') return; clearTimeout(controllerHideTimer); controllerHideTimer = setTimeout(() => { if (controllerTrigger === 'hover') hideController(); }, 1000); });
         }
 
         function saveSettings() {
@@ -5136,6 +5186,7 @@
             localStorage.setItem('sync_playback_speed', currentPlaybackSpeed);
             localStorage.setItem('sync_master_volume', document.getElementById('masterVolume').value);
             localStorage.setItem('sync_controller_lock', isControllerLocked);
+            localStorage.setItem('sync_controller_trigger', controllerTrigger);
             localStorage.setItem('sync_confirm_reset', document.getElementById('confirmReset').checked);
             localStorage.setItem('sync_confirm_delete', document.getElementById('confirmDelete').checked);
             localStorage.setItem('sync_master_mode', getCurrentMasterType());
@@ -5166,6 +5217,11 @@
                 document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
             }
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
+            if (localStorage.getItem('sync_controller_trigger') === 'click') {
+                controllerTrigger = 'click';
+                const ct = document.getElementById('controllerTrigger');
+                if (ct) ct.value = 'click';
+            }
             if (localStorage.getItem('sync_controller_lock') === 'true') {
                 isControllerLocked = true;
                 const btn = document.getElementById('lockControllerBtn');
