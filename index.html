@@ -1352,7 +1352,8 @@
            ------------------------------------------------------------ */
         const APP_HISTORY = [
             { v: '2.8.11', d: '2026-10-02', t: [
-                '枠の境界線をドラッグして、枠の大きさを変えられるようにした（つまみのダブルクリックか、上部の ⊞ で均等に戻す）'] },
+                '枠の境界線をドラッグして、枠の大きさを変えられるようにした（つまみのダブルクリックか、上部の ⊞ で均等に戻す）',
+                'ローカル動画の履歴を押すと、そのままファイルの選択画面が開くようにした'] },
             { v: '2.8.10', d: '2026-10-02', t: [
                 'ローカル動画の枠に拡大を追加した（既定は枠いっぱい。全体を表示 / 100〜300% も選べる）。黒帯の入った動画を大きく表示でき、操作バーは切れない'] },
             { v: '2.8.9', d: '2026-10-02', t: [
@@ -1797,7 +1798,7 @@
                     '<div class="placeholder-actions">' +
                         '<button class="primary" onclick="loadSingleYT(\'' + cardId + '\')">読み込む</button>' +
                         '<button onclick="triggerYtTop(\'' + cardId + '\')" style="background:#ff4757; color:#fff; font-weight:bold;">別窓でYouTubeを開く</button>' +
-                        '<input type="file" accept="video/*" onchange="handleLocalSelect(event, \'' + cardId + '\')" style="width:130px; font-size:0.75rem;">' +
+                        '<input type="file" id="localFile_' + cardId + '" accept="video/*" onchange="handleLocalSelect(event, \'' + cardId + '\')" style="width:130px; font-size:0.75rem;">' +
                     '</div>' +
                 '</div>' +
                 // 履歴ギャラリーは伸縮させず下部に固定（履歴が無い場合は高さ0になり入力欄が完全な中央に来る）
@@ -2127,10 +2128,14 @@
                 const safeTitle = escapeJsString(item.title);
                 const safeUrl = escapeJsString(item.url || item.title);
                 const thumbSrc = item.thumbnail || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='68' viewBox='0 0 120 68'><rect width='100%' height='100%' fill='%23222'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='%23666' font-size='10'>Local</text></svg>";
+                /* ★v2.8.11: ローカル動画の履歴は、押すとそのまま「ファイルを選択」と同じ選択画面を開く（2026-10-02 利用者要望）。
+                   🔴 ブラウザはパスからファイルを開くことも、選択画面の初期フォルダを決めることも許さない。
+                      選ぶファイルは利用者が決める（ツールチップにファイル名を出す）。 */
                 const loadArgs = item.isLocal 
-                    ? 'alert(\'ローカル動画「' + safeTitle + '」を復元するため、枠内の「ファイルを選択」から該当ファイルを再アップロードしてください。\')'
+                    ? 'openLocalPicker(\'' + cardId + '\')'
                     : 'loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')';
-                html += '<div style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="' + loadArgs + '">' +
+                const tileTitle = item.isLocal ? ('クリックでファイルを選ぶ（「' + escapeHtmlAttr(item.title) + '」を選んでください）') : '';
+                html += '<div class="history-tile' + (item.isLocal ? ' local' : '') + '" title="' + tileTitle + '" style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="' + loadArgs + '">' +
                     '<img src="' + thumbSrc + '" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px;">' +
                     '<div style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + safeTitle + '</div>' +
                     '<button onclick="event.stopPropagation(); deleteVideoHistoryItem(\'' + safeUrl + '\', \'' + cardId + '\')" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.7); border:none; color:#ff4757; font-size:0.6rem; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer;">✕</button>' +
@@ -2140,6 +2145,14 @@
             return html;
         }
 
+        function escapeHtmlAttr(v) {
+            return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+        /* 🔴 クリックの処理の中で同期的に input.click() を呼ぶこと（間に await や setTimeout を挟むとブラウザが選択画面を開かない） */
+        function openLocalPicker(cardId) {
+            const input = document.getElementById('localFile_' + cardId);
+            if (input) input.click();
+        }
         function loadHistoryYt(cardId, url) {
             const input = document.getElementById('urlInput_' + cardId);
             if (input) input.value = url;
