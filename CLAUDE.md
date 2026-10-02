@@ -8,9 +8,9 @@
 ## 0. 最初にやること
 
 1. **この CLAUDE.md を最後まで読む**
-2. **`.claude/skills/get-dev-workflow/SKILL.md` と `.claude/skills/get-mgmt-guide/SKILL.md` を全文読む**
+2. **スキル `get-dev-workflow` と `get-mgmt-guide` を全文読む**（2節末尾の置き場所）
 3. **3節「途中の作業」から再開する**（v2.8.7 は**未確定**。いきなり v2.8.8 へ進まない）
-4. コードの版数（`web/index.html` の `APP_VERSION` / `addon/manifest.json`）が
+4. コードの版数（`index.html` の `APP_VERSION` / `addon/manifest.json`）が
    **2.8.7** であることを確認する。違ったら作業を始めずに利用者へ報告する
 
 ---
@@ -34,24 +34,28 @@ YouTube の動画・ライブを最大9枠並べて**同時に再生・シーク
 
 ## 2. リポジトリの構成
 
+🔴 **このリポジトリ自体が GitHub Pages の配信元（`syanao-coder/.github.io`）。** A側の2ファイルは**直下に置く**（`web/` 等へ移すと Pages が読まない）。
+配信から外すものは `_config.yml` の `exclude` に書く（`addon/` `tests/` `docs/` `CLAUDE.md`）。
+
 ```
 .
-├── CLAUDE.md                     ← このファイル
-├── web/
-│   ├── index.html                ← A側（Pages へ配る）
-│   └── debug_suite.js            ← 開発基盤（Pages へ配る）
-├── addon/
+├── CLAUDE.md                     ← このファイル（配信対象外）
+├── _config.yml                   ← Pages（Jekyll）の配信除外の設定
+├── index.html                    ← A側（Pages が配る）
+├── debug_suite.js                ← 開発基盤（Pages が配る）
+├── addon/                        ← B側（配信対象外）
 │   ├── manifest.json
 │   ├── background.js
 │   ├── content_controller.js / content_video.js
 │   ├── content_youtube_scrape.js / content_yt_chat.js
 │   └── chat_fetcher_main.js
-├── tests/                        ← 統合テスト用紙（最新の版だけ残す）
-├── docs/
-│   ├── history/                  ← history_protocol.md / history_chat.md
-│   └── reports/                  ← 開発報告書（report_v2_8_7.md ほか）
-└── .claude/skills/               ← スキル7本（下表）
+├── tests/                        ← 統合テスト用紙（最新の版だけ残す / 配信対象外。🔴 ローカルで開く）
+└── docs/
+    ├── history/                  ← history_protocol.md / history_chat.md（未搬入）
+    └── reports/                  ← 開発報告書（report_v2_8_7.md ほか）
 ```
+
+スキル7本はリポジトリには置いていない。アカウント側のスキル（`get-*`）として同期されており、`~/.claude/skills/synced/` 以下のファイルとして読める。
 
 | スキル | 中身 | いつ読むか |
 | :--- | :--- | :--- |
@@ -190,7 +194,7 @@ const ADDON_REQUIRED_VERSION = '2.8.7';
 | ④ | **利用者に確認してから**スキル更新・`APP_HISTORY`・版数を確定 → **git commit と tag（`v2.8.7` など）** | Claude（確認後） |
 
 🔴 **バージョンの区切りとスキル更新は、生成前に利用者に確認する**（利用者の方針）。
-🔴 **配布**: `web/index.html` と `web/debug_suite.js` を GitHub Pages のリポジトリへ反映する。
+🔴 **配布**: 直下の `index.html` と `debug_suite.js` を `main` へ反映すると Pages に出る。
 アドオンは `about:debugging` で再読み込み（`ADDON_REQUIRED_VERSION` 導入後は**アドオンを触った版だけ**）。
 
 ---

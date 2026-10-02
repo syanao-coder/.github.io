@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.9.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.9.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.7';
@@ -704,16 +704,31 @@
         row1.appendChild(mkBtn('🗑 ログを消す', 'ログ表示と記録を初期化する', function () { clearLog(); }));
         row1.appendChild(mkBtn('📋 報告書用にコピー', '「事実 / 解釈 / 生データJSON」の3節に分けた Markdown をクリップボードへコピーする', function () { copyReport(); }));
         row1.appendChild(mkBtn('📝 メモ/ラベル', 'この計測回のラベルと実施メモを入力する（12時間保存・報告書へ入る）', function () { openMetaDialog(); }));
-        row1.appendChild(mkBtn('❓ ask() 確認', '目視の記録パネルを1回開く（動作確認用）', function () {
-            ask('（動作確認）この記録パネルの選択肢は読めていますか', ['読める', '読めない']);
-        }));
+        /* ★v1.9.1 棚卸し: 「❓ ask() 確認」を削除した。
+           D-X2 が記録パネルの選択肢・未選択時の赤枠・確定の可否を自動で検証しており、
+           人が押して目で見る意味が無くなっていた（判定数は変わらない）。 */
         panel.appendChild(row1);
 
+        /* ★v1.9.1 棚卸し: 個別ボタンは本数が増え続け、どれを押せばよいか分からなくなっていた。
+           🔴 消さずに畳む。単独実行は「1本だけ測り直す」唯一の手段で、
+              2026-09-16 に D-Y11 の再測で実際に必要になった。消していたら
+              一括（9〜15分）を回し直すことになる。既定は閉じる。 */
         var row2 = document.createElement('div');
         row2.className = 'dbg-row';
+        row2.style.display = 'none';
         TESTS.forEach(function (t) {
             row2.appendChild(mkBtn('▶ ' + t.id, t.name, function () { runOne(t.id); }));
         });
+        var row2Head = document.createElement('div');
+        row2Head.className = 'dbg-row';
+        var row2Btn = mkBtn('▼ 個別に実行（' + TESTS.length + '本）',
+            'テストを1本だけ実行する。再測のときに使う', function () {
+                var open = row2.style.display !== 'none';
+                row2.style.display = open ? 'none' : '';
+                row2Btn.textContent = (open ? '▼' : '▲') + ' 個別に実行（' + TESTS.length + '本）';
+            });
+        row2Head.appendChild(row2Btn);
+        panel.appendChild(row2Head);
         panel.appendChild(row2);
 
         /* ★v1.4.0: D-P の一括実行。盾を1回だけ聞き、記録は再読み込みをまたいで残す。
@@ -891,7 +906,9 @@
             + 'D-N6 は矩形が動かなくなるまで待ってから測るようにしました。'
             + '★v1.9.0: v2.8.7（ピン枠の位置を4隅から選ぶ）の判定 D-Y10 / D-Y11 / D-Y12 を'
             + '「📐 D-Y レイアウト一括」へ追加しました。D-Y10 は保存URLを一時的に書き換えますが、'
-            + '終了時に自動で元へ戻します。';
+            + '終了時に自動で元へ戻します。'
+            + '★v1.9.1: 個別ボタンは「▼ 個別に実行」に畳みました（再測に使うので残してあります）。'
+            + 'ビューポート基準の自己診断は固定待ちをやめ、合否によらず実測値を残します。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -4808,14 +4825,28 @@
         var r0 = rect(el);
         var shift = Math.max(120, Math.round(vpH - r0.bottom + VP_PROBE_MARGIN));
         var was = el.style.transform;
+        /* 🔴 ★v1.9.1: 固定の wait(400) をやめ、矩形が動かなくなるまで待つ。
+           .player-card には transition: all 0.3s ease が効いており、400ms は遷移に対して
+           ほとんど余裕が無い。2026-09-16 の実測で D-Y11 だけこの PC が false になり、
+           同じ回の D-Y1 / D-Y5 / D-Y6 は成立していた（D-Y11 は矩形の収束に 2012ms
+           かかっており、遅い瞬間に「戻し」の遷移が 400ms で終わらなかったと見られる）。 */
         el.style.transform = 'translateY(' + shift + 'px)';
-        await wait(400);
+        var w1 = await waitRectSettled(el, LAYOUT_SETTLE_MS);
         var probed = layoutSnapshot();
         el.style.transform = was || '';
-        await wait(400);
+        var w2 = await waitRectSettled(el, LAYOUT_SETTLE_MS);
         var back = layoutSnapshot();
         note(p + 'ビューポート基準の測定の自己診断（動かした枠 / 元の bottom / ずらした量）',
             el.id + ' / ' + r0.bottom + ' / ' + shift + 'px（innerHeight = ' + vpH + '）');
+        /* 🔴 ★v1.9.1: 合否によらず3値と収束時間を残す。
+           v1.9.0 までは失敗すると false だけが残り、「ずらしたのに増えなかった」のか
+           「戻したのに元へ戻らなかった」のかが後から分からなかった。 */
+        note(p + 'ビューポート基準の測定の実測値（基準 → ずらした → 戻した px / 収束）',
+            (base ? base.viewportOutside : '?')
+            + ' → ' + (probed ? probed.viewportOutside : '?')
+            + ' → ' + (back ? back.viewportOutside : '?') + ' px'
+            + ' / ずらし ' + w1.ms + 'ms(' + (w1.settled ? '収束' : '時間切れ') + ')'
+            + ' / 戻し ' + w2.ms + 'ms(' + (w2.settled ? '収束' : '時間切れ') + ')');
         pc(p + '🔴 ビューポート基準の測定が反応する（最も下にある枠を ' + shift
             + 'px 下へずらすと検出でき、戻すと元へ戻る）', function () {
             if (!probed || !back) return false;
