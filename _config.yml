@@ -1,0 +1,9 @@
+# GitHub Pages（Jekyll）の配信から外すもの。A側は直下の index.html と debug_suite.js だけを配る。
+# tests/ の用紙は本体と同じオリジンに置くと「全設定・保存URLをリセット」で下書きが消えるので、ローカルで開く。
+exclude:
+  - addon/
+  - tests/
+  - docs/
+  - CLAUDE.md
+  - README.md
+  - "v*.zip"
