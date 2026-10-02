@@ -150,6 +150,16 @@
         #versionAnchor { margin-left: 10px; margin-right: 0; }
         #versionAnchor .version-badge { margin-left: 0; }
 
+        /* ★v2.8.9: 音量ミキサー */
+        .vol-row { display: flex; align-items: center; gap: 8px; }
+        .vol-row input[type="range"] { flex: 1; min-width: 80px; }
+        .vol-label { width: 170px; flex-shrink: 0; font-size: 0.82rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .vol-label .vol-no { color: #00ffcc; font-weight: bold; margin-right: 6px; }
+        .vol-sub { display: block; font-size: 0.68rem; color: #888; overflow: hidden; text-overflow: ellipsis; }
+        .vol-val { width: 34px; text-align: right; font-family: monospace; font-size: 0.8rem; color: #00ffcc; }
+        .vol-master-row { padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+        .vol-row.vol-disabled { opacity: 0.45; }
+        .player-card.vol-highlight { outline: 3px solid #ffb020; outline-offset: -3px; }
         .history-entry { margin-bottom: 9px; padding-bottom: 7px; border-bottom: 1px solid #2a2a33; }
         .history-entry:last-child { border-bottom: none; margin-bottom: 0; }
         .history-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
@@ -548,6 +558,23 @@
                 </div>
             </div>
         </span>
+        <!-- ★v2.8.9: 音量ミキサー。枠ごとの音量とマスター音量をまとめて操作する。
+             実際の音量 ＝ マスター × 枠ごと（マスターを動かしても枠ごとの差は崩れない）。 -->
+        <span class="topmenu-anchor">
+            <button id="topVolumeBtn" class="settings-toggle-btn" onclick="toggleVolumeMenu()">🔊 音量</button>
+            <div class="topmenu-dropdown" id="volumeMenu">
+                <h3>🔊 音量</h3>
+                <div class="control-row vol-row vol-master-row">
+                    <span class="vol-label"><b>マスター</b><span class="vol-sub">全枠にかかる倍率</span></span>
+                    <input type="range" id="mixerMasterVolume" min="0" max="100" value="50" oninput="changeMasterVolume(this.value)">
+                    <span class="vol-val" id="mixerMasterVolumeVal">50</span>
+                </div>
+                <div id="volumeRows"></div>
+                <div class="control-row" style="margin-top:4px;">
+                    <span style="font-size:0.72rem; color:#888;">実際の音量 ＝ マスター × 枠ごとの音量。行にマウスを乗せると対象の枠が光ります。dアニメ・Amazon の枠は対象外です。</span>
+                </div>
+            </div>
+        </span>
         <button id="topSessionBtn" class="settings-toggle-btn" onclick="toggleSessionMenu()">📂 マイリスト・セッション</button>
         <button id="topSettingsBtn" class="settings-toggle-btn" onclick="toggleSettings()"><span id="topSettingsArrow">▼</span> 設定メニュー</button>
     </div>
@@ -724,7 +751,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.8';
+        const APP_VERSION = '2.8.9';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1307,6 +1334,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.8.9', d: '2026-10-02', t: [
+                '上部メニューに「🔊 音量」を追加し、枠ごとの音量とマスター音量をまとめて操作できるようにした',
+                '下部の音量をマスター音量として独立させた（動かしても枠ごとに合わせた音量の差が崩れない）'] },
             { v: '2.8.8', d: '2026-10-02', t: [
                 '下部の一括コントローラーを「▲ 操作メニュー」のクリックだけで出し入れする設定を追加した（▼ 設定メニュー）',
                 '枠のヘッダーのボタンのアイコンを大きくした',
@@ -1453,7 +1483,9 @@
             { panel: 'commentMenu',       btn: 'topCommentBtn' },
             /* ★v2.8.2: 📜 更新履歴。ボタンの役目は版数バッジが兼ねる。
                ⚠️ .version-badge.active には色の指定を置かないこと（R2 ─ 緑/橙/赤の意味を壊す）。 */
-            { panel: 'historyMenu',       btn: 'versionBadge' }
+            { panel: 'historyMenu',       btn: 'versionBadge' },
+            /* ★v2.8.9: 🔊 音量 */
+            { panel: 'volumeMenu',        btn: 'topVolumeBtn' }
         ];
         function closeTopMenus(exceptId) {
             /* ★v2.8.2: パネルを閉じたらツールチップも消す。
@@ -1505,6 +1537,125 @@
                 panel.classList.add('open'); btn.classList.add('active');
                 refreshChatCacheStat();
             }
+        }
+        /* ============================================================
+           ★v2.8.9: 音量（マスター × 枠ごと）
+           🔴 実際の音量 ＝ マスター（#masterVolume）× 枠ごと（cardVolume）。
+              マスターを動かしても cardVolume には触らない（v2.8.8 までは全枠を上書きしていて、
+              枠ごとに合わせた差がマスターを触るとリセットされた）。
+           ⚠️ 外部配信サイト（dアニメ・Amazon）の枠は音量を伝えるメッセージが無いので対象外。
+           ============================================================ */
+        let cardVolume = {};   /* cardId → 0..100（既定 100） */
+        function getMasterVolume() {
+            const el = document.getElementById('masterVolume');
+            const v = el ? parseFloat(el.value) : 50;
+            return isFinite(v) ? Math.max(0, Math.min(100, v)) : 50;
+        }
+        function getCardVolume(cardId) {
+            const v = cardVolume[cardId];
+            return (typeof v === 'number' && isFinite(v)) ? v : 100;
+        }
+        /* 0..100 の実効音量 */
+        function effectiveVolume(cardId) {
+            return Math.round(getMasterVolume() * getCardVolume(cardId) / 100);
+        }
+        function applyCardVolume(cardId) {
+            const eff = effectiveVolume(cardId);
+            const video = document.getElementById('localVideo_' + cardId);
+            if (video) {
+                video.volume = Math.max(0, Math.min(1, eff / 100));
+                const icon = document.getElementById('localVolIcon_' + cardId);
+                if (icon) icon.innerText = eff === 0 ? '🔇' : (eff < 50 ? '🔉' : '🔊');
+            }
+            const localIn = document.getElementById('localVolume_' + cardId);
+            if (localIn) localIn.value = getCardVolume(cardId);
+            const player = ytPlayers[cardId];
+            if (player && typeof player.setVolume === 'function') { try { player.setVolume(eff); } catch (e) {} }
+        }
+        function setCardVolume(cardId, value) {
+            const v = Math.max(0, Math.min(100, parseFloat(value) || 0));
+            cardVolume[cardId] = v;
+            applyCardVolume(cardId);
+            const row = document.getElementById('volRowInput_' + cardId);
+            if (row && String(row.value) !== String(v)) row.value = v;
+            const val = document.getElementById('volRowVal_' + cardId);
+            if (val) val.innerText = Math.round(v);
+            saveCardVolumes();
+        }
+        function saveCardVolumes() {
+            /* 消えた枠の値は捨てる（枠IDは作り直すたびに新しい番号になる）。 */
+            const keep = {};
+            getSortedCards().forEach(c => { if (cardVolume[c.id] !== undefined) keep[c.id] = cardVolume[c.id]; });
+            cardVolume = keep;
+            try { localStorage.setItem('sync_card_volume', JSON.stringify(keep)); } catch (e) {}
+        }
+        function loadCardVolumes() {
+            try {
+                const o = JSON.parse(localStorage.getItem('sync_card_volume') || '{}');
+                if (o && typeof o === 'object') cardVolume = o;
+            } catch (e) { cardVolume = {}; }
+        }
+        function cardKindOf(cardId) {
+            if (ytPlayers[cardId]) return 'YouTube';
+            const v = document.getElementById('localVideo_' + cardId);
+            if (v && v.src && v.src !== window.location.href) return 'ローカル';
+            return '';
+        }
+        function renderVolumeRows() {
+            const host = document.getElementById('volumeRows');
+            if (!host) return;
+            host.innerHTML = '';
+            getSortedCards().forEach((card, i) => {
+                const cid = card.id;
+                const kind = cardKindOf(cid);
+                const titleEl = document.getElementById('title_' + cid);
+                const title = titleEl ? titleEl.innerText : '';
+                const row = document.createElement('div');
+                row.className = 'control-row vol-row' + (kind ? '' : ' vol-disabled');
+                row.id = 'volRow_' + cid;
+                row.dataset.cardId = cid;
+                const label = document.createElement('span');
+                label.className = 'vol-label';
+                label.title = title;
+                const no = document.createElement('span'); no.className = 'vol-no'; no.textContent = '枠' + (i + 1);
+                const sub = document.createElement('span'); sub.className = 'vol-sub';
+                sub.textContent = kind ? title : '（動画なし）';
+                label.appendChild(no); label.appendChild(document.createTextNode(kind || '')); label.appendChild(sub);
+                const input = document.createElement('input');
+                input.type = 'range'; input.min = '0'; input.max = '100';
+                input.id = 'volRowInput_' + cid;
+                input.value = getCardVolume(cid);
+                input.disabled = !kind;
+                input.oninput = function () { setCardVolume(cid, this.value); };
+                const val = document.createElement('span');
+                val.className = 'vol-val'; val.id = 'volRowVal_' + cid;
+                val.innerText = Math.round(getCardVolume(cid));
+                row.appendChild(label); row.appendChild(input); row.appendChild(val);
+                row.addEventListener('mouseenter', () => card.classList.add('vol-highlight'));
+                row.addEventListener('mouseleave', () => card.classList.remove('vol-highlight'));
+                host.appendChild(row);
+            });
+        }
+        function toggleVolumeMenu() {
+            const panel = document.getElementById('volumeMenu');
+            const btn = document.getElementById('topVolumeBtn');
+            const willOpen = !panel.classList.contains('open');
+            closeTopMenus(null);
+            document.querySelectorAll('.player-card.vol-highlight').forEach(c => c.classList.remove('vol-highlight'));
+            if (willOpen) {
+                panel.classList.add('open'); btn.classList.add('active');
+                syncMasterVolumeUI();
+                renderVolumeRows();
+            }
+        }
+        function syncMasterVolumeUI() {
+            const v = getMasterVolume();
+            const m = document.getElementById('mixerMasterVolume');
+            if (m && String(m.value) !== String(v)) m.value = v;
+            const mv = document.getElementById('mixerMasterVolumeVal');
+            if (mv) mv.innerText = Math.round(v);
+            const bottom = document.getElementById('masterVolume');
+            if (bottom && String(bottom.value) !== String(v)) bottom.value = v;
         }
         function changeUiSize(size) {
             document.documentElement.setAttribute('data-ui-size', size);
@@ -1879,7 +2030,7 @@
                         /* ★v2.7.4: title が空文字を返す回があるので、空も 'YouTube動画' に倒す */
                         document.getElementById('title_' + cardId).innerText = (videoData && videoData.title) ? videoData.title : 'YouTube動画';
                         setTimeout(function () { updateChatContent(cardId); }, 200);
-                        event.target.setVolume(document.getElementById('masterVolume').value);
+                        event.target.setVolume(effectiveVolume(cardId));   // ★v2.8.9: マスター × 枠ごと
                         event.target.setPlaybackRate(currentPlaybackSpeed);
                         if (playlistId) {
                             document.getElementById('playlistPrev_' + cardId).style.display = 'inline-block';
@@ -2044,15 +2195,13 @@
             const video = document.getElementById('localVideo_' + cardId);
             video.src = URL.createObjectURL(file);
 
-            const masterVolEl = document.getElementById('masterVolume');
-            const vol = masterVolEl ? (parseFloat(masterVolEl.value) || 0) / 100 : 0.5;
-            video.volume = Math.max(0, Math.min(1, vol));
+            video.volume = Math.max(0, Math.min(1, effectiveVolume(cardId) / 100));   // ★v2.8.9
             video.playbackRate = currentPlaybackSpeed;
 
             document.getElementById('title_' + cardId).innerText = '[Local] ' + file.name;
             document.getElementById('localOverlay_' + cardId).style.display = 'flex';
             const volInput = document.getElementById('localVolume_' + cardId);
-            if (volInput) volInput.value = Math.round(video.volume * 100);
+            if (volInput) volInput.value = getCardVolume(cardId);   // ★v2.8.9: 枠ごとの音量を出す
 
             video.addEventListener('loadedmetadata', function() {
                 const seek = document.getElementById('localSeek_' + cardId);
@@ -2122,12 +2271,9 @@
             updateLocalTimeDisplay(cardId);
         }
 
+        /* ★v2.8.9: ローカル動画の操作バーの音量は「枠ごとの音量」。実際の音量はマスターを掛けた値。 */
         function changeLocalVideoVolume(cardId, value) {
-            const video = document.getElementById('localVideo_' + cardId);
-            if (!video) return;
-            video.volume = Math.max(0, Math.min(1, (parseFloat(value) || 0) / 100));
-            const icon = document.getElementById('localVolIcon_' + cardId);
-            if (icon) icon.innerText = video.volume === 0 ? '🔇' : (video.volume < 0.5 ? '🔉' : '🔊');
+            setCardVolume(cardId, value);
         }
 
         function showScrapedResults(cardId, items) {
@@ -2295,7 +2441,7 @@
                             playerReadyDone[p.cardId] = true;
                             document.getElementById('title_' + p.cardId).innerText = p.title;
                             setTimeout(function () { updateChatContent(p.cardId); }, 200);
-                            event.target.setVolume(document.getElementById('masterVolume').value);
+                            event.target.setVolume(effectiveVolume(p.cardId));   // ★v2.8.9
                             event.target.setPlaybackRate(currentPlaybackSpeed);
                             event.target.seekTo(p.currentTime, true);
                             if (playlistId) {
@@ -4994,20 +5140,15 @@
             });
         }
         function skipAll(seconds) { applySeekToAll(seconds, true, null); }
+        /* ★v2.8.9: マスター音量。🔴 枠ごとの音量（cardVolume）には触らない。
+           下部のスライダーと音量ミキサーのスライダーは同じ値を共有する。 */
         function changeMasterVolume(value) {
-            document.querySelectorAll('.custom-local-video').forEach(v => {
-                v.volume = Math.max(0, Math.min(1, value / 100));
-                // cardIdは 'card_3' のようにアンダースコアを含むため split('_')[1] では 'card' になってしまう。
-                // prefixを除去する方式に修正。
-                const cardId = v.id.replace('localVideo_', '');
-                const localVolInput = document.getElementById('localVolume_' + cardId);
-                if (localVolInput) localVolInput.value = value;
-                const icon = document.getElementById('localVolIcon_' + cardId);
-                if (icon) icon.innerText = v.volume === 0 ? '🔇' : (v.volume < 0.5 ? '🔉' : '🔊');
-            });
-            Object.values(ytPlayers).forEach(player => {
-                if (player && typeof player.setVolume === 'function') player.setVolume(value);
-            });
+            const v = Math.max(0, Math.min(100, parseFloat(value) || 0));
+            const bottom = document.getElementById('masterVolume');
+            if (bottom) bottom.value = v;
+            syncMasterVolumeUI();
+            getSortedCards().forEach(c => applyCardVolume(c.id));
+            try { localStorage.setItem('sync_master_volume', String(v)); } catch (e) {}
         }
 
         /* ------------------------------------------------------------
@@ -5224,6 +5365,7 @@
                 document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
             }
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
+            loadCardVolumes();   // ★v2.8.9
             if (localStorage.getItem('sync_controller_trigger') === 'click') {
                 controllerTrigger = 'click';
                 const ct = document.getElementById('controllerTrigger');

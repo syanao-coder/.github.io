@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.10.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.11.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.8';
+    var EXPECT_APP_VERSION = '2.8.9';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.8.7';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.8', ids: ['D-Y7', 'D-Y8', 'D-Y13'] };
+    var VERSION_FOCUS = { v: '2.8.9', ids: ['D-A1', 'D-A2', 'D-N6', 'D-M2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -937,7 +937,9 @@
             + 'ビューポート基準の自己診断は固定待ちをやめ、合否によらず実測値を残します。'
             + '★v1.10.0: v2.8.8 の判定 D-V2 / D-U1 / D-U2 は「▶ すべて実行」に含まれます。'
             + '「🎯 この版の回帰」はその版で触った画面の回帰だけを流すボタンです（中身は版ごとに替わります）。'
-            + '報告書用コピーに UA（ブラウザの版数）を自動で載せるようにしました。';
+            + '報告書用コピーに UA（ブラウザの版数）を自動で載せるようにしました。'
+            + '★v1.11.0: v2.8.9 の音量の判定 D-A1 / D-A2 は「▶ すべて実行」に含まれます。'
+            + 'トップメニューが6枚（🔊 音量を追加）になり、D-M2 は 42遷移へ増えました。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1150,7 +1152,9 @@
         { id: 'history', panel: 'historyMenu', btn: 'versionBadge', label: '📜 更新履歴' },
         { id: 'comment', panel: 'commentMenu', btn: 'topCommentBtn', label: '💬 コメント設定' },
         { id: 'session', panel: 'sessionContainer', btn: 'topSessionBtn', label: '📂 マイリスト' },
-        { id: 'settings', panel: 'settingsContainer', btn: 'topSettingsBtn', label: '▼ 設定メニュー', arrow: 'topSettingsArrow' }
+        { id: 'settings', panel: 'settingsContainer', btn: 'topSettingsBtn', label: '▼ 設定メニュー', arrow: 'topSettingsArrow' },
+        /* ★v1.11.0: v2.8.9 の 🔊 音量。6枚になり D-M2 は 42遷移・46判定になる。 */
+        { id: 'volume', panel: 'volumeMenu', btn: 'topVolumeBtn', label: '🔊 音量' }
     ];
 
     /* ★v1.6.0: v2.8.2 の判定で使う道具。
@@ -1901,13 +1905,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 31);
+        expect('配列の件数', hist ? hist.length : 0, 32);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -1996,7 +2000,7 @@
     async function testN6() {
         await closeAllMenus();
 
-        pc('5枚すべてのボタンとパネルを取得できる', function () {
+        pc(MENUS.length + '枚すべてのボタンとパネルを取得できる', function () {
             var miss = MENUS.filter(function (m) {
                 return !document.getElementById(m.btn) || !document.getElementById(m.panel);
             });
@@ -2028,7 +2032,7 @@
 
         /* 🔴 収束せずに測った枚数があれば、その回の矩形は信用できない。
            前提条件なので expect ではなく pc で落とす。 */
-        pc('5枚とも矩形が動かなくなってから測った（滑っている途中で測っていない）', function () {
+        pc(MENUS.length + '枚とも矩形が動かなくなってから測った（滑っている途中で測っていない）', function () {
             return notSettled.length ? false : settles.join(' / ');
         });
         note('矩形が収束するまでの時間', settles.join(' / '));
@@ -6111,6 +6115,113 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.11.0 : v2.8.9（音量）の判定
+       ==================================================================== */
+    function volApi() {
+        var o = {};
+        try { o.eff = effectiveVolume; o.getCard = getCardVolume; o.setCard = setCardVolume;
+              o.master = changeMasterVolume; o.getMaster = getMasterVolume; } catch (e) { return null; }
+        return (typeof o.eff === 'function' && typeof o.setCard === 'function') ? o : null;
+    }
+    function sortedCardIds() {
+        try { return getSortedCards().map(function (c) { return c.id; }); } catch (e) { return []; }
+    }
+
+    /* --- D-A1: 音量ミキサーに全枠の行が並び、枠と対応している -------------- */
+    async function testA1() {
+        await closeAllMenus();
+        var btn = document.getElementById('topVolumeBtn');
+        var panel = document.getElementById('volumeMenu');
+        pc('🔊 ボタンとパネルがある', function () { return (btn && panel) ? describe(btn) + ' / ' + describe(panel) : false; });
+        if (!btn || !panel) return;
+        var c1 = await clickReal(btn);
+        expect('🔊 を押せた（被覆なし）', c1.blocked ? ('blocked: ' + c1.reason) : 'ok', 'ok');
+        expect('パネルが開く', panel.classList.contains('open'), true);
+        var ids = sortedCardIds();
+        var rows = Array.prototype.slice.call(document.querySelectorAll('#volumeRows .vol-row'));
+        pc('枠が1つ以上ある', function () { return ids.length ? ids.length + '枠' : false; });
+        expect('行の数が枠の数と一致', rows.length, ids.length);
+        expect('行の並びが枠の並び（order）と一致', rows.map(function (r) { return r.dataset.cardId; }).join(','), ids.join(','));
+        var labelsOk = rows.every(function (r, i) {
+            var no = r.querySelector('.vol-no');
+            return no && String(no.textContent).trim() === '枠' + (i + 1);
+        });
+        expect('各行に「枠N」の番号が出ている', labelsOk, true);
+        /* 行にマウスを乗せると対象の枠が光る（どのスライダーがどの枠かを示す仕掛け） */
+        if (rows.length) {
+            var r0 = rows[0], card0 = document.getElementById(r0.dataset.cardId);
+            r0.dispatchEvent(new MouseEvent('mouseenter'));
+            var lit = card0 ? card0.classList.contains('vol-highlight') : false;
+            r0.dispatchEvent(new MouseEvent('mouseleave'));
+            var unlit = card0 ? !card0.classList.contains('vol-highlight') : false;
+            expect('行にマウスを乗せると対象の枠が光り、外すと消える', (lit && unlit) ? 'ok' : ('光る=' + lit + ' / 消える=' + unlit), 'ok');
+        }
+        var enabled = rows.filter(function (r) { var i = r.querySelector('input'); return i && !i.disabled; }).length;
+        note('操作できる行 / 全行（動画の入っていない枠は無効）', enabled + ' / ' + rows.length);
+        var mm = document.getElementById('mixerMasterVolume'), mb = document.getElementById('masterVolume');
+        expect('ミキサーのマスターが下部の音量と同じ値', mm && mb ? (mm.value === mb.value ? 'ok' : mm.value + ' / ' + mb.value) : '(要素なし)', 'ok');
+        await closeAllMenus();
+        expect('閉じたら光っている枠が残らない', document.querySelectorAll('.player-card.vol-highlight').length, 0);
+    }
+
+    /* --- D-A2: 🔴 マスター音量を動かしても枠ごとの音量が崩れない ------------ */
+    async function testA2() {
+        await closeAllMenus();
+        var api = volApi();
+        pc('本体の音量関数を読める（effectiveVolume / setCardVolume / changeMasterVolume）', function () { return api ? 'あり' : false; });
+        if (!api) return;
+        var ids = sortedCardIds();
+        pc('枠が2つ以上ある（差を作るため）', function () { return ids.length >= 2 ? ids.length + '枠' : false; });
+        if (ids.length < 2) return;
+        var a = ids[0], b = ids[1];
+        var m0 = api.getMaster(), va0 = api.getCard(a), vb0 = api.getCard(b);
+        var stored0 = null;
+        try { stored0 = localStorage.getItem('sync_card_volume'); } catch (e) { }
+        try {
+            api.setCard(a, 80); api.setCard(b, 30);
+            api.master(50);
+            /* 🔴 positive control: マスターを変えると実効音量が実際に変わること（変わらなければ判定は無意味） */
+            var e50 = api.eff(a);
+            api.master(100);
+            var e100 = api.eff(a);
+            /* ⚠️ PC は「独立しているか」に依存させない（依存させると壊れたとき判定不能になり、不合格として出ない）。 */
+            pc('🔴 マスターを変えると実効音量が変わる（枠A / マスター 50 → 100）', function () {
+                return (e100 > e50) ? (e50 + ' → ' + e100) : false;
+            });
+            api.master(20);
+            expect('🔴 マスターを動かしたあとも枠Aの音量は 80 のまま', api.getCard(a), 80);
+            expect('🔴 マスターを動かしたあとも枠Bの音量は 30 のまま', api.getCard(b), 30);
+            expect('実効音量 ＝ マスター × 枠ごと（枠A: 20 × 80% ＝ 16）', api.eff(a), 16);
+            expect('実効音量 ＝ マスター × 枠ごと（枠B: 20 × 30% ＝ 6）', api.eff(b), 6);
+            var saved = null;
+            try { saved = JSON.parse(localStorage.getItem('sync_card_volume') || '{}'); } catch (e) { }
+            expect('枠ごとの音量が保存される（sync_card_volume）', saved ? (saved[a] + ' / ' + saved[b]) : '(読めず)', '80 / 30');
+            var li = document.getElementById('localVolume_' + a);
+            expect('枠の操作バーの音量欄（localVolume_）は枠ごとの音量を出す', li ? li.value : '(なし)', '80');
+            /* 実プレイヤーがいれば、実際に設定された音量も見る（いなければ観測だけ） */
+            var p = null;
+            try { p = ytPlayers[a] || ytPlayers[b]; } catch (e) { }
+            var pid = null;
+            try { pid = ytPlayers[a] ? a : (ytPlayers[b] ? b : null); } catch (e) { }
+            if (p && typeof p.getVolume === 'function') {
+                await wait(300);
+                var got = null;
+                try { got = p.getVolume(); } catch (e) { }
+                note('YouTube プレイヤーの getVolume()（期待 ' + api.eff(pid) + '）', String(got));
+            } else {
+                note('YouTube プレイヤーの getVolume()', '(枠A・Bにプレイヤーが無いので観測なし)');
+            }
+        } finally {
+            api.master(m0);
+            cardVolume_restore(a, va0); cardVolume_restore(b, vb0);
+            try { if (stored0 === null) localStorage.removeItem('sync_card_volume'); else localStorage.setItem('sync_card_volume', stored0); } catch (e) { }
+            try { loadCardVolumes(); ids.forEach(function (id) { applyCardVolume(id); }); } catch (e) { }
+            note('後始末: マスター / 枠A / 枠B', api.getMaster() + ' / ' + api.getCard(a) + ' / ' + api.getCard(b));
+        }
+        function cardVolume_restore(id, v) { try { api.setCard(id, v); } catch (e) { } }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -6119,6 +6230,9 @@
         { id: 'D-V2', name: '★アドオンの版数は ADDON_REQUIRED_VERSION と完全一致で照合する', run: testV2 },
         { id: 'D-U1', name: '一括コントローラーの出し方（ホバー / クリックのみ）', run: testU1 },
         { id: 'D-U2', name: '秒送りボタンに記号と秒数が出て、設定に追従する', run: testU2 },
+        /* ★v1.11.0: v2.8.9（音量）。準備が要らないので manual にしない。 */
+        { id: 'D-A1', name: '音量ミキサーに全枠の行が並び、枠と対応している', run: testA1 },
+        { id: 'D-A2', name: '★マスター音量を動かしても枠ごとの音量が崩れない（実音量＝マスター×枠ごと）', run: testA2 },
         /* ★v1.6.0: v2.8.2（設定の解説と更新履歴）。準備が要らないので manual にしない。 */
         { id: 'D-H1', name: '?マークが11項目に付いている', run: testH1 },
         { id: 'D-H2', name: 'ホバーでツールチップが出る', run: testH2 },
@@ -6132,7 +6246,7 @@
         { id: 'D-N5', name: 'バッジの既存の役割が変わっていない', run: testN5 },
         { id: 'D-N6', name: '全メニューのパネルが画面内に収まる', run: testN6 },
         { id: 'D-R1', name: '既存操作への非干渉（回帰）', run: testR1 },
-        { id: 'D-M2', name: 'トップメニューの排他制御（全遷移・5枚）', run: testM2 },
+        { id: 'D-M2', name: 'トップメニューの排他制御（全遷移・6枚）', run: testM2 },
         { id: 'D-M7', name: 'コメント流し設定の永続化（4系統一致）', run: testM7 },
         { id: 'D-E1', name: '再生可否の確定処理と枠内通知', run: testE1 },
         { id: 'D-P1', name: '通常動画（positive control を兼ねる）', run: testP1, manual: true },
@@ -6259,8 +6373,7 @@
             lines.push('   index.html か debug_suite.js のどちらかが古いままです。');
             lines.push('   GitHub Pages 側のファイルは、置き換えても');
             lines.push('   ブラウザのキャッシュで古いものが読まれることがあります。');
-            lines.push('   URL の末尾に ?debug=1&v=' + Date.now());
-            lines.push('   のように毎回違う値を付けて開き直してください。');
+            lines.push('   URL は変えずに Ctrl+Shift+R で読み込み直してください。');
         }
         if (c.badgeWarn) {
             lines.push('🔴 HTML とアドオンの版数が揃っていません。');
