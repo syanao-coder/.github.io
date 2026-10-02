@@ -6,3 +6,4 @@ exclude:
   - docs/
   - CLAUDE.md
   - README.md
+  - "v*.zip"

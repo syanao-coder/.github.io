@@ -8,7 +8,7 @@
 ## 0. 最初にやること
 
 1. **この CLAUDE.md を最後まで読む**
-2. **スキル `get-dev-workflow` と `get-mgmt-guide` を全文読む**（2節末尾の置き場所）
+2. **`docs/spec/get-dev-workflow.md` と `docs/spec/get-mgmt-guide.md` を全文読む**
 3. **3節「途中の作業」から再開する**（v2.8.7 は**未確定**。いきなり v2.8.8 へ進まない）
 4. コードの版数（`index.html` の `APP_VERSION` / `addon/manifest.json`）が
    **2.8.7** であることを確認する。違ったら作業を始めずに利用者へ報告する
@@ -41,6 +41,7 @@ YouTube の動画・ライブを最大9枠並べて**同時に再生・シーク
 .
 ├── CLAUDE.md                     ← このファイル（配信対象外）
 ├── _config.yml                   ← Pages（Jekyll）の配信除外の設定
+├── vX.Y.Z.zip                     ← アドオン提出用 zip（最新の1つだけ / 配信対象外）
 ├── index.html                    ← A側（Pages が配る）
 ├── debug_suite.js                ← 開発基盤（Pages が配る）
 ├── addon/                        ← B側（配信対象外）
@@ -55,7 +56,9 @@ YouTube の動画・ライブを最大9枠並べて**同時に再生・シーク
     └── reports/                  ← 開発報告書（report_v2_8_7.md ほか）
 ```
 
-スキル7本はリポジトリには置いていない。アカウント側のスキル（`get-*`）として同期されており、`~/.claude/skills/synced/` 以下のファイルとして読める。
+仕様書7本（旧 claude.ai スキル）は `docs/spec/<名前>.md` に置いた（2026-10-02 に搬入。本文は搬入時のまま）。
+🔴 **以後はこのファイルが正本。** claude.ai 側のスキルは引き継ぎ後に使わない。本文中の「スキル」「/get-xxx」は `docs/spec/get-xxx.md` と読み替える。
+再構成（分割・剪定）は3-5節の宿題として専用の作業で行う。
 
 | スキル | 中身 | いつ読むか |
 | :--- | :--- | :--- |
@@ -196,6 +199,9 @@ const ADDON_REQUIRED_VERSION = '2.8.7';
 🔴 **バージョンの区切りとスキル更新は、生成前に利用者に確認する**（利用者の方針）。
 🔴 **配布**: 直下の `index.html` と `debug_suite.js` を `main` へ反映すると Pages に出る。
 アドオンは `about:debugging` で再読み込み（`ADDON_REQUIRED_VERSION` 導入後は**アドオンを触った版だけ**）。
+🔴 **アドオン提出用 zip（利用者の依頼 2026-10-02）**: アドオンの版数を上げたら、`addon/` の中身を **zip の直下に `manifest.json` が来る形**で固めて、
+リポジトリ直下に **`vX.Y.Z.zip`**（例: `v2.8.7.zip`）の名前で置く。**古い版の zip は同じコミットで削除する**（常に1つだけ）。
+作り方: `rm -f v*.zip && (cd addon && zip -X -r ../vX.Y.Z.zip .)` → `unzip -l` で中身と `manifest.json` の版数を確かめてから commit。
 
 ---
 
