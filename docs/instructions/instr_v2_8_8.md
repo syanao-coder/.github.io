@@ -49,3 +49,9 @@
 ## 5. 素材
 
 動画は使わない（`D-Y` 一括は既存どおり `zuuZyNH0F1Y` / `d3bgw8r84mA` / `NshKf1Pw9nA` を読み込むだけ）。
+
+## 6. 申し送り（2026-10-02 追記）
+
+- 🔴 **デバッグ用URLは `https://syanao-coder.github.io/?debug=1` に固定する**（利用者要望）。用紙の URL は修正済み。
+- ⚠️ `debug_suite.js` の設置ガード（`guardInstall()`）の文言が、まだ「URL の末尾に `?debug=1&v=<時刻>` を付けて開き直す」と案内している。
+  測定中の基盤を変えないため v1.10.0 では直さず、**次に `debug_suite.js` を触る版で「Ctrl+Shift+R で読み込み直す」へ変える。**
