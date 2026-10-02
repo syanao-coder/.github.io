@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.13.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.13.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.11';
@@ -48,7 +48,7 @@
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.8.7';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.11', ids: ['D-S1', 'D-Y1', 'D-Y12'] };
+    var VERSION_FOCUS = { v: '2.8.11', ids: ['D-S1', 'D-Y1', 'D-Y12', 'D-S2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -941,7 +941,8 @@
             + '★v1.11.0: v2.8.9 の音量の判定 D-A1 / D-A2 は「▶ すべて実行」に含まれます。'
             + 'トップメニューが6枚（🔊 音量を追加）になり、D-M2 は 42遷移へ増えました。'
             + '★v1.12.0: v2.8.10 のローカル動画の拡大は D-Z1（枠を1つ足してダミーのファイルを読ませる）。「🎯 この版の回帰」から実行します。'
-            + '★v1.13.0: v2.8.11 の境界線ドラッグは D-S1。D-Y / D-Z は保存した枠の比を一時的に無視して均等で測ります（保存値は消しません）。';
+            + '★v1.13.0: v2.8.11 の境界線ドラッグは D-S1。D-Y / D-Z は保存した枠の比を一時的に無視して均等で測ります（保存値は消しません）。'
+            + '★v1.13.1: D-S2 はページを再読み込みして、変えた枠の比が残るかを測ります（「🎯 この版の回帰」の最後に走ります）。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -6330,6 +6331,38 @@
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x + dx, clientY: y + dy }));
         await wait(250);
     }
+    /* 本物のマウスに近いダブルクリック: 毎回その座標にある要素へ送る（つまみが作り直されていれば別の要素になる）。
+       ネイティブの dblclick は2回とも同じ要素のときだけ、その要素へ送る（違えば発火させない）。 */
+    async function realDblClick(x, y) {
+        var targets = [], i;
+        for (i = 0; i < 2; i++) {
+            var el = document.elementFromPoint(x, y);
+            targets.push(el);
+            if (!el) break;
+            var o = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, detail: i + 1 };
+            el.dispatchEvent(new MouseEvent('mousedown', o));
+            el.dispatchEvent(new MouseEvent('mouseup', o));
+            document.dispatchEvent(new MouseEvent('mouseup', o));
+            el.dispatchEvent(new MouseEvent('click', o));
+            await wait(60);
+        }
+        if (targets[0] && targets[0] === targets[1] && targets[0].isConnected) {
+            targets[0].dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: x, clientY: y, detail: 2 }));
+        }
+        await wait(400);
+        return targets[0] === targets[1] ? '同じ要素' : '別の要素（作り直された）';
+    }
+    function handleCenter(axis, idx) {
+        var h = splitters().filter(function (q) { return q.dataset.axis === axis && q.dataset.index === String(idx); })[0];
+        if (!h) return null;
+        var r = h.getBoundingClientRect();
+        /* 縦と横のつまみが交わる点を避ける（重なった側が拾う） */
+        return axis === 'cols' ? { x: r.left + r.width / 2, y: r.top + r.height * 0.25 } : { x: r.left + r.width * 0.25, y: r.top + r.height / 2 };
+    }
+    function resetBtnShown() {
+        var b = document.getElementById('topGridResetBtn');
+        return !!(b && b.style.display !== 'none' && b.getBoundingClientRect().width > 0);
+    }
     function savedRatios() {
         try { return JSON.parse(localStorage.getItem('sync_grid_ratios') || '{}') || {}; } catch (e) { return {}; }
     }
@@ -6470,13 +6503,24 @@
                 note('ピン留めの判定', '📌 を押せなかったので飛ばした（' + (pin.click && pin.click.reason) + '）');
             }
 
-            /* --- ダブルクリックで均等へ --- */
-            var v0e = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
-            if (v0e) v0e.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-            await wait(400);
+            /* --- ⊞（均等に戻す）ボタンの出し入れ --- */
+            expect('比を変えた構成では上部の ⊞ が出ている', resetBtnShown(), true);
+            /* --- ダブルクリックで均等へ（★v1.13.1: 本物のマウスと同じく、毎回その座標の要素へ送る） --- */
+            var pt = handleCenter('cols', 0);
+            var how = pt ? await realDblClick(pt.x, pt.y) : '(つまみが無い)';
+            note('ダブルクリックの2回のクリックが当たった要素', how);
             expect('ダブルクリックで列が均等に戻る（差 ≤ 1px）', spreadPx(gridTracks('cols')) <= 1 ? 'ok' : trackText(gridTracks('cols')), 'ok');
             expect('ダブルクリックで行も均等に戻る（差 ≤ 1px）', spreadPx(gridTracks('rows')) <= 1 ? 'ok' : trackText(gridTracks('rows')), 'ok');
             expect('ダブルクリックでその構成の保存値が消える', savedRatios()[sig0] ? '残っている' : '消えた', '消えた');
+            expect('均等に戻すと上部の ⊞ が隠れる', resetBtnShown(), false);
+            /* ⊞ ボタンでも戻せること */
+            var v0f = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+            if (v0f) await dragSplitter(v0f, D, 0);
+            var rb = document.getElementById('topGridResetBtn');
+            var rbClick = rb ? await clickReal(rb) : { blocked: true, reason: 'button-null' };
+            await wait(400);
+            expect('⊞ を押せた（被覆なし）', rbClick.blocked ? rbClick.reason : 'ok', 'ok');
+            expect('⊞ で列が均等に戻る（差 ≤ 1px）', spreadPx(gridTracks('cols')) <= 1 ? 'ok' : trackText(gridTracks('cols')), 'ok');
             expect('🔴 最後まで order が変わっていない', orderText(), orderBefore);
         } finally {
             try { await clearPins(); } catch (e) { }
@@ -6488,6 +6532,87 @@
             note('後始末: 枠数・列数設定・枠の比・保存URLの復元', cardCount() + '枠 / ' + (sel ? sel.value : '-') + ' / '
                 + (restored === backupText ? '保存URLは元どおり' : '⚠ 保存URLに差分あり'));
         }
+    }
+
+    /* --- D-S2: 再読み込みしても変えた比が残る ----------------------------------
+       ★v1.13.1: 実機で「読み込み直したら均等に戻っていた」と報告された（2026-10-02）。headless Chromium では再現しない。
+       D-M7 と同じく LS_RESUME（phase='after-reload' / which='S2'）で再読み込みをまたぐ。
+       失敗したとき原因を絞れるよう、保存値・メモリ上の値・署名・枠数を全部記録する。 */
+    async function testS2() {
+        log('  [目的] 境界線で変えた比が、ページの再読み込み後も残ること。');
+        var sel = layoutColsEl();
+        var wasCols = sel ? sel.value : null;
+        var started = cardCount();
+        var ratiosRaw = null;
+        try { ratiosRaw = localStorage.getItem('sync_grid_ratios'); } catch (e) { }
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        await clearPins();
+        var okCols = await setLayoutCols('auto');
+        pc('「グリッド列数」を自動にできた（元の設定 = ' + (wasCols === null ? '(欄が無い)' : wasCols) + '）', function () { return okCols ? '自動' : false; });
+        var got = await setCardCount(4);
+        pc('枠を4つにできた', function () { return got === 4 ? '4枠' : false; });
+        await wait(400);
+        var sig = currentGridSig;
+        var c0 = gridTracks('cols');
+        pc('🔴 列のトラックを読める（2列以上）', function () { return c0.length >= 2 ? trackText(c0) + ' / ' + sig : false; });
+        if (c0.length < 2) return;
+        /* 前に保存した比があっても、このテストの構成は均等から始める */
+        if (typeof resetGridRatios === 'function') resetGridRatios(sig);
+        await wait(300);
+        var v = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+        if (v) await dragSplitter(v, 70, 0);
+        var c1 = gridTracks('cols');
+        pc('🔴 再読み込み前にドラッグが効いた（1列目が +70px ±2px）', function () {
+            return (c1.length && Math.abs((c1[0] - c0[0]) - 70) <= 2) ? (trackText(c0) + ' → ' + trackText(c1)) : false;
+        });
+        var savedBefore = null;
+        try { savedBefore = localStorage.getItem('sync_grid_ratios'); } catch (e) { }
+        note('再読み込み前の 署名 / 枠数 / 保存値', sig + ' / ' + cardCount() + '枠 / ' + savedBefore);
+        var payload = {
+            v: DEBUG_SUITE_VERSION, at: Date.now(), phase: 'after-reload', which: 'S2',
+            fromAll: runningAll, remaining: allQueue.slice(), logLines: logLines.slice(), report: report,
+            s2: { sig: sig, cols: c1, count: cardCount(), wasCols: wasCols, started: started, ratiosRaw: ratiosRaw, savedBefore: savedBefore }
+        };
+        try { localStorage.setItem(LS_RESUME, JSON.stringify(payload)); } catch (e) { }
+        log('  [待機] 再読み込み前に 500ms 待つ');
+        await wait(500);
+        log('  [操作] location.reload() ─ 読み込み後に自動で続きを実行します');
+        location.reload();
+        await wait(30000);
+    }
+    async function resumeS2(payload) {
+        report = Array.isArray(payload.report) ? payload.report : [];
+        report.forEach(fixRecord);
+        if (report.length === 0) report.push(mkRecord('D-S2', '★再読み込みしても変えた枠の比が残る'));
+        current = fixRecord(report[report.length - 1]);
+        logLines = (payload.logLines || []).slice();
+        if (logEl) logEl.textContent = logLines.join('\n');
+        log('  === 再読み込み後（自動継続） ===');
+        var d = payload.s2 || {};
+        await wait(800);
+        var c2 = gridTracks('cols');
+        var savedAfter = null;
+        try { savedAfter = localStorage.getItem('sync_grid_ratios'); } catch (e) { }
+        var mem = (typeof gridRatios !== 'undefined') ? JSON.stringify(gridRatios) : '(読めない)';
+        note('再読み込み後の 署名 / 枠数 / 列', currentGridSig + ' / ' + cardCount() + '枠 / ' + trackText(c2));
+        note('再読み込み後の 保存値 / メモリ上の値', savedAfter + ' / ' + mem);
+        note('グリッドの style.gridTemplateColumns', document.getElementById('playersGrid').style.gridTemplateColumns);
+        pc('再読み込み後も枠数が同じ', function () { return cardCount() === d.count ? (d.count + '枠') : false; });
+        expect('構成の署名が再読み込み前と同じ', String(currentGridSig), String(d.sig));
+        expect('保存値が再読み込みで消えていない', savedAfter === d.savedBefore ? 'ok' : '変わった', 'ok');
+        expect('🔴 列の比が再読み込み前と同じ（±2px）',
+            (c2.length === (d.cols || []).length && c2.every(function (x, i) { return Math.abs(x - d.cols[i]) <= 2; })) ? 'ok' : (trackText(d.cols || []) + ' → ' + trackText(c2)), 'ok');
+        expect('再読み込み後も上部の ⊞ が出ている', resetBtnShown(), true);
+        /* 後始末 */
+        try { if (d.ratiosRaw === null || d.ratiosRaw === undefined) localStorage.removeItem('sync_grid_ratios'); else localStorage.setItem('sync_grid_ratios', d.ratiosRaw); } catch (e) { }
+        try { loadGridRatios(); } catch (e) { }
+        try { await setCardCount(d.started); } catch (e) { }
+        if (d.wasCols !== null && d.wasCols !== undefined) { try { await setLayoutCols(d.wasCols); } catch (e) { } }
+        note('後始末: 枠数 / 列数設定 / 枠の比', cardCount() + '枠 / ' + (layoutColsEl() ? layoutColsEl().value : '-') + ' / 元へ戻した');
+        try { localStorage.removeItem(LS_RESUME); } catch (e) { }
+        finishTest(current);
+        openDebugMenu();
     }
 
     var TESTS = [
@@ -6572,6 +6697,8 @@
         { id: 'D-Z1', name: '★ローカル動画の拡大（動画だけが拡大され、操作バーは切れない）', run: testZ1, manual: true },
         /* ★v1.13.0: v2.8.11。枠数・ピン・列数設定を変えるので manual。 */
         { id: 'D-S1', name: '★境界線のドラッグで隣り合う2本だけが変わり、構成ごとに覚える', run: testS1, manual: true },
+        /* ★v1.13.1: 再読み込みをまたぐ。 */
+        { id: 'D-S2', name: '★再読み込みしても変えた枠の比が残る', run: testS2, manual: true },
         { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 
@@ -6820,7 +6947,8 @@
         running = true;
         /* 本体の initApp() が終わってから続きを始める（loadFlowSettings の復元待ち）。 */
         setTimeout(function () {
-            resumeM7(payload).catch(function (e) {
+            /* ★v1.13.1: 再読み込みをまたぐテストは D-M7 と D-S2 の2本。which で振り分ける（無ければ D-M7）。 */
+            (payload.which === 'S2' ? resumeS2 : resumeM7)(payload).catch(function (e) {
                 log('  [❌] 継続実行でエラー … ' + (e && e.message || e));
             }).then(function () { running = false; });
         }, 600);

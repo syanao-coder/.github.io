@@ -513,6 +513,8 @@
             <button class="topbar-count-btn" id="topCountMinus" onclick="changePlayerCount(-1)" title="枠を1つ減らす">➖</button>
             <span class="topbar-count-value" id="topActiveCountDisplay">2</span>
             <button class="topbar-count-btn" id="topCountPlus" onclick="changePlayerCount(1)" title="枠を1つ増やす">➕</button>
+            <!-- ★v2.8.11: 境界線のドラッグで枠の大きさを変えたときだけ出る（今の構成が均等なら隠す） -->
+            <button class="topbar-count-btn" id="topGridResetBtn" onclick="resetGridRatios(currentGridSig)" title="枠の大きさを均等に戻す（今の構成だけ）" style="display:none;">⊞</button>
         </div>
         <!-- ★v2.7.2: コメント系設定の独立メニュー。
              パネルはこの span を基準にボタン直下へ出す（.top-bar を基準にしない）。 -->
@@ -1350,7 +1352,7 @@
            ------------------------------------------------------------ */
         const APP_HISTORY = [
             { v: '2.8.11', d: '2026-10-02', t: [
-                '枠の境界線をドラッグして、枠の大きさを変えられるようにした（つまみのダブルクリックで均等に戻す）'] },
+                '枠の境界線をドラッグして、枠の大きさを変えられるようにした（つまみのダブルクリックか、上部の ⊞ で均等に戻す）'] },
             { v: '2.8.10', d: '2026-10-02', t: [
                 'ローカル動画の枠に拡大を追加した（既定は枠いっぱい。全体を表示 / 100〜300% も選べる）。黒帯の入った動画を大きく表示でき、操作バーは切れない'] },
             { v: '2.8.9', d: '2026-10-02', t: [
@@ -2880,12 +2882,29 @@
             if (saved && saved.length === defaults.length && saved.every(v => typeof v === 'number' && v > 0)) fr = saved;
             return fr.map(v => 'minmax(0, ' + (Math.round(v * 1000) / 1000) + 'fr)').join(' ');
         }
+        /* 今の構成に均等でない比が保存されているときだけ ⊞ を出す */
+        function isCustomRatio(entry) {
+            if (!entry) return false;
+            return ['cols', 'rows'].some(ax => {
+                const a = entry[ax];
+                if (!Array.isArray(a) || a.length < 2) return false;
+                const mx = Math.max.apply(null, a), mn = Math.min.apply(null, a);
+                return mx > 0 && (mx - mn) / mx > 0.01;
+            });
+        }
+        function updateGridResetBtn() {
+            const b = document.getElementById('topGridResetBtn');
+            if (!b) return;
+            const show = !gridRatiosSuspended && !!currentGridSig && isCustomRatio(gridRatios[currentGridSig]);
+            b.style.display = show ? '' : 'none';
+        }
         function applyGridTracks(grid, sig, colDefaults, rowDefaults) {
             currentGridSig = sig;
             grid.style.gridTemplateColumns = trackTemplate(sig, 'cols', colDefaults);
             grid.style.gridTemplateRows = trackTemplate(sig, 'rows', rowDefaults);
             grid.dataset.colDefaults = colDefaults.join(',');
             grid.dataset.rowDefaults = rowDefaults.join(',');
+            updateGridResetBtn();
             requestAnimationFrame(renderGridSplitters);
         }
         function resolvedTracks(grid, axis) {
@@ -2961,10 +2980,22 @@
                 }
             });
         }
+        /* 🔴 ダブルクリックは自前で判定する。ネイティブの dblclick は「2回とも同じ要素」でしか発火しないが、
+           1回目の mouseup でつまみを作り直すと2回目は別の要素になり、発火しなかった（2026-10-02 実機）。 */
+        let lastGridDown = { key: '', t: 0, x: 0, y: 0 };
+        const GRID_DBLCLICK_MS = 450;
         function startGridDrag(e) {
             e.preventDefault();
             const handle = e.currentTarget;
             const axis = handle.dataset.axis, i = parseInt(handle.dataset.index, 10);
+            const key = axis + ':' + i, now = Date.now();
+            if (lastGridDown.key === key && now - lastGridDown.t <= GRID_DBLCLICK_MS
+                && Math.abs(e.clientX - lastGridDown.x) <= 4 && Math.abs(e.clientY - lastGridDown.y) <= 4) {
+                lastGridDown = { key: '', t: 0, x: 0, y: 0 };
+                resetGridRatios(currentGridSig);
+                return;
+            }
+            lastGridDown = { key: key, t: now, x: e.clientX, y: e.clientY };
             const grid = document.getElementById('playersGrid');
             const layer = document.getElementById('gridSplitterLayer');
             const start = axis === 'cols' ? e.clientX : e.clientY;
@@ -2981,8 +3012,11 @@
             const siblings = Array.from(layer.querySelectorAll('.grid-splitter')).filter(h => h.dataset.axis === axis && h.dataset.index === String(i));
             const prop = axis === 'cols' ? 'left' : 'top';
             const pos0 = siblings.map(h => parseFloat(h.style[prop]) || 0);
+            let moved = false;
             const move = (ev) => {
                 const d = (axis === 'cols' ? ev.clientX : ev.clientY) - start;
+                if (!moved && Math.abs(d) < 2) return;   /* クリックだけでは比を書かない */
+                moved = true;
                 const a = Math.max(minPx, Math.min(pair - minPx, tr0[i] + d));
                 const tr = tr0.slice(); tr[i] = a; tr[i + 1] = pair - a;
                 const entry = gridRatios[sig] || {};
@@ -3001,7 +3035,10 @@
                 frames.forEach(f => f.style.pointerEvents = '');
                 handle.classList.remove('dragging'); grid.classList.remove('resizing');
                 layer.dataset.dragging = '';
+                if (!moved) return;   /* 動かしていなければ作り直さない（ダブルクリックの2回目を同じ要素で受ける） */
+                lastGridDown = { key: '', t: 0, x: 0, y: 0 };
                 saveGridRatios();
+                updateGridResetBtn();
                 renderGridSplitters();
             };
             document.addEventListener('mousemove', move);
@@ -3032,9 +3069,9 @@
             const grid = document.getElementById('playersGrid');
             const cards = Array.from(grid.children);
             const N = cards.length;
-            if (N === 0) { currentGridSig = null; requestAnimationFrame(renderGridSplitters); return; }
+            if (N === 0) { currentGridSig = null; updateGridResetBtn(); requestAnimationFrame(renderGridSplitters); return; }
             if (N === 1) {
-                currentGridSig = null;
+                currentGridSig = null; updateGridResetBtn();
                 grid.style.gridTemplateColumns = 'minmax(0, 1fr)'; grid.style.gridTemplateRows = 'minmax(0, 1fr)';
                 cards[0].style.gridColumn = 'span 1'; cards[0].style.gridRow = 'span 1';
                 requestAnimationFrame(renderGridSplitters); return;
