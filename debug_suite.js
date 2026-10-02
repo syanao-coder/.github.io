@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.12.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.12.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.10';
@@ -6254,8 +6254,14 @@
             if (!video || !overlay || !sel || !rng) return;
             /* 操作バーは .player-container の外（切られない場所）にあること */
             expect('🔴 操作バーは拡大で切られる枠（.player-container）の外にある', container.contains(overlay), false);
-            expect('既定は 標準 / 100%', sel.value + ' / ' + rng.value, 'contain / 100');
-            expect('既定では枠で切らない（zoomed なし）', container.classList.contains('zoomed'), false);
+            /* ★v1.12.1: 既定は「枠いっぱい（cover）」（2026-10-02 利用者要望）。cover は枠で切るので zoomed が付く。 */
+            expect('既定は 枠いっぱい / 100%', sel.value + ' / ' + rng.value, 'cover / 100');
+            expect('既定（枠いっぱい）は object-fit が cover', window.getComputedStyle(video).objectFit, 'cover');
+            expect('既定（枠いっぱい）は枠で切る（zoomed）', container.classList.contains('zoomed'), true);
+            sel.value = 'contain'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(100);
+            expect('全体を表示: object-fit が contain', window.getComputedStyle(video).objectFit, 'contain');
+            expect('全体を表示・100%: 枠で切らない', container.classList.contains('zoomed'), false);
 
             var r0 = rect(video);
             rng.value = '150'; rng.dispatchEvent(new Event('input', { bubbles: true }));
@@ -6273,15 +6279,11 @@
             var val = document.getElementById('localZoomVal_' + cid);
             expect('表示値', val ? val.innerText : '(なし)', '150%');
 
-            sel.value = 'cover'; sel.dispatchEvent(new Event('change', { bubbles: true }));
-            await wait(100);
-            expect('枠いっぱい: object-fit が cover', window.getComputedStyle(video).objectFit, 'cover');
 
             var dbl = document.getElementById('localZoomVal_' + cid);
             dbl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
             await wait(100);
-            expect('ダブルクリックで 標準 / 100% に戻る', sel.value + ' / ' + rng.value, 'contain / 100');
-            expect('戻したら枠で切らない', container.classList.contains('zoomed'), false);
+            expect('ダブルクリックで 枠いっぱい / 100% に戻る', sel.value + ' / ' + rng.value, 'cover / 100');
             expect('戻したら transform なし', video.style.transform, '');
             note('枠 / 操作バーの矩形', JSON.stringify(cr) + ' / ' + JSON.stringify(rect(overlay)));
         } finally {

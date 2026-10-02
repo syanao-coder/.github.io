@@ -1342,7 +1342,7 @@
            ------------------------------------------------------------ */
         const APP_HISTORY = [
             { v: '2.8.10', d: '2026-10-02', t: [
-                'ローカル動画の枠に拡大を追加した（標準 / 枠いっぱい ＋ 100〜300%）。黒帯の入った動画を大きく表示でき、操作バーは切れない'] },
+                'ローカル動画の枠に拡大を追加した（既定は枠いっぱい。全体を表示 / 100〜300% も選べる）。黒帯の入った動画を大きく表示でき、操作バーは切れない'] },
             { v: '2.8.9', d: '2026-10-02', t: [
                 '上部メニューに「🔊 音量」を追加し、枠ごとの音量とマスター音量をまとめて操作できるようにした',
                 '下部の音量をマスター音量として独立させた（動かしても枠ごとに合わせた音量の差が崩れない）'] },
@@ -1821,10 +1821,10 @@
                     /* ★v2.8.10: 拡大（標準 / 枠いっぱい ＋ 倍率）。表示値をダブルクリックで 100% に戻す。 */
                     '<div class="local-zoom" title="動画の拡大（はみ出した分は枠で切れます。操作バーは切れません）">' +
                         '<select id="localZoomFit_' + cardId + '" onchange="setLocalZoomFit(\'' + cardId + '\', this.value)">' +
-                            '<option value="contain">標準</option><option value="cover">枠いっぱい</option></select>' +
+                            '<option value="cover">枠いっぱい</option><option value="contain">全体を表示</option></select>' +
                         '<span style="font-size:0.8rem;">🔍</span>' +
                         '<input type="range" id="localZoom_' + cardId + '" min="100" max="300" step="5" value="100" oninput="setLocalZoomPct(\'' + cardId + '\', this.value)">' +
-                        '<span class="local-zoom-val" id="localZoomVal_' + cardId + '" ondblclick="resetLocalZoom(\'' + cardId + '\')" title="ダブルクリックで100%に戻す">100%</span>' +
+                        '<span class="local-zoom-val" id="localZoomVal_' + cardId + '" ondblclick="resetLocalZoom(\'' + cardId + '\')" title="ダブルクリックで 枠いっぱい・100% に戻す">100%</span>' +
                     '</div>' +
                     '<div style="display:flex; align-items:center; gap:5px;"><span id="localVolIcon_' + cardId + '" style="font-size:0.8rem;">🔊</span>' +
                         '<input type="range" id="localVolume_' + cardId + '" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume(\'' + cardId + '\', this.value)">' +
@@ -2211,7 +2211,7 @@
             container.innerHTML = '<video id="localVideo_' + cardId + '" class="custom-local-video" playsinline></video>';
             const video = document.getElementById('localVideo_' + cardId);
             video.src = URL.createObjectURL(file);
-            localZoom[cardId] = { fit: 'contain', pct: 100 };   // ★v2.8.10: ファイルを替えたら拡大は標準へ戻す
+            localZoom[cardId] = { fit: 'cover', pct: 100 };   // ★v2.8.10: ファイルを替えたら既定（枠いっぱい・100%）へ戻す
             applyLocalZoom(cardId);
 
             video.volume = Math.max(0, Math.min(1, effectiveVolume(cardId) / 100));   // ★v2.8.9
@@ -2292,7 +2292,8 @@
 
         /* ★v2.8.9: ローカル動画の操作バーの音量は「枠ごとの音量」。実際の音量はマスターを掛けた値。 */
         /* ★v2.8.10: ローカル動画の拡大。
-           fit: 'contain'（標準 ─ 全体が見える）/ 'cover'（枠いっぱい ─ 枠の縦横比に合わせて上下か左右を切る）
+           fit: 'cover'（枠いっぱい ─ 既定。枠の縦横比に合わせて上下か左右を切る）/ 'contain'（全体を表示 ─ 黒帯が出る）
+           🔴 既定は cover（2026-10-02 利用者要望「枠いっぱいの方を標準に」）。
            pct: 100〜300（動画に焼き込まれた黒帯を消すための追加の拡大。中心を基準にする）
            🔴 拡大するのは <video> だけ。操作バーは .player-container の外なので切れない。
            ⚠️ YouTube の枠は対象外（動画と YouTube 自身の操作バーが1つの iframe にあり、動画だけを拡大できない）。
@@ -2300,7 +2301,7 @@
         let localZoom = {};
         function getLocalZoom(cardId) {
             const z = localZoom[cardId] || {};
-            return { fit: z.fit === 'cover' ? 'cover' : 'contain', pct: Math.max(100, Math.min(300, parseFloat(z.pct) || 100)) };
+            return { fit: z.fit === 'contain' ? 'contain' : 'cover', pct: Math.max(100, Math.min(300, parseFloat(z.pct) || 100)) };
         }
         function applyLocalZoom(cardId) {
             const z = getLocalZoom(cardId);
@@ -2327,7 +2328,7 @@
             applyLocalZoom(cardId);
         }
         function resetLocalZoom(cardId) {
-            localZoom[cardId] = { fit: 'contain', pct: 100 };
+            localZoom[cardId] = { fit: 'cover', pct: 100 };
             applyLocalZoom(cardId);
         }
         function changeLocalVideoVolume(cardId, value) {
@@ -2470,10 +2471,10 @@
                     /* ★v2.8.10: 拡大（標準 / 枠いっぱい ＋ 倍率）。表示値をダブルクリックで 100% に戻す。 */
                     '<div class="local-zoom" title="動画の拡大（はみ出した分は枠で切れます。操作バーは切れません）">' +
                         '<select id="localZoomFit_' + p.cardId + '" onchange="setLocalZoomFit(\'' + p.cardId + '\', this.value)">' +
-                            '<option value="contain">標準</option><option value="cover">枠いっぱい</option></select>' +
+                            '<option value="cover">枠いっぱい</option><option value="contain">全体を表示</option></select>' +
                         '<span style="font-size:0.8rem;">🔍</span>' +
                         '<input type="range" id="localZoom_' + p.cardId + '" min="100" max="300" step="5" value="100" oninput="setLocalZoomPct(\'' + p.cardId + '\', this.value)">' +
-                        '<span class="local-zoom-val" id="localZoomVal_' + p.cardId + '" ondblclick="resetLocalZoom(\'' + p.cardId + '\')" title="ダブルクリックで100%に戻す">100%</span>' +
+                        '<span class="local-zoom-val" id="localZoomVal_' + p.cardId + '" ondblclick="resetLocalZoom(\'' + p.cardId + '\')" title="ダブルクリックで 枠いっぱい・100% に戻す">100%</span>' +
                     '</div>' +
                     '<div style="display:flex; align-items:center; gap:5px;"><span id="localVolIcon_' + p.cardId + '" style="font-size:0.8rem;">🔊</span>' +
                         '<input type="range" id="localVolume_' + p.cardId + '" min="0" max="100" value="50" style="width:50px; height: 4px;" oninput="changeLocalVideoVolume(\'' + p.cardId + '\', this.value)">' +
