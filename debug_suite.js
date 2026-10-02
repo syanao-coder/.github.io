@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.12.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.13.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.10';
+    var EXPECT_APP_VERSION = '2.8.11';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.8.7';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.10', ids: ['D-Z1', 'D-Y7'] };
+    var VERSION_FOCUS = { v: '2.8.11', ids: ['D-S1', 'D-Y1', 'D-Y12'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -940,7 +940,8 @@
             + '報告書用コピーに UA（ブラウザの版数）を自動で載せるようにしました。'
             + '★v1.11.0: v2.8.9 の音量の判定 D-A1 / D-A2 は「▶ すべて実行」に含まれます。'
             + 'トップメニューが6枚（🔊 音量を追加）になり、D-M2 は 42遷移へ増えました。'
-            + '★v1.12.0: v2.8.10 のローカル動画の拡大は D-Z1（枠を1つ足してダミーのファイルを読ませる）。「🎯 この版の回帰」から実行します。';
+            + '★v1.12.0: v2.8.10 のローカル動画の拡大は D-Z1（枠を1つ足してダミーのファイルを読ませる）。「🎯 この版の回帰」から実行します。'
+            + '★v1.13.0: v2.8.11 の境界線ドラッグは D-S1。D-Y / D-Z は保存した枠の比を一時的に無視して均等で測ります（保存値は消しません）。';
         panel.appendChild(noteEl);
 
         var pre = document.createElement('pre');
@@ -1906,13 +1907,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 33);
+        expect('配列の件数', hist ? hist.length : 0, 34);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -6293,6 +6294,202 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.13.0 : v2.8.11 の判定（枠の境界線ドラッグ）
+       ==================================================================== */
+
+    /* --- D-S1: 境界線のつまみで隣り合う2本のトラックだけが変わる ----------------
+       つまみは #gridSplitterLayer の .grid-splitter。mousedown をつまみへ、mousemove / mouseup を
+       document へ合成して送る（本体のリスナーがその位置にある）。
+       🔴 保存した比（sync_grid_ratios）・枠数・列数設定・保存URL は終了時に戻す。 */
+    function gridTracks(axis) {
+        var g = document.getElementById('playersGrid');
+        if (!g) return [];
+        var cs = window.getComputedStyle(g);
+        var t = axis === 'cols' ? cs.gridTemplateColumns : cs.gridTemplateRows;
+        return String(t || '').split(/\s+/).map(parseFloat).filter(function (v) { return isFinite(v); });
+    }
+    function spreadPx(a) { return a.length ? (Math.max.apply(null, a) - Math.min.apply(null, a)) : 0; }
+    function sumPx(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
+    function splitters() { return Array.from(document.querySelectorAll('#gridSplitterLayer .grid-splitter')); }
+    function splitterKeys() {
+        var o = {};
+        splitters().forEach(function (h) { o[h.dataset.axis + ':' + h.dataset.index] = 1; });
+        return Object.keys(o).sort();
+    }
+    function trackText(a) { return '[' + a.map(function (v) { return Math.round(v); }).join(', ') + ']'; }
+    async function dragSplitter(h, dx, dy) {
+        var r = h.getBoundingClientRect();
+        var x = r.left + r.width / 2, y = r.top + r.height / 2;
+        h.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+        var steps = 5, i;
+        for (i = 1; i <= steps; i++) {
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x + dx * i / steps, clientY: y + dy * i / steps }));
+            await wait(30);
+        }
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x + dx, clientY: y + dy }));
+        await wait(250);
+    }
+    function savedRatios() {
+        try { return JSON.parse(localStorage.getItem('sync_grid_ratios') || '{}') || {}; } catch (e) { return {}; }
+    }
+    async function testS1() {
+        log('  [目的] 境界線をドラッグすると隣り合う2本だけが変わり、構成ごとに覚え、order と保存URLは動かないこと。');
+        log('  ⚠️ 合成イベントでドラッグする。測定中はマウスを動かさないでください。');
+        var started = cardCount();
+        var sel = layoutColsEl();
+        var wasCols = sel ? sel.value : null;
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var ratiosRaw = null;
+        try { ratiosRaw = localStorage.getItem('sync_grid_ratios'); } catch (e) { }
+        var N = 4, N2 = 6, D = 60;
+        try {
+            await closeAllMenus();
+            await stopAllIfPlaying();
+            await clearPins();
+            /* 前に保存した比を外して均等から始める（終了時に元の値へ戻す） */
+            try { localStorage.removeItem('sync_grid_ratios'); } catch (e) { }
+            loadGridRatios();
+            var okCols = await setLayoutCols('auto');
+            pc('「グリッド列数」を自動にできた（元の設定 = ' + (wasCols === null ? '(欄が無い)' : wasCols) + '）',
+                function () { return okCols ? '自動' : false; });
+            var got = await setCardCount(N);
+            pc('枠を' + N + 'つにできた', function () { return got === N ? (got + '枠') : false; });
+            await wait(400);
+
+            var c0 = gridTracks('cols'), r0 = gridTracks('rows');
+            /* 🔴 positive control: トラックを読めて、始めは均等（つまみの有無やドラッグには依存しない） */
+            pc('🔴 列・行のトラックを読める（2列以上 × 2行以上）', function () {
+                return (c0.length >= 2 && r0.length >= 2) ? (c0.length + '列×' + r0.length + '行 ' + trackText(c0) + ' / ' + trackText(r0)) : false;
+            });
+            pc('🔴 始めは均等（差 ≤ 1px）', function () {
+                return (c0.length >= 2 && spreadPx(c0) <= 1 && spreadPx(r0) <= 1) ? ('列の差 ' + spreadPx(c0).toFixed(1) + 'px / 行の差 ' + spreadPx(r0).toFixed(1) + 'px') : false;
+            });
+            var sig0 = (typeof currentGridSig !== 'undefined') ? currentGridSig : null;
+            pc('構成の署名を読める', function () { return sig0 ? sig0 : false; });
+            if (c0.length < 2 || r0.length < 2 || !sig0) return;
+
+            var orderBefore = orderText();
+            var urlBefore = urlSnapText(urlSnapshot());
+
+            /* --- つまみの数と位置 --- */
+            expect('つまみの種類 = (列数−1)+(行数−1)', splitterKeys().length, (c0.length - 1) + (r0.length - 1));
+            var g = document.getElementById('playersGrid');
+            var gr = g.getBoundingClientRect(), gcs = window.getComputedStyle(g);
+            var padL = parseFloat(gcs.paddingLeft) || 0, gap = parseFloat(gcs.columnGap) || 0;
+            var v0 = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+            var expX = gr.left + padL + c0[0] + gap / 2;
+            var gotX = v0 ? (v0.getBoundingClientRect().left + v0.getBoundingClientRect().width / 2) : NaN;
+            expect('縦のつまみ（1本目）が1列目と2列目の隙間の上にある（±2px）',
+                Math.abs(gotX - expX) <= 2 ? 'ok' : ('つまみ ' + Math.round(gotX) + ' / 隙間 ' + Math.round(expX)), 'ok');
+            if (!v0) return;
+
+            /* --- 列のドラッグ --- */
+            var card0 = gridCards().filter(function (c) {
+                var r = c.getBoundingClientRect(); return Math.abs(r.left - (gr.left + padL)) <= 2;
+            })[0];
+            var w0 = card0 ? card0.getBoundingClientRect().width : 0;
+            await dragSplitter(v0, D, 0);
+            var c1 = gridTracks('cols');
+            note('列のドラッグ +' + D + 'px', trackText(c0) + ' → ' + trackText(c1));
+            expect('1列目が +' + D + 'px（±2px）', Math.abs((c1[0] - c0[0]) - D) <= 2 ? 'ok' : (Math.round(c1[0] - c0[0]) + 'px'), 'ok');
+            expect('2列目が −' + D + 'px（±2px）', Math.abs((c0[1] - c1[1]) - D) <= 2 ? 'ok' : (Math.round(c1[1] - c0[1]) + 'px'), 'ok');
+            var othersSame = c0.every(function (v, i) { return i < 2 || Math.abs(c1[i] - v) <= 1; });
+            expect('3列目以降は変わらない（±1px）', othersSame ? 'ok' : trackText(c1), 'ok');
+            expect('列の合計は変わらない（±1px）', Math.abs(sumPx(c1) - sumPx(c0)) <= 1 ? 'ok' : (Math.round(sumPx(c0)) + ' → ' + Math.round(sumPx(c1))), 'ok');
+            /* 鉄則 #38: 値だけでなく見た目（枠の矩形）が変わったこと */
+            var w1 = card0 ? card0.getBoundingClientRect().width : 0;
+            expect('🔴 左端の枠の幅が実際に +' + D + 'px（±3px）', (card0 && Math.abs((w1 - w0) - D) <= 3) ? 'ok' : (Math.round(w0) + ' → ' + Math.round(w1)), 'ok');
+            var v0b = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+            var gotX2 = v0b ? (v0b.getBoundingClientRect().left + v0b.getBoundingClientRect().width / 2) : NaN;
+            expect('つまみも +' + D + 'px 動いた（±2px）', Math.abs((gotX2 - gotX) - D) <= 2 ? 'ok' : (Math.round(gotX2 - gotX) + 'px'), 'ok');
+            var sv = savedRatios()[sig0];
+            expect('比が署名「' + sig0 + '」で保存された（列数ぶん）', (sv && sv.cols && sv.cols.length === c0.length) ? 'ok' : JSON.stringify(sv || null), 'ok');
+
+            /* --- 行のドラッグ --- */
+            var h0 = splitters().filter(function (h) { return h.dataset.axis === 'rows' && h.dataset.index === '0'; })[0];
+            if (h0) {
+                await dragSplitter(h0, 0, -40);
+                var r1 = gridTracks('rows');
+                note('行のドラッグ −40px', trackText(r0) + ' → ' + trackText(r1));
+                expect('1行目が −40px（±2px）', Math.abs((r0[0] - r1[0]) - 40) <= 2 ? 'ok' : (Math.round(r1[0] - r0[0]) + 'px'), 'ok');
+                expect('行の合計は変わらない（±1px）', Math.abs(sumPx(r1) - sumPx(r0)) <= 1 ? 'ok' : 'ずれた', 'ok');
+                expect('列の比は行のドラッグで変わらない（±1px）', c1.every(function (v, i) { return Math.abs(gridTracks('cols')[i] - v) <= 1; }) ? 'ok' : trackText(gridTracks('cols')), 'ok');
+            } else {
+                expect('横のつまみ（1本目）がある', '(無い)', 'ある');
+            }
+            var cKeep = gridTracks('cols'), rKeep = gridTracks('rows');
+
+            /* --- 最小幅で止まる --- */
+            var v0c = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+            await dragSplitter(v0c, -5000, 0);
+            var cMin = gridTracks('cols');
+            expect('左へ振り切っても1列目は 80px で止まる（±2px）', Math.abs(cMin[0] - 80) <= 2 ? 'ok' : (Math.round(cMin[0]) + 'px'), 'ok');
+            /* 戻す（以降の比較は cKeep を基準にする） */
+            var v0d = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+            await dragSplitter(v0d, cKeep[0] - cMin[0], 0);
+            cKeep = gridTracks('cols');
+
+            /* --- 🔴 order と保存URL --- */
+            expect('🔴 order が変わっていない', orderText(), orderBefore);
+            expect('🔴 保存URLが変わっていない', urlSnapText(urlSnapshot()), urlBefore);
+
+            /* --- 別の構成は均等、戻ると覚えた比 --- */
+            var got2 = await setCardCount(N2);
+            await wait(400);
+            var c2 = gridTracks('cols');
+            var sig2 = currentGridSig;
+            note('枠を' + N2 + 'つにした構成', got2 + '枠 / ' + sig2 + ' / ' + trackText(c2));
+            expect('別の構成（署名が違う）', sig2 !== sig0 ? 'ok' : ('同じ署名 ' + sig2), 'ok');
+            expect('別の構成の列は均等（差 ≤ 1px）', spreadPx(c2) <= 1 ? 'ok' : trackText(c2), 'ok');
+            await setCardCount(N);
+            await wait(400);
+            var c3 = gridTracks('cols'), r3 = gridTracks('rows');
+            expect('元の構成へ戻すと覚えた列の比に戻る（±2px）', c3.every(function (v, i) { return Math.abs(v - cKeep[i]) <= 2; }) ? 'ok' : (trackText(cKeep) + ' / ' + trackText(c3)), 'ok');
+            expect('元の構成へ戻すと覚えた行の比に戻る（±2px）', r3.every(function (v, i) { return Math.abs(v - rKeep[i]) <= 2; }) ? 'ok' : (trackText(rKeep) + ' / ' + trackText(r3)), 'ok');
+
+            /* --- ピン留めは別の署名・ピン枠の上につまみを出さない --- */
+            var cards = gridCards();
+            var pin = await pinCardId(cards[0].id);
+            await wait(400);
+            if (pin.ok) {
+                var sigP = currentGridSig;
+                expect('ピン中は別の署名（:pin）', /:pin$/.test(String(sigP)) ? 'ok' : String(sigP), 'ok');
+                expect('ピン中の列は均等（差 ≤ 1px）', spreadPx(gridTracks('cols')) <= 1 ? 'ok' : trackText(gridTracks('cols')), 'ok');
+                var pr = document.querySelector('#playersGrid .player-card.is-main').getBoundingClientRect();
+                var inside = splitters().filter(function (h) {
+                    var r = h.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                    return cx > pr.left + 2 && cx < pr.right - 2 && cy > pr.top + 2 && cy < pr.bottom - 2;
+                });
+                expect('ピン枠の上につまみが無い', inside.length, 0);
+                await clearPins();
+                await wait(400);
+                expect('ピンを外すと覚えた列の比に戻る（±2px）', gridTracks('cols').every(function (v, i) { return Math.abs(v - cKeep[i]) <= 2; }) ? 'ok' : trackText(gridTracks('cols')), 'ok');
+            } else {
+                note('ピン留めの判定', '📌 を押せなかったので飛ばした（' + (pin.click && pin.click.reason) + '）');
+            }
+
+            /* --- ダブルクリックで均等へ --- */
+            var v0e = splitters().filter(function (h) { return h.dataset.axis === 'cols' && h.dataset.index === '0'; })[0];
+            if (v0e) v0e.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+            await wait(400);
+            expect('ダブルクリックで列が均等に戻る（差 ≤ 1px）', spreadPx(gridTracks('cols')) <= 1 ? 'ok' : trackText(gridTracks('cols')), 'ok');
+            expect('ダブルクリックで行も均等に戻る（差 ≤ 1px）', spreadPx(gridTracks('rows')) <= 1 ? 'ok' : trackText(gridTracks('rows')), 'ok');
+            expect('ダブルクリックでその構成の保存値が消える', savedRatios()[sig0] ? '残っている' : '消えた', '消えた');
+            expect('🔴 最後まで order が変わっていない', orderText(), orderBefore);
+        } finally {
+            try { await clearPins(); } catch (e) { }
+            try { if (ratiosRaw === null) localStorage.removeItem('sync_grid_ratios'); else localStorage.setItem('sync_grid_ratios', ratiosRaw); } catch (e) { }
+            try { loadGridRatios(); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            if (wasCols !== null) { try { await setLayoutCols(wasCols); } catch (e) { } }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・列数設定・枠の比・保存URLの復元', cardCount() + '枠 / ' + (sel ? sel.value : '-') + ' / '
+                + (restored === backupText ? '保存URLは元どおり' : '⚠ 保存URLに差分あり'));
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -6373,6 +6570,8 @@
         { id: 'D-Y11', name: '4隅それぞれで配置が破綻しない', run: testY11, manual: true },
         { id: 'D-Y13', name: '★ヘッダーのボタンが狭い枠でもヘッダー内に収まる（9枠）', run: testY13, manual: true },
         { id: 'D-Z1', name: '★ローカル動画の拡大（動画だけが拡大され、操作バーは切れない）', run: testZ1, manual: true },
+        /* ★v1.13.0: v2.8.11。枠数・ピン・列数設定を変えるので manual。 */
+        { id: 'D-S1', name: '★境界線のドラッグで隣り合う2本だけが変わり、構成ごとに覚える', run: testS1, manual: true },
         { id: 'D-Y12', name: 'ピン枠が指定した隅にある（期待値は構成から計算）', run: testY12, manual: true }
     ];
 
@@ -6518,12 +6717,17 @@
         report.push(current);
         log('=== ' + def.id + ' ' + def.name + ' 開始 ===');
         var t = current;
+        /* ★v1.13.0: D-Y / D-Z は均等なトラックを前提に期待値を作っている。
+           利用者がドラッグで比を変えていても同じ条件で測れるよう、その間だけ保存した比を無視する。 */
+        var suspendGrid = /^D-[YZ]\d/.test(def.id) && typeof setGridRatiosSuspended === 'function';
+        if (suspendGrid) { try { setGridRatiosSuspended(true); await wait(300); } catch (e) { } }
         try {
             await def.run();
         } catch (e) {
             t.results.push({ name: '実行時エラー', ok: false, actual: String(e && e.message || e), expected: '例外が出ないこと' });
             log('  [❌] 実行時エラー … ' + (e && e.message || e));
         }
+        if (suspendGrid) { try { setGridRatiosSuspended(false); } catch (e) { } }
         finishTest(t);
         if (!keepRunning) running = false;
     }
