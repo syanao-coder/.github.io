@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.14.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.14.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.12';
@@ -6709,10 +6709,16 @@
             return (bar && mv && btn && tab && sel) ? describe(btn) + ' / ' + describe(tab) + ' / ' + describe(sel) : false;
         });
         if (!bar || !mv || !btn || !tab || !sel) return;
+        /* ★v1.14.2: 「クリックのみにしても近づけると開く」（2026-10-02 実機・headless で再現せず）の切り分け用。
+           保存値・本体の変数・欄の表示が食い違っていないかを残す */
+        note('開始時の 畳んだ状態 / 出し方（変数 / 欄 / 保存値）', String(wasCollapsed) + ' / ' + wasTrigger + ' / ' + sel.value + ' / '
+            + localStorage.getItem('sync_topbar_trigger'));
         try {
             await closeAllMenus();
             if (wasCollapsed) { toggleTopbarCollapsed(); await wait(300); }
             await setTopbarTriggerUI('hover');
+            /* 実ポインタがバーの上に残っている扱いを外す（測定中はマウスを動かさない前提） */
+            bar.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
             var b0 = rect(bar), m0 = rect(mv);
             /* 🔴 PC: 測り方の確認（畳む前はバーが流れの中にあり、#mainView はバーのすぐ下から始まる） */
             pc('🔴 畳む前: バーの高さ > 0 で、#mainView の上端がバーの下端と一致（±1px）', function () {
@@ -6755,6 +6761,26 @@
             document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: Math.round(window.innerWidth / 3), clientY: 30, relatedTarget: null }));
             await wait(400);
             expect('hover: 上辺からページの外へ抜けても出る（mousemove が帯に来なくても）', topbarShown(), true);
+            /* ★v1.14.2: バーから YouTube の枠（iframe）へ直接下ろすと mousemove が来ない。
+               mousemove を送らず、バーの mouseleave だけで約1秒後に隠れること */
+            bar.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+            bar.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+            await wait(1400);
+            expect('🔴 hover: バーから枠（iframe）へ下ろしても隠れる（mousemove なし・mouseleave だけ）', topbarShown(), false);
+            /* ★v1.14.2: Firefox は iframe へ入るときも relatedTarget なしの mouseout を出す。それで出してはいけない */
+            var fakeFrame = document.createElement('iframe');
+            fakeFrame.style.cssText = 'position:fixed; left:40%; top:6px; width:200px; height:120px; border:0; z-index:300; background:#222;';
+            document.body.appendChild(fakeFrame);
+            await wait(150);
+            var fr = fakeFrame.getBoundingClientRect();
+            var hitFr = document.elementFromPoint(fr.left + 20, fr.top + 10);
+            pc('ダミーの iframe を上端付近に置けた（elementFromPoint が iframe を返す）', function () {
+                return (hitFr === fakeFrame) ? describe(hitFr) : false;
+            });
+            document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: fr.left + 20, clientY: fr.top + 10, relatedTarget: null }));
+            await wait(400);
+            expect('🔴 hover: 上端付近の枠（iframe）へ入っただけでは出ない', topbarShown(), false);
+            fakeFrame.remove();
             await moveMouseTo(Math.round(window.innerHeight / 2));
             await wait(1400);
 
