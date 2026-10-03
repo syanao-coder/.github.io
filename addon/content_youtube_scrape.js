@@ -341,7 +341,10 @@ const SEGMENT_BASE_CSS = `
   min-height: 18px !important;
 `;
 
-function createButtonGroup(card) {
+/* ★v2.8.13: resolver は「クリックした瞬間の { url, title }」を返す関数。
+   一覧はカードから、再生ページは location から取る。opts.large で再生ページ向けの大きさにする。 */
+function createButtonGroup(resolver, opts) {
+  opts = opts || {};
   const group = document.createElement('span');
   group.className = GROUP_CLASS;
   group.style.cssText = `
@@ -379,15 +382,22 @@ function createButtonGroup(card) {
     font-size: 12px !important;
   `;
 
-  /* クリック時に毎回カードからURLを取り直す共通処理。
-     ★カードはスクロール時にYouTube側で使い回される（内容だけ差し替わる）。
-       挿入時点のURLを閉じ込めると別の動画を扱ってしまうため。 */
-  function resolveCurrent() {
-    const linkEl = findVideoLink(card);
-    const href = linkEl ? linkEl.getAttribute('href') : null;
-    if (!href) return null;
-    return { url: buildCleanUrl(href), title: extractTitle(card, linkEl) };
+  /* ★v2.8.13: 再生ページ向けは YouTube の丸いボタンに合わせて大きくする */
+  if (opts.large) {
+    group.style.setProperty('margin', '0 0 0 8px', 'important');
+    group.style.setProperty('border-radius', '18px', 'important');
+    group.style.setProperty('align-self', 'center', 'important');
+    [sendBtn, copyBtn].forEach(b => {
+      b.style.setProperty('font-size', '13px', 'important');
+      b.style.setProperty('min-height', '36px', 'important');
+      b.style.setProperty('padding', '0 12px', 'important');
+    });
   }
+
+  /* クリック時に毎回URLを取り直す（resolver に任せる）。
+     ★カードはスクロール時にYouTube側で使い回され、再生ページは SPA で動画が替わる。
+       挿入時点のURLを閉じ込めると別の動画を扱ってしまうため。 */
+  const resolveCurrent = resolver;
 
   sendBtn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -496,7 +506,12 @@ function injectControllerButtons() {
     if (insertTarget === card && DEBUG) dumpCardStructure(card);
 
     card.dataset.buttonInjected = 'true';
-    insertTarget.appendChild(createButtonGroup(card));
+    insertTarget.appendChild(createButtonGroup(() => {
+      const linkEl = findVideoLink(card);
+      const href = linkEl ? linkEl.getAttribute('href') : null;
+      if (!href) return null;
+      return { url: buildCleanUrl(href), title: extractTitle(card, linkEl) };
+    }));
     stats.injected++;
   });
 
@@ -507,6 +522,43 @@ function injectControllerButtons() {
     debugReportCount++;
     console.warn('【アドオン】ボタンを1件も挿入できませんでした。内訳:', stats);
   }
+}
+
+/* ------------------------------------------------------------
+   ★v2.8.13: 再生ページ（/watch）のボタン
+   置き場所はチャンネル登録ボタンの右（ytd-watch-metadata #owner の中）。
+   🔴 送る URL はクリックした瞬間の location から取る（SPA で動画が替わってもボタンを作り直さない）。
+   /watch 以外へ移ったら取り除く。
+   ------------------------------------------------------------ */
+const WATCH_GROUP_CLASS = 'sync-watch-btn-group';
+
+function isWatchPage() {
+  return location.pathname === '/watch' && new URLSearchParams(location.search).has('v');
+}
+
+function resolveWatchPage() {
+  if (!isWatchPage()) return null;
+  const titleEl = document.querySelector('ytd-watch-metadata h1 yt-formatted-string, ytd-watch-metadata h1, h1.ytd-watch-metadata');
+  let title = titleEl ? (titleEl.textContent || '').trim() : '';
+  if (!title) title = (document.title || '').replace(/\s*-\s*YouTube\s*$/, '').trim();
+  return { url: buildCleanUrl(location.pathname + location.search), title: title };
+}
+
+function injectWatchPageButton() {
+  const existing = document.querySelectorAll('.' + WATCH_GROUP_CLASS);
+  if (!isWatchPage()) { existing.forEach(el => el.remove()); return; }
+  const owner = document.querySelector('ytd-watch-metadata #owner');
+  if (!owner) return;
+  /* 既に正しい場所にあれば何もしない。別の場所に残ったもの（古いレイアウトの残り）は捨てる */
+  let kept = false;
+  existing.forEach(el => { if (!kept && owner.contains(el)) kept = true; else el.remove(); });
+  if (kept) return;
+  const group = createButtonGroup(resolveWatchPage, { large: true });
+  group.classList.add(WATCH_GROUP_CLASS);
+  const sub = owner.querySelector('#subscribe-button');
+  if (sub && sub.parentNode === owner) sub.insertAdjacentElement('afterend', group);
+  else owner.appendChild(group);
+  console.log('【アドオン】再生ページに「' + LABEL_IDLE + '」ボタンを挿入しました。');
 }
 
 /* ------------------------------------------------------------
@@ -538,6 +590,7 @@ function scheduleScan(delay) {
   setTimeout(() => {
     scanScheduled = false;
     try { injectControllerButtons(); } catch (e) { console.error('【アドオン】スキャン中のエラー:', e); }
+    try { injectWatchPageButton(); } catch (e) { console.error('【アドオン】再生ページのボタンでエラー:', e); }
   }, delay || 300);
 }
 
