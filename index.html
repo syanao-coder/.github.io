@@ -816,12 +816,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.8.13';
+        const APP_VERSION = '2.9.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.8.13';
+        const ADDON_REQUIRED_VERSION = '2.9.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1190,7 +1190,91 @@
                     handleChatPing(event.data);
                 }
             }
+            /* ★v2.9.0: 枠の中の YouTube（アドオンの content_yt_embed.js）から直接届く */
+            if (event.data && (event.data.type === 'SYNC_EMBED_OPEN' || event.data.type === 'SYNC_EMBED_HELLO')) {
+                handleEmbedMessage(event.data, event.source, event.origin);
+            }
         });
+
+        /* ------------------------------------------------------------
+           ★v2.9.0（R-11）: 枠の中の「その他の動画」をその枠で開く
+
+           アドオンの content_yt_embed.js が embed の中でクリックを横取りし、
+           window.parent.postMessage で { type:'SYNC_EMBED_OPEN', videoId, list, embedHref } を送る。
+           🔴 送り主のオリジンは www.youtube.com だけを通す。
+           🔴 枠は event.source（iframe の contentWindow）で決める。
+              一致が無いときだけ、embedHref と iframe の src の videoId が一致する枠が1つなら使う。
+           🔴 自動再生しない（他の枠と揃えて再生するツールなので、1枠だけ走らせない）。
+           ------------------------------------------------------------ */
+        const EMBED_ORIGINS = ['https://www.youtube.com'];
+        let lastEmbedEvent = null;      // 直近に受けたもの（debug_suite の D-W1 / D-W2 が読む）
+        const embedHelloLog = [];       // SYNC_EMBED_HELLO の記録（D-W1 が nonce で拾う）
+
+        function embedVideoIdOf(src) {
+            const m = String(src || '').match(/\/embed\/([A-Za-z0-9_-]{11})/);
+            return m ? m[1] : null;
+        }
+
+        function findCardByEmbedSource(source, embedHref) {
+            for (const id of activeCardIds) {
+                const p = ytPlayers[id];
+                let ifr = null;
+                try { ifr = (p && typeof p.getIframe === 'function') ? p.getIframe() : null; } catch (e) { ifr = null; }
+                if (ifr && source && ifr.contentWindow === source) return { cardId: id, how: 'source' };
+            }
+            const vid = embedVideoIdOf(embedHref);
+            if (vid) {
+                const hits = [];
+                for (const id of activeCardIds) {
+                    const p = ytPlayers[id];
+                    let ifr = null;
+                    try { ifr = (p && typeof p.getIframe === 'function') ? p.getIframe() : null; } catch (e) { ifr = null; }
+                    if (ifr && embedVideoIdOf(ifr.src) === vid) hits.push(id);
+                }
+                if (hits.length === 1) return { cardId: hits[0], how: 'videoId' };
+                if (hits.length > 1) return { cardId: null, how: 'ambiguous' };
+            }
+            return { cardId: null, how: 'none' };
+        }
+
+        function handleEmbedMessage(data, source, origin) {
+            if (EMBED_ORIGINS.indexOf(origin) < 0) {
+                lastEmbedEvent = { type: data.type, rejected: 'origin', origin: origin, at: Date.now() };
+                return;
+            }
+            const found = findCardByEmbedSource(source, data.embedHref);
+            lastEmbedEvent = { type: data.type, cardId: found.cardId, how: found.how, videoId: data.videoId || null,
+                               nonce: data.nonce || null, version: data.version || null, at: Date.now() };
+            if (data.type === 'SYNC_EMBED_HELLO') {
+                embedHelloLog.push(lastEmbedEvent);
+                if (embedHelloLog.length > 50) embedHelloLog.shift();
+                return;
+            }
+            if (!found.cardId) return;
+            if (!/^[A-Za-z0-9_-]{11}$/.test(String(data.videoId || ''))) return;
+            openVideoInCard(found.cardId, data.videoId, data.list, data.title);
+        }
+
+        function openVideoInCard(cardId, videoId, list, title) {
+            let url = 'https://www.youtube.com/watch?v=' + videoId;
+            if (list && /^[A-Za-z0-9_-]+$/.test(list)) url += '&list=' + list;
+            const t = String(title || '').slice(0, 200);
+            saveVideoToHistory(t || url, url, '', false);
+            const input = document.getElementById('urlInput_' + cardId);
+            if (input) input.value = url;
+            localStorage.setItem('sync_url_' + cardId, url);
+            loadSingleYT(cardId, true);
+        }
+
+        /* debug_suite（D-W1）用: 枠の embed に点呼を送る。 */
+        function pingEmbed(cardId, nonce) {
+            const p = ytPlayers[cardId];
+            let ifr = null;
+            try { ifr = (p && typeof p.getIframe === 'function') ? p.getIframe() : null; } catch (e) { ifr = null; }
+            if (!ifr || !ifr.contentWindow) return false;
+            ifr.contentWindow.postMessage({ type: 'SYNC_EMBED_PING', nonce: nonce }, 'https://www.youtube.com');
+            return true;
+        }
 
         /* ------------------------------------------------------------
            YouTubeの「➕送信」ボタンから動画を受け取り、空き枠へ流し込む。
@@ -1401,6 +1485,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.9.0', d: '2026-10-03', t: [
+                '枠の中の YouTube で「その他の動画」を押すと、別タブではなくその枠で開くようにした（自動では再生しない。🔴 アドオン 2.9.0 が必要）'] },
             { v: '2.8.13', d: '2026-10-03', t: [
                 'YouTube の再生ページ（チャンネル登録の右）にも「➕ 送信 │ ⧉」ボタンを出した（🔴 アドオン 2.8.13 が必要）'] },
             { v: '2.8.12', d: '2026-10-02', t: [

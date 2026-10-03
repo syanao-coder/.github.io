@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sync Player Controller",
-  "version": "2.8.13",
+  "version": "2.9.0",
   "description": "ローカルのコントローラーから動画操作を同期制御し、YouTube一覧の追加中継と、アーカイブチャットの取得（InnerTube直接取得）を行います。",
   "permissions": [
     "tabs",
@@ -49,6 +49,14 @@
       ],
       "js": ["content_youtube_scrape.js"],
       "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/embed/*"
+      ],
+      "js": ["content_yt_embed.js"],
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
   "browser_specific_settings": {
