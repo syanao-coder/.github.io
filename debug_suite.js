@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.14.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.14.3';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.8.12';
@@ -6755,8 +6755,8 @@
             expect('🔴 出してもレイアウトは動かない（#mainView の矩形 ±1px）',
                 (Math.abs(m2.top - m1.top) <= 1 && Math.abs(m2.height - m1.height) <= 1) ? 'ok' : (JSON.stringify(m1) + ' → ' + JSON.stringify(m2)), 'ok');
             await moveMouseTo(Math.round(window.innerHeight / 2));
-            await wait(1400);
-            expect('hover: 離れて約1秒で隠れる', topbarShown(), false);
+            await wait(900);   /* ★v1.14.3: 0.6秒＋隠れる動き0.2秒。1秒の旧設定ならここで落ちる */
+            expect('hover: 離れて約0.6秒で隠れる（0.9秒後に隠れている）', topbarShown(), false);
             /* ★v1.14.1: 速く上へ抜けると帯の中で mousemove が来ない。ページの上辺から外へ出たことでも出る */
             document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: Math.round(window.innerWidth / 3), clientY: 30, relatedTarget: null }));
             await wait(400);
@@ -6765,8 +6765,8 @@
                mousemove を送らず、バーの mouseleave だけで約1秒後に隠れること */
             bar.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
             bar.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
-            await wait(1400);
-            expect('🔴 hover: バーから枠（iframe）へ下ろしても隠れる（mousemove なし・mouseleave だけ）', topbarShown(), false);
+            await wait(900);
+            expect('🔴 hover: バーから枠（iframe）へ下ろしても約0.6秒で隠れる（mousemove なし・mouseleave だけ）', topbarShown(), false);
             /* ★v1.14.2: Firefox は iframe へ入るときも relatedTarget なしの mouseout を出す。それで出してはいけない */
             var fakeFrame = document.createElement('iframe');
             fakeFrame.style.cssText = 'position:fixed; left:40%; top:6px; width:200px; height:120px; border:0; z-index:300; background:#222;';
