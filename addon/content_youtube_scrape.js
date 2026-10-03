@@ -602,4 +602,4 @@ window.addEventListener('yt-navigate-finish', () => scheduleScan(500));
 
 window.addEventListener('load', () => scheduleScan(1000));
 setInterval(() => scheduleScan(0), SCAN_INTERVAL_MS);
-scheduleScan(500);
+scheduleScan(500);

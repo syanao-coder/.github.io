@@ -256,30 +256,36 @@
   }
 
   /* 🔴 ytInitialData から取れる continuation は「上位のチャットのリプレイ」
-     （間引かれた表示）を指している。必ず全件側へ切り替えること。
+     （間引かれた表示）を指している。既定（すべて）では必ず全件側へ切り替えること。
      viewSelector は 1 回目の応答にしか入っていない。
      切替を忘れると件数が減るが「なんとなく少ない気がする」という
-     最悪の形でしか気づけない。 */
-  function pickAllChatContinuation(lc) {
+     最悪の形でしか気づけない。
+     ★v2.10.0: 利用者が「上位のチャット」を選んだ枠では index 0 を使う。
+       戻り値 { cont: 切り替え先（切り替え不要なら null）, view: 'top' | 'all' | 'unknown' }
+       🔴 index 0 = 上位 / index 1 = すべて（実測 1-3節）。並びが変わったら view が 'unknown' になる。 */
+  function pickChatView(lc, mode) {
+    let items = null;
     try {
-      const items = lc.header.liveChatHeaderRenderer
-                      .viewSelector.sortFilterSubMenuRenderer.subMenuItems;
-      if (!Array.isArray(items) || items.length < 2) return null;
-      if (items[1].selected) return null;   // すでに全件側
-      /* ★v2.8.0: ここも入れ物名を決め打ちしない。
-         ライブの subMenuItems[1] が reloadContinuationData とは限らないため
-         （実測では「トップチャット / チャット」の 2 件が返る）。
-         アーカイブでは従来と同じ値が返るので退行しない。 */
-      const box = items[1].continuation;
-      if (!box || typeof box !== 'object') return null;
-      for (const k of Object.keys(box)) {
-        const v = box[k];
-        if (v && typeof v === 'object' && typeof v.continuation === 'string' && v.continuation) {
-          return v.continuation;
-        }
+      items = lc.header.liveChatHeaderRenderer
+                .viewSelector.sortFilterSubMenuRenderer.subMenuItems;
+    } catch (e) { items = null; }
+    if (!Array.isArray(items) || items.length < 2) return { cont: null, view: 'unknown' };
+    const want = (mode === 'top') ? 0 : 1;
+    const view = (want === 0) ? 'top' : 'all';
+    if (items[want] && items[want].selected) return { cont: null, view: view };   // すでにその側
+    /* ★v2.8.0: ここも入れ物名を決め打ちしない。
+       ライブの subMenuItems[1] が reloadContinuationData とは限らないため
+       （実測では「トップチャット / チャット」の 2 件が返る）。
+       アーカイブでは従来と同じ値が返るので退行しない。 */
+    const box = items[want] && items[want].continuation;
+    if (!box || typeof box !== 'object') return { cont: null, view: 'unknown' };
+    for (const k of Object.keys(box)) {
+      const v = box[k];
+      if (v && typeof v === 'object' && typeof v.continuation === 'string' && v.continuation) {
+        return { cont: v.continuation, view: view };
       }
-      return null;
-    } catch (e) { return null; }
+    }
+    return { cont: null, view: 'unknown' };
   }
 
   /* ==============================================================
@@ -615,7 +621,8 @@
       job.total += buf.comments.length;
       post({
         ev: 'chunk', requestId: job.requestId, videoId: job.videoId,
-        seq: job.seq++, comments: buf.comments, emoji: buf.emoji, lastT: job.lastT
+        seq: job.seq++, comments: buf.comments, emoji: buf.emoji, lastT: job.lastT,
+        view: job.view   /* ★v2.10.0 */
       });
       buf = { comments: [], emoji: {} };
       bufReqs = 0;
@@ -653,11 +660,13 @@
       }
 
       /* 🔴 1 回目だけ「上位のチャット」→「全件」へ切り替える。
-         この応答の actions は間引かれた側なので捨てて取り直す。 */
+         この応答の actions は間引かれた側なので捨てて取り直す。
+         ★v2.10.0: 上位を選んだ枠では index 0 のまま（すでに選ばれていれば切り替えず、この応答をそのまま使う）。 */
       if (!switched) {
         switched = true;
-        const all = pickAllChatContinuation(lc);
-        if (all) { cont = all; offsetMs = 0; continue; }
+        const pick = pickChatView(lc, job.mode);
+        job.view = pick.view;
+        if (pick.cont) { cont = pick.cont; offsetMs = 0; continue; }
       }
 
       /* ★reqs は「捨てた1回」を数えない。
@@ -807,6 +816,7 @@
       total: job.total, complete: complete, truncated: truncated,
       lastT: job.lastT, videoMs: job.videoMs, reqs: reqs,
       live: job.live, liveBy: job.liveBy, livePolls: job.livePolls || 0,
+      view: job.view,   /* ★v2.10.0 */
       elapsed: Math.round(performance.now() - t0)
     });
   }
@@ -839,11 +849,14 @@
     startPing();
   }
 
-  function enqueue(requestId, videoId) {
+  function enqueue(requestId, videoId, mode) {
     if (!requestId || !videoId) return;
     if (jobs.has(requestId)) return;
     const job = {
       requestId: requestId, videoId: videoId,
+      /* ★v2.10.0: 'top' = 上位のチャット / 'all' = すべてのチャット（既定）。
+         view は 1回目の応答で実際に選ばれた側（'top' / 'all' / 'unknown'）。 */
+      mode: mode === 'top' ? 'top' : 'all', view: 'unknown',
       cancelled: false, seq: 0, total: 0, lastT: 0, reqs: 0, videoMs: 0,
       /* ★v2.8.0 */
       live: false, liveBy: 'none', liveStartMs: 0, livePolls: 0, livePollMs: 0,
@@ -908,7 +921,7 @@
     if (e.source !== window) return;                 // 必須
     const d = e.data;
     if (!d || d[CMD] !== 1) return;
-    if (d.cmd === 'CHAT_ENQUEUE') enqueue(d.requestId, d.videoId);
+    if (d.cmd === 'CHAT_ENQUEUE') enqueue(d.requestId, d.videoId, d.mode);
     else if (d.cmd === 'CHAT_CANCEL') cancel(d.requestId);
     else if (d.cmd === 'CHAT_CONFIG' && d.config) {
       /* 段階 1-F の計測用。実行中に束ね方を差し替えられる。 */

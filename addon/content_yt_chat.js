@@ -69,6 +69,7 @@
       cmd: message.type,
       requestId: message.requestId,
       videoId: message.videoId,
+      mode: message.mode,   /* ★v2.10.0 */
       config: message.config
     }, location.origin);
   });

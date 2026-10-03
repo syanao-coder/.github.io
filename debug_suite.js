@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.16.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.17.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.9.0';
+    var EXPECT_APP_VERSION = '2.10.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.9.0';
+    var EXPECT_ADDON_REQUIRED = '2.10.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.9.0', ids: ['D-V1', 'D-V2', 'D-W1', 'D-W2'] };
+    var VERSION_FOCUS = { v: '2.10.0', ids: ['D-V1', 'D-V2', 'D-K1', 'D-K2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 37);
+        expect('配列の件数', hist ? hist.length : 0, 38);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7031,6 +7031,134 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.17.0 : v2.10.0 の判定（チャットの「上位のチャット / すべてのチャット」）
+       ==================================================================== */
+    function chatModeBtnOf(cid) { return document.getElementById('chatModeBtn_' + cid); }
+
+    /* --- D-K1: A側だけで、キー・要求・切替・保存を確かめる（アドオンへは流さない） --- */
+    async function testK1() {
+        log('  [目的] 既定は従来どおり videoId のキーで「すべて」を要求し、ボタンで上位にすると #top のキーで mode:top を要求し、前の取得が止まること。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var modeRaw = null;
+        try { modeRaw = localStorage.getItem('sync_chat_mode_map'); } catch (e) { }
+        var FAKE = 'dbgK1aaaaaa';
+        var origPost = window.postMessage;
+        var sent = [];
+        var cid = null;
+        try {
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            pc('A側の関数（getChatKey / setChatMode / chatKeyOf）を読める', function () {
+                return (typeof getChatKey === 'function' && typeof setChatMode === 'function' && typeof chatKeyOf === 'function') ? 'あり' : false;
+            });
+            /* 🔴 取得要求をアドオンへ流さない。CHAT_STREAM_* だけ捕まえて握りつぶす */
+            window.postMessage = function (msg, target) {
+                if (msg && (msg.type === 'CHAT_STREAM_REQUEST' || msg.type === 'CHAT_STREAM_CANCEL')) { sent.push(msg); return; }
+                return origPost.apply(window, arguments);
+            };
+            cardVideoKeys[cid] = FAKE;   /* 動画を読み込まずに「この枠は FAKE」にする */
+            setChatMode(cid, 'all');
+            expect('🔴 既定のキーは videoId そのまま（既存のキャッシュ・判定と同じ）', getChatKey(cid), FAKE);
+            var pane = await openChatPane(cid);
+            var req1 = await waitFor(function () {
+                return sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; })[0] || null;
+            }, 3000, 50);
+            pc('チャット欄を開くと取得要求を捕まえられる（1件目）', function () {
+                return (pane.ok && req1.ok) ? (req1.value.videoId + ' / mode=' + req1.value.mode) : false;
+            });
+            if (!req1.ok) return;
+            expect('既定の要求: videoId', req1.value.videoId, FAKE);
+            expect('既定の要求: mode', req1.value.mode, 'all');
+            var btn = chatModeBtnOf(cid);
+            expect('見出しに切替ボタンがある（文言「全」）', btn ? btn.textContent : '(無い)', '全');
+
+            sent.length = 0;
+            var c1 = await clickReal(btn);
+            expect('切替ボタンを押せた（被覆なし）', c1.blocked ? ('blocked:' + c1.reason) : 'ok', 'ok');
+            await wait(200);
+            expect('上位にした後のキー', getChatKey(cid), FAKE + '#top');
+            var reqTop = sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; })[0] || null;
+            expect('🔴 上位の要求: videoId は素の videoId', reqTop ? reqTop.videoId : '(要求なし)', FAKE);
+            expect('🔴 上位の要求: mode', reqTop ? reqTop.mode : '(要求なし)', 'top');
+            var cancelled = sent.filter(function (m) { return m.type === 'CHAT_STREAM_CANCEL' && m.requestId === req1.value.requestId; }).length;
+            expect('🔴 前のキーの取得を止めた（参照が無くなったので）', cancelled, 1);
+            expect('前のキーの取得中フラグが消えた', !!chatInflight[FAKE], false);
+            var saved = {};
+            try { saved = JSON.parse(localStorage.getItem('sync_chat_mode_map') || '{}'); } catch (e) { }
+            expect('枠ごとの設定が保存される（sync_chat_mode_map）', saved[cid], 'top');
+            expect('ボタンの文言が「上位」になる', btn.textContent, '上位');
+            var title = (document.getElementById('chatHeadTitle_' + cid) || {}).textContent || '';
+            expect('見出しに〔上位〕が出る', /〔上位〕/.test(title) ? 'あり' : title, 'あり');
+
+            sent.length = 0;
+            await clickReal(btn);
+            await wait(200);
+            expect('戻した後のキー', getChatKey(cid), FAKE);
+            var reqAll = sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; })[0] || null;
+            expect('戻した後の要求: mode', reqAll ? reqAll.mode : '(要求なし)', 'all');
+            saved = {};
+            try { saved = JSON.parse(localStorage.getItem('sync_chat_mode_map') || '{}'); } catch (e) { }
+            expect('すべてに戻すと保存値から消える（既定は持たない）', saved[cid] === undefined ? '無し' : saved[cid], '無し');
+        } finally {
+            try {
+                if (typeof cancelChatRequest === 'function') { cancelChatRequest(FAKE); cancelChatRequest(FAKE + '#top'); }
+            } catch (e) { }
+            window.postMessage = origPost;
+            try { if (cid && typeof setChatMode === 'function') setChatMode(cid, 'all'); } catch (e) { }
+            try { if (cid) delete cardVideoKeys[cid]; } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            try { if (modeRaw === null) localStorage.removeItem('sync_chat_mode_map'); else localStorage.setItem('sync_chat_mode_map', modeRaw); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-K2: 実機。すべて → 上位 の順に取り直し、B側が実際に選んだ側を確かめる --- */
+    async function testK2() {
+        log('  [目的] B側（アドオン 2.10.0）が「すべて」では全件側、「上位」では上位側を選んで返すこと。素材 ' + VID.LIGHT + '（既知 356件）。');
+        var cid = null;
+        try {
+            cid = firstCard();
+            if (cid && typeof setChatMode === 'function') setChatMode(cid, 'all');
+            var r = await runChatCase({ url: ytUrl(VID.LIGHT), videoId: VID.LIGHT, expectState: 'ready' });
+            if (!r || !r.store) return;
+            cid = r.cid;
+            pc('🔴 すべて: 既知の 356 件と一致（D-C1 と同じ positive control）', function () {
+                return r.total === 356 ? '356件' : false;
+            });
+            expect('🔴 すべて: B側が選んだ表示 view', r.store.view || '(報告なし)', 'all');
+
+            var btn = chatModeBtnOf(cid);
+            var c1 = await clickReal(btn);
+            expect('切替ボタンを押せた（被覆なし）', c1.blocked ? ('blocked:' + c1.reason) : 'ok', 'ok');
+            await wait(300);
+            var KEY = VID.LIGHT + '#top';
+            /* 🔴 キャッシュが残っていると B側を通らないので 🔄 で取り直す */
+            await clickReal(chatReloadBtn(cid));
+            var w = await waitChatSettled(KEY, CHAT_WAIT_MS);
+            pc('上位: 取得が終端まで到達した', function () {
+                return w.ok ? (w.value + ' / ' + Math.round(w.waitedMs / 1000) + '秒') : false;
+            });
+            var st = chatStoreOf(KEY);
+            var nTop = st ? st.comments.length : -1;
+            expect('🔴 上位: B側が選んだ表示 view', st ? (st.view || '(報告なし)') : '(storeが無い)', 'top');
+            expect('上位: 取得の状態', chatStateOf(KEY), 'ready');
+            expect('上位の件数 ≤ すべての件数', (nTop >= 0 && nTop <= r.total) ? 'ok' : (nTop + ' / ' + r.total), 'ok');
+            expect('🔴 切り替えた後、すべての側は参照が無いので捨てられた', chatStoreOf(VID.LIGHT) ? '残っている' : '捨てた', '捨てた');
+            note('件数（すべて / 上位）', r.total + ' / ' + nTop);
+            note('上位: complete / reqs / elapsed(ms)', st ? (st.complete + ' / ' + st.reqs + ' / ' + st.elapsed) : '-');
+        } finally {
+            try { if (cid && typeof setChatMode === 'function') setChatMode(cid, 'all'); } catch (e) { }
+            note('後始末: 枠の表示を「すべて」へ戻した', cid ? getChatMode(cid) : '-');
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -7120,6 +7248,9 @@
         /* ★v1.16.0: v2.9.0。YouTube の枠とアドオン 2.9.0 が要る・枠数を変えるので manual。 */
         { id: 'D-W1', name: '★枠の中の YouTube でアドオンが動き、返事が送り主の枠に結び付く', run: testW1, manual: true },
         { id: 'D-W2', name: '★「その他の動画」を送り主の枠にだけ読み込む（オリジン・自動再生しない）', run: testW2, manual: true },
+        /* ★v1.17.0: v2.10.0。D-K1 は枠数を変える・D-K2 は取得に1〜2分かかるので manual。 */
+        { id: 'D-K1', name: '★上位 / すべての切替（キー・要求・前の取得の中止・保存）', run: testK1, manual: true },
+        { id: 'D-K2', name: '★実機で B側が上位 / すべてを選び分ける（356件の動画）', run: testK2, manual: true },
         /* ★v1.14.0: v2.8.12。D-T1 は上部メニューを畳むので manual。D-T2 は読むだけ。 */
         { id: 'D-T1', name: '★上部メニューを畳む・上端で出る（レイアウトは動かない）・📌 で戻す', run: testT1, manual: true },
         { id: 'D-T2', name: '上部メニューの部品が今の窓幅で重ならずバーに収まる', run: testT2, manual: true },

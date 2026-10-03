@@ -424,6 +424,9 @@
         .chat-head button:disabled { opacity: 0.3; cursor: default; }
         .chat-head button:disabled:hover { background: transparent; color: #8a8a9a; }
         .chat-size-btn { font-weight: bold; font-family: monospace; }
+        /* ★v2.10.0: 上位のチャット / すべて。上位のときだけ色を付けて気づけるようにする */
+        .chat-mode-btn { font-weight: bold; min-width: 2.2em; }
+        .chat-mode-btn.active { color: #ffb347; border-color: #ffb34766; }
         .chat-body { flex: 1 1 auto; position: relative; min-height: 0; min-width: 0; background: #0c0c10; }
         /* ★v2.5.0: iframe を廃止し自前描画のリストに置き換え */
         .chat-list {
@@ -816,12 +819,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.9.0';
+        const APP_VERSION = '2.10.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.9.0';
+        const ADDON_REQUIRED_VERSION = '2.10.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1485,6 +1488,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.10.0', d: '2026-10-03', t: [
+                'チャット欄の見出しのボタン（全 / 上位）で、枠ごとに「すべてのチャット」と「上位のチャット」を切り替えられるようにした（コメント流しも従う。🔴 アドオン 2.10.0 が必要）'] },
             { v: '2.9.0', d: '2026-10-03', t: [
                 '枠の中の YouTube で「その他の動画」を押すと、別タブではなくその枠で開くようにした（自動では再生しない。🔴 アドオン 2.9.0 が必要）'] },
             { v: '2.8.13', d: '2026-10-03', t: [
@@ -3334,6 +3339,7 @@
         let chatCursor = {};     // cardId → 次に描画するコメントの添字
         let chatLastMs = {};     // cardId → 前回tickの再生位置(ms)
         let chatFontScale = {};  // cardId → 文字サイズ倍率（枠ごとに独立）
+        let chatMode = {};       // ★v2.10.0: cardId → 'top'（上位のチャット）。すべて（既定）のときは持たない
 
         /* ★v2.8.0: 配信中のライブだと分かった videoId。
            B側の chatMeta / chatDone の live:true でだけ立つ。
@@ -3638,6 +3644,8 @@
                         '<span class="chat-head-title" id="chatHeadTitle_' + cardId + '">💬 チャット</span>' +
                         '<button class="chat-size-btn" id="chatFontDown_' + cardId + '" onclick="changeChatFontScale(\'' + cardId + '\', -1)" title="文字を小さく">A-</button>' +
                         '<button class="chat-size-btn" id="chatFontUp_' + cardId + '" onclick="changeChatFontScale(\'' + cardId + '\', 1)" title="文字を大きく">A+</button>' +
+                        /* ★v2.10.0: 上位のチャット / すべてのチャット（文言と title は updateChatModeBtn が書く） */
+                        '<button class="chat-mode-btn' + (getChatMode(cardId) === 'top' ? ' active' : '') + '" id="chatModeBtn_' + cardId + '" onclick="toggleChatMode(\'' + cardId + '\')">' + (getChatMode(cardId) === 'top' ? '上位' : '全') + '</button>' +
                         '<button onclick="reloadChat(\'' + cardId + '\')" title="コメントを取得し直す">🔄</button>' +
                         '<button onclick="openWatchPageAt(\'' + cardId + '\')" title="YouTubeの視聴ページを現在位置で開く">⧉</button>' +
                         '<button onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を閉じる">✕</button>' +
@@ -3670,6 +3678,62 @@
             const key = cardVideoKeys[cardId];
             if (key && key.indexOf('list:') !== 0) return key;
             return null;
+        }
+
+        /* ★v2.10.0: チャットの「上位のチャット / すべてのチャット」。
+           取得結果（chatStore / chatState / chatInflight / キャッシュ…）のキーは
+           すべて = videoId そのまま、上位 = videoId + '#top'。
+           🔴 既定にサフィックスを付けないので、既存のキャッシュ・保存値・判定がそのまま使える。
+           🔴 枠の動画を知りたいとき（⧉ など）は getChatVideoId、
+              取得結果を引くときは getChatKey を使う。混ぜないこと。 */
+        const CHAT_TOP_SUFFIX = '#top';
+        function chatKeyOf(videoId, mode) {
+            if (!videoId) return null;
+            return mode === 'top' ? videoId + CHAT_TOP_SUFFIX : videoId;
+        }
+        function videoIdOfChatKey(key) {
+            const s = String(key || '');
+            return s.endsWith(CHAT_TOP_SUFFIX) ? s.slice(0, -CHAT_TOP_SUFFIX.length) : s;
+        }
+        function chatModeOfKey(key) {
+            return String(key || '').endsWith(CHAT_TOP_SUFFIX) ? 'top' : 'all';
+        }
+        function getChatMode(cardId) {
+            return chatMode[cardId] === 'top' ? 'top' : 'all';
+        }
+        function getChatKey(cardId) {
+            return chatKeyOf(getChatVideoId(cardId), getChatMode(cardId));
+        }
+
+        /* 枠のチャットを「上位 / すべて」に切り替える。
+           YouTube 側の間引きなので A側で全件から作れない＝取り直し（キャッシュがあればキャッシュ）。
+           前のキーは、どこからも参照されなくなっていれば取得を止めて捨てる（releaseUnusedChatData）。 */
+        function setChatMode(cardId, mode) {
+            const next = (mode === 'top') ? 'top' : 'all';
+            if (getChatMode(cardId) === next) { updateChatModeBtn(cardId); return; }
+            if (next === 'top') chatMode[cardId] = 'top'; else delete chatMode[cardId];
+            saveChatState();
+            updateChatModeBtn(cardId);
+            /* 流しは次の tick で新しいキーから出し直す（flowVideoId の差し替え検出に乗せる） */
+            flowVideoId[cardId] = null;
+            flowClearCard(cardId);
+            chatLoadedVideoId[cardId] = null;
+            if (chatVisible[cardId]) updateChatContent(cardId, true);
+            else updateChatHeadTitle(cardId);
+            releaseUnusedChatData('チャットの表示切替');
+        }
+        function toggleChatMode(cardId) {
+            setChatMode(cardId, getChatMode(cardId) === 'top' ? 'all' : 'top');
+        }
+        function updateChatModeBtn(cardId) {
+            const btn = document.getElementById('chatModeBtn_' + cardId);
+            if (!btn) return;
+            const top = getChatMode(cardId) === 'top';
+            btn.innerText = top ? '上位' : '全';
+            btn.classList.toggle('active', top);
+            btn.title = top
+                ? '上位のチャット（YouTube が間引いた表示）を表示中。押すと「すべてのチャット」に戻す（取り直し）'
+                : 'すべてのチャットを表示中。押すと「上位のチャット」（YouTube が間引いた表示）に切り替える（取り直し）';
         }
 
         /* ------------------------------------------------------------
@@ -3740,7 +3804,7 @@
         /* ★v2.8.0: その枠が配信中のライブを映しているか。
            🔴 一括シークの除外はこの1関数だけを見る。判定を各所へ散らさない。 */
         function isLiveCard(cardId) {
-            return isLiveVideo(getChatVideoId(cardId));
+            return isLiveVideo(getChatKey(cardId));   /* ★v2.10.0: 取得結果のキー */
         }
 
         function updateChatHeadTitle(cardId) {
@@ -3748,7 +3812,9 @@
             if (!el) return;
             const videoId = chatLoadedVideoId[cardId];
             const store = videoId ? chatStore[videoId] : null;
-            if (!store) { el.innerText = '💬 チャット'; return; }
+            /* ★v2.10.0: 上位のチャットのときだけ印を付ける（既定のすべては従来どおり） */
+            const head = (getChatMode(cardId) === 'top') ? '💬 チャット〔上位〕' : '💬 チャット';
+            if (!store) { el.innerText = head; return; }
 
             const n = store.comments.length.toLocaleString();
 
@@ -3760,11 +3826,11 @@
                   「途中で失敗した」ではない。 */
             if (store.live) {
                 if (chatState[videoId] === 'streaming') {
-                    el.innerText = '💬 チャット (' + n + ' / 🔴 配信中)';
+                    el.innerText = head + ' (' + n + ' / 🔴 配信中)';
                 } else if (store.comments.length === 0) {
-                    el.innerText = '💬 チャット (配信中・まだコメントなし)';
+                    el.innerText = head + ' (配信中・まだコメントなし)';
                 } else {
-                    el.innerText = '💬 チャット (' + n + ' / 配信終了)';
+                    el.innerText = head + ' (' + n + ' / 配信終了)';
                 }
                 return;
             }
@@ -3774,15 +3840,15 @@
                    「止まっている」ように見える。 */
                 const pct = store.videoMs > 0
                     ? Math.min(99, Math.floor(store.lastT / store.videoMs * 100)) : 0;
-                el.innerText = '💬 チャット (' + n + ' / 取得中 ' + pct + '%)';
+                el.innerText = head + ' (' + n + ' / 取得中 ' + pct + '%)';
             } else if (store.comments.length === 0) {
                 /* ★v2.6.5: 0件は「不完全」ではなく「無い」。案内文（showChatEmptyNote）が
                    原因の候補を出すので、ヘッダーでは件数だけを示す。 */
-                el.innerText = '💬 チャット (コメントなし)';
+                el.innerText = head + ' (コメントなし)';
             } else if (store.gap || store.truncated || store.complete === false) {
-                el.innerText = '💬 チャット (' + n + ' ⚠不完全)';
+                el.innerText = head + ' (' + n + ' ⚠不完全)';
             } else {
-                el.innerText = '💬 チャット (' + n + ')';
+                el.innerText = head + ' (' + n + ')';
             }
         }
 
@@ -3848,7 +3914,7 @@
         function updateChatContent(cardId, force) {
             if (!chatVisible[cardId]) return;
 
-            const videoId = getChatVideoId(cardId);
+            const videoId = getChatKey(cardId);   /* ★v2.10.0: 取得結果のキー（すべては videoId のまま） */
             if (!videoId) {
                 chatLoadedVideoId[cardId] = null;
                 showChatNote(cardId,
@@ -3952,7 +4018,9 @@
                     refreshChatCardsFor(videoId);
                     return;
                 }
-                window.postMessage({ type: 'CHAT_STREAM_REQUEST', videoId: videoId, requestId: requestId }, '*');
+                /* ★v2.10.0: キーから videoId と表示（上位 / すべて）に戻して送る */
+                window.postMessage({ type: 'CHAT_STREAM_REQUEST', videoId: videoIdOfChatKey(videoId),
+                                     mode: chatModeOfKey(videoId), requestId: requestId }, '*');
                 armChatWatchdog(requestId, CHAT_META_TIMEOUT_MS);
             });
         }
@@ -4019,7 +4087,7 @@
                       捨てると開き直すたびに取り直しになる。
                       「閉じても取得は止めない」という既存の設計もここが担保する。 */
                 let c = null;
-                try { c = getChatVideoId(id); } catch (e) { c = null; }
+                try { c = getChatKey(id); } catch (e) { c = null; }   /* ★v2.10.0 */
                 if (c) refs[c] = true;
             });
             return refs;
@@ -4131,6 +4199,7 @@
                静かに減るのが一番まずい失敗なので検出だけはしておく。 */
             if (d.seq !== store.nextSeq) store.gap = true;
             store.nextSeq = d.seq + 1;
+            if (d.view) store.view = d.view;   /* ★v2.10.0: B側が実際に選んだ表示 */
 
             if (d.emoji) {
                 for (const k of Object.keys(d.emoji)) store.emoji[k] = d.emoji[k];
@@ -4175,6 +4244,7 @@
                 const store = ensureChatStore(videoId);
                 if (d.live === true) store.live = true;
                 if (d.liveBy) store.liveBy = d.liveBy;          /* ★v2.8.1 */
+                if (d.view) store.view = d.view;                /* ★v2.10.0 */
                 if (d.livePolls !== undefined) store.livePolls = d.livePolls;
                 store.complete = (d.complete !== false);
                 store.truncated = !!d.truncated;
@@ -4448,12 +4518,12 @@
                 if (!videoId) {
                     /* 「動画未ロード」の案内を出したあとに動画が入った場合の自己修復。
                        updateChatContent の呼び出しが漏れても、ここで拾って開始できる。 */
-                    if (getChatVideoId(cardId)) updateChatContent(cardId, true);
+                    if (getChatKey(cardId)) updateChatContent(cardId, true);
                     return;
                 }
 
                 // プレイリストの曲送りなどで枠の動画が変わっていたら読み直す
-                const nowId = getChatVideoId(cardId);
+                const nowId = getChatKey(cardId);   /* ★v2.10.0: 表示の切替でも読み直す */
                 if (nowId && nowId !== videoId) { updateChatContent(cardId, true); return; }
 
                 const chSt = chatState[videoId];
@@ -4534,7 +4604,7 @@
            ★v2.6.3: キャッシュを捨ててから取り直し、完走したら入れ直す。
            「表示がおかしいので取り直したい」ときにキャッシュを返しては意味がない。 */
         function reloadChat(cardId) {
-            const videoId = getChatVideoId(cardId);
+            const videoId = getChatKey(cardId);   /* ★v2.10.0: いま表示している側だけ取り直す */
             if (videoId) {
                 cancelChatRequest(videoId);        // ★走っていれば先に止める
                 delete chatStore[videoId];
@@ -4621,6 +4691,7 @@
             delete chatStick[cardId];
             delete chatUserScrollAt[cardId];
             delete chatFontScale[cardId];
+            delete chatMode[cardId];       // ★v2.10.0
             clearFlowState(cardId);        // ★v2.7.0
             saveChatState();
         }
@@ -4631,6 +4702,7 @@
                 localStorage.setItem('sync_chat_ratio_map', JSON.stringify(chatRatio));
                 localStorage.setItem('sync_chat_font_map', JSON.stringify(chatFontScale));
                 localStorage.setItem('sync_flow_map', JSON.stringify(flowVisible));   // ★v2.7.0
+                localStorage.setItem('sync_chat_mode_map', JSON.stringify(chatMode)); // ★v2.10.0
             } catch (e) {}
         }
 
@@ -4643,6 +4715,8 @@
             catch (e) { chatFontScale = {}; }
             try { flowVisible = JSON.parse(localStorage.getItem('sync_flow_map')) || {}; }   // ★v2.7.0
             catch (e) { flowVisible = {}; }
+            try { chatMode = JSON.parse(localStorage.getItem('sync_chat_mode_map')) || {}; }  // ★v2.10.0
+            catch (e) { chatMode = {}; }
         }
 
         /* ============================================================
@@ -5029,7 +5103,7 @@
                 const layer = ensureFlowLayer(cardId);
                 if (!layer) return;
 
-                const videoId = getChatVideoId(cardId);
+                const videoId = getChatKey(cardId);   /* ★v2.10.0 */
                 if (!videoId) { flowClearCard(cardId); return; }
                 if (flowVideoId[cardId] !== videoId) {      // 動画が差し替わった
                     flowVideoId[cardId] = videoId;
@@ -5123,7 +5197,7 @@
                 if (layer) layer.style.display = 'none';
             } else {
                 ensureFlowLayer(cardId);
-                const videoId = getChatVideoId(cardId);
+                const videoId = getChatKey(cardId);   /* ★v2.10.0 */
                 if (videoId && chatState[videoId] === undefined) requestChatArchive(cardId, videoId, true);
                 const store = videoId ? chatStore[videoId] : null;
                 const ms = getChatPlayheadMs(cardId);

@@ -69,7 +69,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- コントローラー ➔ InnerTube 直接取得の開始 ★v2.6.0 ---
   if (message.type === "FETCH_CHAT_STREAM") {
-    startChatStream(message.videoId, message.requestId).catch((err) => {
+    startChatStream(message.videoId, message.requestId, message.mode).catch((err) => {
       sendChatStreamEvent({
         ev: "done",
         requestId: message.requestId,
@@ -595,7 +595,7 @@ async function ensureInjected(tabId) {
   await chrome.scripting.executeScript({ target: { tabId: tabId }, world: "MAIN", files: ["chat_fetcher_main.js"] });
 }
 
-async function startChatStream(videoId, requestId) {
+async function startChatStream(videoId, requestId, mode) {
   if (!videoId) throw new Error("videoId が指定されていません");
 
   const tabId = await ensureChatTab();
@@ -625,7 +625,8 @@ async function startChatStream(videoId, requestId) {
   await chrome.tabs.sendMessage(tabId, {
     type: "CHAT_ENQUEUE",
     videoId: videoId,
-    requestId: requestId
+    requestId: requestId,
+    mode: mode === 'top' ? 'top' : 'all'   /* ★v2.10.0 */
   });
 }
 
@@ -676,6 +677,8 @@ function sendChatStreamEvent(p) {
          🔴 ここと content_controller.js の両方に書くこと。片方だけだと A 側へ届かない。 */
       live: p.live,
       liveBy: p.liveBy,
+      /* ★v2.10.0: 実際に選んだ表示。🔴 content_controller.js と対で書くこと。 */
+      view: p.view,
       livePolls: p.livePolls,
       reqs: p.reqs,
       elapsed: p.elapsed,
