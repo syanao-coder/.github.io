@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.15.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.16.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.8.13';
+    var EXPECT_APP_VERSION = '2.9.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.8.13';
+    var EXPECT_ADDON_REQUIRED = '2.9.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.8.13', ids: ['D-V1', 'D-V2'] };
+    var VERSION_FOCUS = { v: '2.9.0', ids: ['D-V1', 'D-V2', 'D-W1', 'D-W2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 36);
+        expect('配列の件数', hist ? hist.length : 0, 37);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -6872,6 +6872,165 @@
         note('最も広い空き / 右端の部品', Math.round(gap) + 'px / ' + last.name);
     }
 
+    /* ======================================================================
+       ★v1.16.0 : v2.9.0 の判定（枠の中の「その他の動画」をその枠で開く）
+       ==================================================================== */
+    function ytIframeOf(cid) {
+        try {
+            var p = ytPlayers[cid];
+            return (p && typeof p.getIframe === 'function') ? p.getIframe() : null;
+        } catch (e) { return null; }
+    }
+    function ytCardIds() {
+        try { return activeCardIds.filter(function (id) { return !!ytPlayers[id]; }); } catch (e) { return []; }
+    }
+    function vidOfUrl(u) {
+        var m = String(u || '').match(/[?&]v=([A-Za-z0-9_-]{11})/);
+        return m ? m[1] : null;
+    }
+
+    /* --- D-W1: 実機の YouTube 枠で embed の content script が答え、source だけで枠が決まる --- */
+    async function testW1() {
+        log('  [目的] 枠の中の YouTube でアドオン 2.9.0 の content script が動き、その返事が event.source だけで正しい枠に結び付くこと。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var added = null;
+        try {
+            await closeAllMenus();
+            /* YouTube の枠が無ければ1枠足して VID_LIGHT を入れる */
+            if (ytCardIds().length === 0) {
+                var got = await setCardCount(started + 1);
+                added = lastCard();
+                if (typeof clearCard === 'function') await clearCard(added);
+                var inp = document.getElementById('urlInput_' + added);
+                if (inp) inp.value = VID_LIGHT;
+                try { localStorage.setItem('sync_url_' + added, VID_LIGHT); } catch (e) { }
+                loadSingleYT(added, true);
+                note('YouTube の枠が無かったので足した', added + '（' + got + '枠）');
+            }
+            var ids = ytCardIds();
+            var iframes = await waitFor(function () {
+                var ok = ids.every(function (id) { var f = ytIframeOf(id); return f && /youtube\.com\/embed\//.test(f.src || ''); });
+                return ok ? ids.length : null;
+            }, 8000, 200);
+            pc('YouTube の枠が1つ以上あり、iframe の src が youtube.com/embed/', function () {
+                return iframes.ok ? (ids.length + '枠: ' + ids.join(',')) : false;
+            });
+            if (!iframes.ok) return;
+            pc('A側の受け口（pingEmbed / embedHelloLog）を読める', function () {
+                return (typeof pingEmbed === 'function' && typeof embedHelloLog !== 'undefined') ? 'あり' : false;
+            });
+            var rows = [];
+            for (var i = 0; i < ids.length; i++) {
+                var id = ids[i];
+                var nonce = 'w1_' + id + '_' + Date.now();
+                /* content script は embed の読み込み途中だと居ないので、1秒ごとに点呼し直す */
+                var r = await waitFor(function () {
+                    var hit = null;
+                    embedHelloLog.forEach(function (h) { if (h.nonce === nonce) hit = h; });
+                    if (!hit) pingEmbed(id, nonce);
+                    return hit;
+                }, 10000, 1000);
+                rows.push({ id: id, hit: r.value, ms: r.waitedMs });
+            }
+            expect('🔴 全枠から返事が来た（アドオン 2.9.0 の content script が embed の中で動いている）',
+                rows.filter(function (x) { return x.hit; }).length, ids.length);
+            expect('🔴 返事が event.source だけで送り主の枠に決まった',
+                rows.filter(function (x) { return x.hit && x.hit.how === 'source' && x.hit.cardId === x.id; }).length, ids.length);
+            note('枠ごとの返事', rows.map(function (x) {
+                return x.id + '=' + (x.hit ? (x.hit.how + '→' + x.hit.cardId + ' / v' + x.hit.version + ' / ' + x.ms + 'ms') : '返事なし');
+            }).join(' | '));
+        } finally {
+            if (added) {
+                try { await setCardCount(started); } catch (e) { }
+                var restored = restoreUrlSnapshot(backup);
+                note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+            }
+        }
+    }
+
+    /* --- D-W2: A側の受け口（オリジン・枠の特定・読み込み・自動再生しない） --- */
+    async function testW2() {
+        log('  [目的] embed から届いた「その他の動画」を、送り主の枠にだけ読み込み、オリジン違いは捨て、自動では再生しないこと。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var histRaw = null;
+        try { histRaw = localStorage.getItem('sync_video_history'); } catch (e) { }
+        var ifr = null, listener = null, cid = null;
+        try {
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            pc('A側の受け口（handleEmbedMessage / lastEmbedEvent）を読める', function () {
+                return (typeof handleEmbedMessage === 'function' && typeof lastEmbedEvent !== 'undefined') ? 'あり' : false;
+            });
+            /* 偽の embed: 読み込まれたら HELLO を1回送る（送り主のオリジンはこのページと同じ＝www.youtube.com ではない） */
+            var seen = null;
+            listener = function (e) { if (e.data && e.data.nonce === 'w2') seen = e; };
+            window.addEventListener('message', listener);
+            ifr = document.createElement('iframe');
+            ifr.style.cssText = 'width:100%;height:100%;border:0;';
+            ifr.srcdoc = '<script>parent.postMessage({type:"SYNC_EMBED_HELLO",nonce:"w2"},"*");<\/script>';
+            var base = { getIframe: function () { return ifr; } };
+            ytPlayers[cid] = new Proxy(base, { get: function (t, k) { return (k in t) ? t[k] : function () { return 0; }; } });
+            var otherIds = activeCardIds.filter(function (id) { return id !== cid; });
+            var otherText = function () { return otherIds.map(function (id) { return id + '=' + (localStorage.getItem('sync_url_' + id) || ''); }).join(' | '); };
+            var otherBefore = otherText();
+            var urlBefore = localStorage.getItem('sync_url_' + cid);
+            document.getElementById('playerContainer_' + cid).appendChild(ifr);
+            await waitFor(function () { return seen; }, 3000, 50);
+            await wait(50);
+            /* 🔴 positive control: 子の postMessage の event.source が iframe の contentWindow として届く */
+            pc('🔴 偽の embed からの postMessage で event.source ＝ iframe の contentWindow', function () {
+                return (seen && seen.source === ifr.contentWindow) ? ('一致 / origin=' + seen.origin) : false;
+            });
+            expect('🔴 オリジン違い（www.youtube.com 以外）は捨てる', lastEmbedEvent && lastEmbedEvent.rejected, 'origin');
+            expect('捨てたとき枠の保存URLは変わらない', localStorage.getItem('sync_url_' + cid), urlBefore);
+
+            /* 動画IDの形でないものは読み込まない */
+            handleEmbedMessage({ type: 'SYNC_EMBED_OPEN', videoId: '../x', embedHref: '' }, ifr.contentWindow, 'https://www.youtube.com');
+            expect('videoId の形でないものは読み込まない', localStorage.getItem('sync_url_' + cid), urlBefore);
+            /* 送り主が分からないものは読み込まない */
+            handleEmbedMessage({ type: 'SYNC_EMBED_OPEN', videoId: 'zzzzzzzzzzz', embedHref: 'https://www.youtube.com/embed/qqqqqqqqqqq' }, null, 'https://www.youtube.com');
+            expect('送り主の枠が分からないときは何もしない（how）', lastEmbedEvent && lastEmbedEvent.how, 'none');
+            expect('送り主の枠が分からないときは何もしない（保存URL）', localStorage.getItem('sync_url_' + cid), urlBefore);
+
+            /* 本番: 送り主の枠に VID_LIGHT が入る */
+            var vid = vidOfUrl(VID_LIGHT);
+            handleEmbedMessage({ type: 'SYNC_EMBED_OPEN', videoId: vid, list: null, title: 'dbg W2', embedHref: 'https://www.youtube.com/embed/AAAAAAAAAAA' },
+                ifr.contentWindow, 'https://www.youtube.com');
+            expect('🔴 event.source で送り主の枠に決まる', lastEmbedEvent && (lastEmbedEvent.how + '→' + lastEmbedEvent.cardId), 'source→' + cid);
+            expect('🔴 その枠の保存URLが新しい動画になる', vidOfUrl(localStorage.getItem('sync_url_' + cid)), vid);
+            var otherAfter = otherText();
+            expect('🔴 他の枠の保存URLは変わらない', otherAfter === otherBefore ? '不変' : otherAfter, '不変');
+            note('他の枠の保存URL（枠ID基準）', otherBefore || '(他の枠なし)');
+            var hist = [];
+            try { hist = JSON.parse(localStorage.getItem('sync_video_history') || '[]'); } catch (e) { }
+            expect('履歴の先頭に見出し付きで残る', hist[0] ? hist[0].title : '(なし)', 'dbg W2');
+            var real = await waitFor(function () {
+                var f = ytIframeOf(cid);
+                return (f && f !== ifr && /youtube\.com\/embed\//.test(f.src || '')) ? f.src : null;
+            }, 8000, 200);
+            expect('枠に本物の YouTube が作り直された（iframe が embed/' + vid + '）', real.ok && real.value.indexOf('/embed/' + vid) >= 0, true);
+            await wait(3000);
+            var st = null;
+            try { st = ytPlayers[cid].getPlayerState(); } catch (e) { st = '(読めない)'; }
+            expect('🔴 自動では再生しない（3秒後に playing(1) でない）', st === 1 ? 'playing' : 'not-playing', 'not-playing');
+            note('3秒後の playerState', String(st));
+        } finally {
+            if (listener) window.removeEventListener('message', listener);
+            try { if (histRaw === null) localStorage.removeItem('sync_video_history'); else localStorage.setItem('sync_video_history', histRaw); } catch (e) { }
+            try { if (cid && typeof clearCard === 'function') await clearCard(cid); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・履歴・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -6958,6 +7117,9 @@
         { id: 'D-S2', name: '★再読み込みしても変えた枠の比が残る', run: testS2, manual: true },
         /* ★v1.13.2: 枠数と履歴を変えるので manual。 */
         { id: 'D-Z2', name: '★ローカル動画の履歴を押すと選択画面が開く', run: testZ2, manual: true },
+        /* ★v1.16.0: v2.9.0。YouTube の枠とアドオン 2.9.0 が要る・枠数を変えるので manual。 */
+        { id: 'D-W1', name: '★枠の中の YouTube でアドオンが動き、返事が送り主の枠に結び付く', run: testW1, manual: true },
+        { id: 'D-W2', name: '★「その他の動画」を送り主の枠にだけ読み込む（オリジン・自動再生しない）', run: testW2, manual: true },
         /* ★v1.14.0: v2.8.12。D-T1 は上部メニューを畳むので manual。D-T2 は読むだけ。 */
         { id: 'D-T1', name: '★上部メニューを畳む・上端で出る（レイアウトは動かない）・📌 で戻す', run: testT1, manual: true },
         { id: 'D-T2', name: '上部メニューの部品が今の窓幅で重ならずバーに収まる', run: testT2, manual: true },
