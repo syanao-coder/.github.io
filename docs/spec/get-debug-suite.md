@@ -1,6 +1,6 @@
 ---
 name: get-debug-suite
-description: "説明: 自動デバッグ基盤の仕様を取得します。`debug_suite.js`（現行 v1.15.0 ─ 有効化は localStorage の sync_debug、UIは動的生成、共通ライブラリ wait / waitFor / waitRectSettled / sample / hasAdvanced / breakdownOf / rect / overlap / clickReal / expect / pc / note / ask、再読み込みをまたぐ記録、報告書用のコピー、実装済みの判定 D-X / D-V / D-M / D-E / D-P / D-C / D-L / D-H / D-N / D-R 系、9-A節の D-G 解放の判定、9-B節の D-Y レイアウトの判定）と、テスト用紙の仕様（9節 ─ 統合テスト用紙 v3.0.0 / 手順書と回答欄を1枚のHTMLへ統合 / ファイル名は test_ で始める / 用紙が機械で行う3つの照合 / 1項目に実行ボタンを1つしか置けない構造）を含みます。🔴 2026-09-13 に 9-B-4節を新設しました（v2.8.6 での D-Y 拡張 ─ viewportOutside の追加で D-Y1/D-Y5/D-Y6 の判定数が変わり v2.8.5 とは比較できないこと、D-Y7〜D-Y9 の新設、ホバーは合成イベントで作れないので同じ宣言のクラスで再現すること、「直す前の指定をその場で再現すると壊れる」を PC に置けば原因の確定と実装を同じラウンドで行えること、一括を2回回すと前回のテストIDが残るが欠落ではないこと）。🔴 2026-10-03 に 9-B-10節を新設しました（v2.8.12 の D-T1 / D-T2 ─ 見えているかは当たり判定でなく矩形で測る、iframe を置いて測る、D-T 以外は畳んだ上部メニューを一時解除）。2026-10-02 に 9-B-9節を新設しました（v2.8.11 の D-S1 / D-S2 / D-Z2 ─ 合成のダブルクリックは座標の要素へ毎回送る、基準値はリセットの後に読む、再読み込みをまたぐテストは LS_RESUME の which で振り分け、D-Y / D-Z の間は保存した枠の比を止める）。同日に 9-B-8節を新設しました（v2.8.10 の D-Z1 ─ ダミーのファイルで本物の経路からローカル動画の枠を作る）。同日に 9-B-7節を新設しました（v2.8.9 の D-A1 / D-A2・トップメニュー6枚で D-M2 は 42遷移46判定・設置ガードの文言を Ctrl+Shift+R に）。同日に 9-B-6節を新設しました（v2.8.8 での D-V2 / D-U1 / D-U2 / D-Y13・🎯 この版の回帰ボタン VERSION_FOCUS・報告書用コピーに UA を自動記録・EXPECT_ADDON_REQUIRED）。同日に 9-B-5節を新設しました（v2.8.7 での D-Y10〜D-Y12 新設・moveBtnOf / pressMove・期待座標は cornerPlanOf が構成から計算・棚卸しで ask() 確認ボタンを削除し個別ボタン59本を畳んだこと）。9-C節は計測そのものの罠（測定完了の時点ではクリップボードへコピーできない。scrollHeight は中身が箱より小さいと箱の高さを返す。固定待ちではなく矩形の収束を待つ。自己診断は合否によらず実測値を残す）。9-B-3節には主判定を親要素基準に置いて画面外のはみ出しを見逃した失敗も記録しています。テストを組むとき、判定を足すとき、テスト用紙を作るときには必ず呼び出してください。 最終更新: 2026-10-02"
+description: "説明: 自動デバッグ基盤の仕様を取得します。`debug_suite.js`（現行 v1.16.0 ─ 有効化は localStorage の sync_debug、UIは動的生成、共通ライブラリ wait / waitFor / waitRectSettled / sample / hasAdvanced / breakdownOf / rect / overlap / clickReal / expect / pc / note / ask、再読み込みをまたぐ記録、報告書用のコピー、実装済みの判定 D-X / D-V / D-M / D-E / D-P / D-C / D-L / D-H / D-N / D-R 系、9-A節の D-G 解放の判定、9-B節の D-Y レイアウトの判定）と、テスト用紙の仕様（9節 ─ 統合テスト用紙 v3.0.0 / 手順書と回答欄を1枚のHTMLへ統合 / ファイル名は test_ で始める / 用紙が機械で行う3つの照合 / 1項目に実行ボタンを1つしか置けない構造）を含みます。🔴 2026-09-13 に 9-B-4節を新設しました（v2.8.6 での D-Y 拡張 ─ viewportOutside の追加で D-Y1/D-Y5/D-Y6 の判定数が変わり v2.8.5 とは比較できないこと、D-Y7〜D-Y9 の新設、ホバーは合成イベントで作れないので同じ宣言のクラスで再現すること、「直す前の指定をその場で再現すると壊れる」を PC に置けば原因の確定と実装を同じラウンドで行えること、一括を2回回すと前回のテストIDが残るが欠落ではないこと）。🔴 2026-10-03 に 9-B-10節を新設しました（v2.8.12 の D-T1 / D-T2 ─ 見えているかは当たり判定でなく矩形で測る、iframe を置いて測る、D-T 以外は畳んだ上部メニューを一時解除）。2026-10-02 に 9-B-9節を新設しました（v2.8.11 の D-S1 / D-S2 / D-Z2 ─ 合成のダブルクリックは座標の要素へ毎回送る、基準値はリセットの後に読む、再読み込みをまたぐテストは LS_RESUME の which で振り分け、D-Y / D-Z の間は保存した枠の比を止める）。同日に 9-B-8節を新設しました（v2.8.10 の D-Z1 ─ ダミーのファイルで本物の経路からローカル動画の枠を作る）。同日に 9-B-7節を新設しました（v2.8.9 の D-A1 / D-A2・トップメニュー6枚で D-M2 は 42遷移46判定・設置ガードの文言を Ctrl+Shift+R に）。同日に 9-B-6節を新設しました（v2.8.8 での D-V2 / D-U1 / D-U2 / D-Y13・🎯 この版の回帰ボタン VERSION_FOCUS・報告書用コピーに UA を自動記録・EXPECT_ADDON_REQUIRED）。同日に 9-B-5節を新設しました（v2.8.7 での D-Y10〜D-Y12 新設・moveBtnOf / pressMove・期待座標は cornerPlanOf が構成から計算・棚卸しで ask() 確認ボタンを削除し個別ボタン59本を畳んだこと）。9-C節は計測そのものの罠（測定完了の時点ではクリップボードへコピーできない。scrollHeight は中身が箱より小さいと箱の高さを返す。固定待ちではなく矩形の収束を待つ。自己診断は合否によらず実測値を残す）。9-B-3節には主判定を親要素基準に置いて画面外のはみ出しを見逃した失敗も記録しています。テストを組むとき、判定を足すとき、テスト用紙を作るときには必ず呼び出してください。 最終更新: 2026-10-02"
 ---
 
 # 自動デバッグ基盤 仕様書（`debug_suite.js` / 統合テスト用紙）
@@ -675,6 +675,19 @@ v2.8.2 の欠落は、**これがあれば提出前に気づけた。**
 - 判定の追加なし。`EXPECT_APP_VERSION` 2.8.13 / `EXPECT_ADDON_REQUIRED` **2.8.13** / `D-N3` **36** / `VERSION_FOCUS` = `D-V1` → `D-V2`。
 - `D-V2` は APP_VERSION と ADDON_REQUIRED_VERSION が同じ版だと「アドオン＝本体だが要求と違う」の判定が成り立たないので 2判定に減る（note に理由を出す）。
 - 🔴 **YouTube 上の content script（`content_youtube_scrape.js` など）は debug_suite から測れない**（10節）。**YouTube のページの DOM を模した HTML に content script を読ませ、`browser.runtime` を差し替えた検証台**で headless 確認し、結果は指示書と記録に残す（台はファイルとして残さない）。負の検証は旧版の content script を同じ台に読ませる。
+
+## 9-B-12. v2.9.0 の判定 ★v1.16.0
+
+| ID | 内容 | 判定 / PC | 実行 |
+| :--- | :--- | :--- | :--- |
+| `D-W1` | 全 YouTube 枠の embed に `SYNC_EMBED_PING` を送り（返事が無ければ1秒ごとに再送・10秒まで）、🔴 全枠から HELLO が返り、`event.source` だけで送り主の枠に決まる。YouTube の枠が無ければ `VID_LIGHT` を入れた枠を足して後で戻す | 2 / 2（PC: iframe の `src` が `youtube.com/embed/`・受け口を読める） | manual。「🎯」から |
+| `D-W2` | 足した枠に偽の embed（`srcdoc`）と偽のプレイヤー（`getIframe` を持つ Proxy）を置き、🔴 同じオリジンからの HELLO は捨てる・videoId の形でないもの / 送り主不明は読み込まない・`handleEmbedMessage` に `www.youtube.com` を渡すとその枠だけに入る・履歴に見出し・🔴 3秒後に playing でない | 11 / 3（🔴 PC: 偽 embed の `postMessage` で `event.source` ＝ `contentWindow`） | manual |
+
+- 🔴 **embed の中のクリックの横取りは debug_suite から届かない。** 偽の IFrame API と、本物の content script を `<head>` の先頭で読む偽の embed を route で差し替えた検証台で確かめた（9-B-11節の方針）。
+- 🔴 **`srcdoc` の iframe は「読み込み完了」を待ってから合図を送ると取りこぼす**（`readyState` は空の初期文書でも complete になる）。偽 embed には読み込まれた時点で自分から送らせ、リスナーは iframe を置く前に付ける。
+- 他の枠の保存URLは**枠ID基準**（`sync_url_<cardId>`）で比べる。位置基準（`sync_url_1`…）は `resaveUrlsBasedOnOrder` が書き直すので、変えた枠の位置のキーも変わる。
+- 負の検証: content script なし → `D-W1` **不合格 0/2**、A側がオリジンを見ず自動再生 → `D-W2` **不合格 9/11**。
+- 版数連動の固定値: `EXPECT_APP_VERSION` 2.9.0 / `EXPECT_ADDON_REQUIRED` 2.9.0 / `D-N3` **37** / `VERSION_FOCUS` = `D-V1` → `D-V2` → `D-W1` → `D-W2`。
 
 ## 9-C. 🔴 計測そのものの罠 ★2026-09-08（スパイク 7-A で実際に失った）
 
