@@ -1403,7 +1403,7 @@
         const APP_HISTORY = [
             { v: '2.8.12', d: '2026-10-02', t: [
                 '上部メニューのボタンと文字を小さくし、窓が狭いときは名前を省いて絵文字だけにするようにした',
-                '上部メニューを ▲ で畳めるようにした（上端にマウスを寄せるか ▼ のクリックで出す。📌 で固定に戻す）'] },
+                '上部メニューを ▲ で畳めるようにした（上端にマウスを寄せるか ▼ のクリックで出す。離れて約0.6秒で隠れる。📌 で固定に戻す）'] },
             { v: '2.8.11', d: '2026-10-02', t: [
                 '枠の境界線をドラッグして、枠の大きさを変えられるようにした（つまみのダブルクリックか、上部の ⊞ で均等に戻す）',
                 'ローカル動画の履歴を押すと、そのままファイルの選択画面が開くようにした'] },
@@ -5675,6 +5675,7 @@
         let topbarHideTimer = null;
         let topbarLastY = 9999;
         const TOPBAR_EDGE_PX = 16;
+        const TOPBAR_HIDE_MS = 600;   /* 離れてから隠すまで（2026-10-03 利用者要望: 0.5〜0.8秒） */
         /* debug_suite 用: 畳んでいてもテストの間だけ出した状態にする（保存値は変えない ─ 再読み込みをまたいでも利用者の設定が残る） */
         let topbarSuspended = false;
         function topbarIsCollapsed() { return topbarCollapsed && !topbarSuspended; }
@@ -5745,7 +5746,7 @@
                 const rr = bar ? bar.getBoundingClientRect() : null;
                 if (topbarPointerInBar || (rr && topbarLastY <= rr.bottom)) return;
                 /* メニューが開いている間は隠さず、閉じるまで見張る */
-                if (anyTopMenuOpen()) { scheduleTopbarHide(1000); return; }
+                if (anyTopMenuOpen()) { scheduleTopbarHide(TOPBAR_HIDE_MS); return; }
                 hideTopbar();
             }, ms);
         }
@@ -5756,7 +5757,7 @@
                 bar.addEventListener('mouseleave', () => {
                     topbarPointerInBar = false;
                     topbarLastY = 9999;   /* バーを出た。iframe の上に入ると以後 mousemove が来ないので位置を捨てる */
-                    if (topbarIsCollapsed() && topbarTrigger === 'hover') scheduleTopbarHide(1000);
+                    if (topbarIsCollapsed() && topbarTrigger === 'hover') scheduleTopbarHide(TOPBAR_HIDE_MS);
                 });
             }
             /* 🔴 マウスを速く上へ動かすと、上端の帯の中で mousemove が1回も来ないままブラウザのツールバーへ抜ける。
@@ -5767,16 +5768,16 @@
                 if (e.clientY > 40) return;
                 const hit = document.elementFromPoint(e.clientX, e.clientY);
                 if (hit && hit.tagName === 'IFRAME') return;
-                topbarLastY = 0; showTopbar(); scheduleTopbarHide(1500);
+                topbarLastY = 0; showTopbar(); scheduleTopbarHide(TOPBAR_HIDE_MS + 400);
             });
             document.addEventListener('mousemove', (e) => {
                 topbarLastY = e.clientY;
                 if (!topbarIsCollapsed() || topbarTrigger !== 'hover') return;
-                if (e.clientY <= TOPBAR_EDGE_PX) { showTopbar(); scheduleTopbarHide(1500); return; }
+                if (e.clientY <= TOPBAR_EDGE_PX) { showTopbar(); scheduleTopbarHide(TOPBAR_HIDE_MS + 400); return; }
                 if (!document.body.classList.contains('topbar-peek')) return;
                 const r = bar ? bar.getBoundingClientRect() : null;
                 if (r && e.clientY <= r.bottom) { clearTimeout(topbarHideTimer); return; }
-                scheduleTopbarHide(1000);
+                scheduleTopbarHide(TOPBAR_HIDE_MS);
             });
         }
         function setupHoverController() {
