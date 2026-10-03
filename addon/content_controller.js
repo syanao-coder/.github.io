@@ -57,7 +57,8 @@ if (document.getElementById('playersGrid')) {
       chrome.runtime.sendMessage({
         type: "FETCH_CHAT_STREAM",
         videoId: event.data.videoId,
-        requestId: event.data.requestId
+        requestId: event.data.requestId,
+        mode: event.data.mode   /* ★v2.10.0: 'top'（上位のチャット）/ それ以外は全件 */
       }).catch(() => {});
     }
 
@@ -134,6 +135,8 @@ if (document.getElementById('playersGrid')) {
           /* ★v2.8.0: 配信中という第3の状態。background.js と対で明示転送する。 */
           live: message.live,
           liveBy: message.liveBy,
+          /* ★v2.10.0: B側が実際に選んだ表示（'top' / 'all' / 'unknown'）。background.js と対で明示転送する。 */
+          view: message.view,
           livePolls: message.livePolls,
           reqs: message.reqs,
           elapsed: message.elapsed,
