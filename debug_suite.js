@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.17.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.17.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.10.0';
@@ -6176,9 +6176,15 @@
         var api = volApi();
         pc('本体の音量関数を読める（effectiveVolume / setCardVolume / changeMasterVolume）', function () { return api ? 'あり' : false; });
         if (!api) return;
+        /* ★v1.17.1: 枠が1つしかないと土俵が無く判定不能になった（2026-10-04 実機）。足して測り、後で戻す */
+        var startedA2 = cardCount();
+        if (sortedCardIds().length < 2) {
+            await setCardCount(2);
+            note('枠が1つしかなかったので一時的に2枠にした', cardCount() + '枠');
+        }
         var ids = sortedCardIds();
         pc('枠が2つ以上ある（差を作るため）', function () { return ids.length >= 2 ? ids.length + '枠' : false; });
-        if (ids.length < 2) return;
+        if (ids.length < 2) { await setCardCount(startedA2); return; }
         var a = ids[0], b = ids[1];
         var m0 = api.getMaster(), va0 = api.getCard(a), vb0 = api.getCard(b);
         var stored0 = null;
@@ -6223,6 +6229,10 @@
             try { if (stored0 === null) localStorage.removeItem('sync_card_volume'); else localStorage.setItem('sync_card_volume', stored0); } catch (e) { }
             try { loadCardVolumes(); ids.forEach(function (id) { applyCardVolume(id); }); } catch (e) { }
             note('後始末: マスター / 枠A / 枠B', api.getMaster() + ' / ' + api.getCard(a) + ' / ' + api.getCard(b));
+            if (cardCount() !== startedA2) {
+                try { await setCardCount(startedA2); } catch (e) { }
+                note('後始末: 枠数を戻した', cardCount() + '枠');
+            }
         }
         function cardVolume_restore(id, v) { try { api.setCard(id, v); } catch (e) { } }
     }
