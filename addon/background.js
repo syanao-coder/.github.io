@@ -679,6 +679,12 @@ function sendChatStreamEvent(p) {
       liveBy: p.liveBy,
       /* ★v2.10.0: 実際に選んだ表示。🔴 content_controller.js と対で書くこと。 */
       view: p.view,
+      /* ★v2.11.0: ライブの終わり方と自動復帰の記録。🔴 content_controller.js と対で書くこと。 */
+      endReason: p.endReason,
+      endBy: p.endBy,
+      liveRecovers: p.liveRecovers,
+      liveExits: p.liveExits,
+      recoverError: p.recoverError,
       livePolls: p.livePolls,
       reqs: p.reqs,
       elapsed: p.elapsed,

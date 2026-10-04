@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.17.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.18.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.10.0';
+    var EXPECT_APP_VERSION = '2.11.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.10.0';
+    var EXPECT_ADDON_REQUIRED = '2.11.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.10.0', ids: ['D-V1', 'D-V2', 'D-K1', 'D-K2'] };
+    var VERSION_FOCUS = { v: '2.11.0', ids: ['D-V1', 'D-V2', 'D-L8'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 38);
+        expect('配列の件数', hist ? hist.length : 0, 39);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7169,6 +7169,118 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.18.0 : v2.11.0 の判定（ライブ取得の自動復帰と終了理由）
+       ==================================================================== */
+    function chatHeadText(cid) {
+        var el = document.getElementById('chatHeadTitle_' + cid);
+        return el ? el.textContent : '';
+    }
+
+    /* --- D-L8: A側だけ。終了理由ごとの見出し（アドオンへは流さない） --- */
+    async function testL8() {
+        log('  [目的] ライブ取得の自動復帰の回数と終わり方（ENDED / RECOVERY_FAILED / MAX_REQUESTS / 旧アドオン）を見出しで出し分けること。');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var FAKE = 'dbgL8aaaaaa';
+        var origPost = window.postMessage;
+        var sent = [];
+        var cid = null;
+        try {
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            pc('A側の受け口（handleChatMeta / handleChatChunk / handleChatDone）を読める', function () {
+                return (typeof handleChatMeta === 'function' && typeof handleChatChunk === 'function' && typeof handleChatDone === 'function') ? 'あり' : false;
+            });
+            window.postMessage = function (msg) {
+                if (msg && (msg.type === 'CHAT_STREAM_REQUEST' || msg.type === 'CHAT_STREAM_CANCEL')) { sent.push(msg); return; }
+                return origPost.apply(window, arguments);
+            };
+            cardVideoKeys[cid] = FAKE;
+            if (typeof setChatMode === 'function') setChatMode(cid, 'all');
+            await openChatPane(cid);
+
+            /* 1回分の取得を流す。recs = 途中の復帰回数、done = 終わり方 */
+            async function runOnce(label, recs, doneFields) {
+                sent.length = 0;
+                reloadChat(cid);   // キャッシュを使わず取り直す
+                var req = await waitFor(function () {
+                    return sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; })[0] || null;
+                }, 3000, 50);
+                if (!req.ok) return null;
+                var rid = req.value.requestId;
+                handleChatMeta({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+                handleChatChunk({ requestId: rid, videoId: FAKE, seq: 0, comments: [{ t: 1000, n: 'u', m: 'a' }], emoji: {}, lastT: 1000, liveRecovers: 0 });
+                await wait(50);
+                var h0 = chatHeadText(cid);
+                handleChatChunk({ requestId: rid, videoId: FAKE, seq: 1, comments: [{ t: 2000, n: 'u', m: 'b' }], emoji: {}, lastT: 2000, liveRecovers: recs });
+                await wait(50);
+                var h1 = chatHeadText(cid);
+                var d = { requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', total: 2, complete: null, truncated: false, reqs: 3, livePolls: 3 };
+                Object.keys(doneFields).forEach(function (k) { d[k] = doneFields[k]; });
+                handleChatDone(d);
+                await wait(50);
+                var h2 = chatHeadText(cid);
+                note(label + ' の見出し（取得中 / 復帰後 / 終了後）', h0 + ' → ' + h1 + ' → ' + h2);
+                return { h0: h0, h1: h1, h2: h2 };
+            }
+
+            var a = await runOnce('ENDED', 2, { endReason: 'ENDED', endBy: 'isLiveNow', liveRecovers: 2, liveExits: { noNext: 2 } });
+            pc('取得要求を捕まえて応答を流せた（1回目）', function () { return a ? 'ok' : false; });
+            if (!a) return;
+            pc('🔴 取得中の見出しが「配信中」になる（土俵）', function () { return /🔴 配信中/.test(a.h0) ? a.h0 : false; });
+            expect('取得中（復帰0回）に「復帰」は出ない', /復帰/.test(a.h0) ? a.h0 : 'なし', 'なし');
+            expect('🔴 復帰したら「配信中・復帰2回」', /配信中・復帰2回/.test(a.h1) ? 'ok' : a.h1, 'ok');
+            expect('🔴 ENDED は「配信終了」（復帰回数つき）', /配信終了・復帰2回/.test(a.h2) ? 'ok' : a.h2, 'ok');
+            var st = (typeof chatStore !== 'undefined') ? chatStore[FAKE] : null;
+            expect('store に終了理由と出口の記録が残る', st ? (st.endReason + ' / ' + JSON.stringify(st.liveExits)) : '(無い)', 'ENDED / {"noNext":2}');
+
+            var b = await runOnce('RECOVERY_FAILED', 0, { endReason: 'RECOVERY_FAILED', liveRecovers: 0, liveExits: { error: 1 }, recoverError: 'HTTP 500' });
+            expect('🔴 RECOVERY_FAILED は「途切れました・🔄で再取得」（配信終了と書かない）', b && /途切れました/.test(b.h2) && !/配信終了/.test(b.h2) ? 'ok' : (b ? b.h2 : '(要求なし)'), 'ok');
+            var c = await runOnce('MAX_REQUESTS', 0, { endReason: 'MAX_REQUESTS', truncated: true });
+            expect('MAX_REQUESTS は「長時間のため打ち切り」', c && /打ち切り/.test(c.h2) ? 'ok' : (c ? c.h2 : '(要求なし)'), 'ok');
+            var o = await runOnce('旧アドオン（endReason なし）', 0, {});
+            expect('endReason が無い（旧アドオン）ときは従来どおり「配信終了」', o && /配信終了/.test(o.h2) ? 'ok' : (o ? o.h2 : '(要求なし)'), 'ok');
+        } finally {
+            window.postMessage = origPost;
+            try { if (typeof cancelChatRequest === 'function') cancelChatRequest(FAKE); } catch (e) { }
+            try { delete liveVideoIds[FAKE]; delete chatStore[FAKE]; delete chatState[FAKE]; } catch (e) { }
+            try { if (cid) delete cardVideoKeys[cid]; } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-L9: 実機。開いているライブ枠の取得状況を記録する（配信終了・復帰の観測） --- */
+    async function testL9() {
+        log('  [目的] ライブ枠の取得が止まっていないか、止まったなら終わり方（endReason）が付いているかを記録する。配信終了の前後に押す。');
+        var rows = [];
+        try {
+            activeCardIds.forEach(function (id) {
+                var key = (typeof getChatKey === 'function') ? getChatKey(id) : null;
+                var stv = key ? chatStore[key] : null;
+                if (stv && stv.live) rows.push({ id: id, key: key, st: stv, state: chatState[key] });
+            });
+        } catch (e) { }
+        pc('取得中または取得済みのライブ枠が1つ以上ある', function () {
+            return rows.length ? (rows.length + '枠: ' + rows.map(function (r) { return r.id; }).join(',')) : false;
+        });
+        if (!rows.length) return;
+        rows.forEach(function (r) {
+            var s = r.st;
+            note(r.id + '（' + r.key + '）', 'state=' + r.state + ' / コメント ' + s.comments.length + '件 / polls=' + (s.livePolls || 0)
+                + ' / 復帰=' + (s.liveRecovers || 0) + ' / 出口=' + JSON.stringify(s.liveExits || {}) + ' / endReason=' + (s.endReason || '(なし)')
+                + (s.recoverError ? ' / 最後のエラー=' + s.recoverError : ''));
+            var okRow = (r.state === 'streaming') || !!s.endReason;
+            expect('🔴 ' + r.id + ': 取得が続いている、または終わり方（endReason）が付いている', okRow ? 'ok' : ('state=' + r.state + ' / endReason なし'), 'ok');
+        });
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -7222,6 +7334,9 @@
         { id: 'D-L5', name: 'ライブの流し（到着順）', run: testL5, manual: true },
         { id: 'D-L6', name: '取得タブの維持と設定値の不変', run: testL6, manual: true },
         { id: 'D-L7', name: '長時間の継続（30分・記録のみ）', run: testL7, manual: true },
+        /* ★v1.18.0: v2.11.0（ライブ取得の自動復帰）。D-L8 は枠数を変える・D-L9 はライブ素材が要るので manual。 */
+        { id: 'D-L8', name: '★ライブの終わり方（ENDED / 途切れ / 打ち切り）と復帰回数を見出しで出し分ける', run: testL8, manual: true },
+        { id: 'D-L9', name: '★ライブ枠の取得状況（復帰・出口・終了理由）を記録する', run: testL9, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
