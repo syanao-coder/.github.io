@@ -1,6 +1,6 @@
 ---
 name: get-danmaku-spec
-description: "説明: アニメ同時視聴コントローラーの「ニコニコ風コメント流し」（動画の上へコメントを流すオーバーレイ）の実装仕様を取得します。1節は流し本体（★v2.7.0 ─ 描画は rAF で毎フレーム transform を書く方式、時刻源は再生位置（250ms tick を performance.now で補間）、間引きは先着優先で捨てる方式、確定した定数 FLOW（durationMs 4000 / maxOnscreen 40 / laneRatio 1.3 / gapPx 8 / maxLanes 0）、実測で覆った前提（9枠では rAF が36%速い・6.7件/秒でも要間引き0%）、レーンの選び方と作り直してはいけない罠、pointer-events の省略と chatCursor 共用の禁止、YouTube 全画面では出せない恒久制約、CPU の基準値）。2節は調整UI（★v2.8.2 で7項目すべてに ?マークを追加 ─ ★v2.7.1 ─ 全枠共通で localStorage へ保存する7項目 maxOnscreen / durationMs / fontPx / color / opacity / areaRatio / shadow、関数の分担、oninput で反映する決めごと、レーン数はレイヤー高で決まること、パネルの構造は /get-ui-spec 1節）。3節はライブ配信での流しの相違点（正本は /get-chat-feature-spec 1-6節）。🔴 2026-08-15 に /get-chat-feature-spec 8-10節・8-11節を分離して新設しました。コメント流し・レーン・調整UI・fps や CPU の負荷に関わる実装やデバッグ時には必ず呼び出してください。取得・キャッシュ・ライブ対応は /get-chat-feature-spec を参照。🔴 2026-09-06 に開発の現在地とスキル管理の規約が /get-mgmt-guide へ分離され、本スキルの参照を張り替えました（スキルは7本）。 最終更新: 2026-09-06"
+description: "ニコニコ風コメント流し（描画方式・レーン・FLOW 定数・負荷の基準値）と調整UI・ライブでの相違点。流しを触るときに読む。"
 ---
 
 # ニコニコ風コメント流し 仕様書（`controller.html`）
