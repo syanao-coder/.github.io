@@ -101,6 +101,17 @@
     LIVE_POLL_MIN_MS: 1000,   // timeoutMs が異常に小さい／無いときの下限
     LIVE_POLL_MAX_MS: 30000,  // 同上の上限（実測は 10,000）
     LIVE_POLL_DEFAULT_MS: 5000,
+    /* ★v2.11.0 ライブの自動復帰。
+       出口（continuation が返らない・応答の形が違う・回線エラー）に来たら、
+       watch ページを取り直して「まだ配信中か」を確かめ、配信中なら continuation を取り直す。
+       待ちは BASE から倍々（上限 MAX_WAIT）。正常な応答が1回来たら連続回数を0に戻す。
+       連続 LIVE_RECOVER_MAX 回で諦める（5+10+20+40+60×4 ≒ 5分）。 */
+    LIVE_RECOVER_BASE_MS: 5000,
+    LIVE_RECOVER_MAX_WAIT_MS: 60000,
+    LIVE_RECOVER_MAX: 8,
+    /* ★v2.11.0 ライブの暴走止め。アーカイブの MAX_REQUESTS（4000回）は10秒間隔だと約11時間で
+       打ち切りになり、長時間配信で「配信終了」に見えていた（11節の注記 出口③）。≒55時間。 */
+    LIVE_MAX_REQUESTS: 20000,
     COMPLETE_TOLERANCE_MS: 60000, // 動画長との照合の許容差
     RETRY: 3,                // 1 リクエストあたりの再試行回数
     PING_INTERVAL_MS: 5000,   // A 側の watchdog を維持する心拍
@@ -379,6 +390,26 @@
     return out;
   }
 
+  /* ★v2.11.0: ライブの出口で watch ページを取り直す。
+     戻り値 { ended:true, by } … 配信中ではなくなった（本当の終了）
+            { ok:true, cont, cfg } … 配信中。取り直した continuation で続ける
+            { ok:false, why } … 取り直せなかった（待って再試行する） */
+  async function recoverLive(job) {
+    const res = await fetch('/watch?v=' + encodeURIComponent(job.videoId), { credentials: 'include' });
+    if (!res.ok) return { ok: false, why: 'HTTP ' + res.status };
+    const html = await res.text();
+    const lv = detectLiveNow(findPlayerResponse(html));
+    if (!lv.live) return { ended: true, by: lv.by };
+    let lcr = null;
+    try {
+      lcr = findInitialData(html).contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer;
+    } catch (e) { lcr = null; }
+    if (!lcr) return { ok: false, why: 'NO_LIVE_CHAT_RENDERER' };
+    const cont = pickReloadContinuation(lcr);
+    if (!cont) return { ok: false, why: 'NO_CONTINUATION' };
+    return { ok: true, cont: cont, cfg: cfgFromPage() || cfgFromHtml(html) };
+  }
+
   /* 配信開始の実時刻(ms)。ライブのコメント時刻をここからの経過に直すために使う。 */
   function liveStartMsOf(pr) {
     try {
@@ -622,18 +653,59 @@
       post({
         ev: 'chunk', requestId: job.requestId, videoId: job.videoId,
         seq: job.seq++, comments: buf.comments, emoji: buf.emoji, lastT: job.lastT,
-        view: job.view   /* ★v2.10.0 */
+        view: job.view,   /* ★v2.10.0 */
+        liveRecovers: job.live ? job.liveRecovers : undefined   /* ★v2.11.0 */
       });
       buf = { comments: [], emoji: {} };
       bufReqs = 0;
       lastFlush = performance.now();
     };
 
+    /* ★v2.11.0: ライブの出口。'continue' なら取り直した cont で続ける、'stop' なら終える。
+       🔴 アーカイブでは呼ばない（終端が正常な終わり方なので）。 */
+    let streak = 0;
+    const liveExit = async function (kind, detail) {
+      job.liveExits[kind] = (job.liveExits[kind] || 0) + 1;
+      if (detail) job.recoverError = String(detail).slice(0, 200);
+      for (;;) {
+        if (job.cancelled) return 'stop';
+        streak++;
+        if (streak > CFG.LIVE_RECOVER_MAX) { job.endReason = 'RECOVERY_FAILED'; return 'stop'; }
+        const wait = Math.min(CFG.LIVE_RECOVER_MAX_WAIT_MS, CFG.LIVE_RECOVER_BASE_MS * Math.pow(2, streak - 1));
+        await sleep(wait);
+        if (job.cancelled) return 'stop';
+        let r;
+        try { r = await recoverLive(job); }
+        catch (e) { r = { ok: false, why: String(e && e.message ? e.message : e) }; }
+        if (r.ended) { job.endReason = 'ENDED'; job.endBy = r.by; return 'stop'; }
+        if (r.ok) {
+          cont = r.cont;
+          if (r.cfg) cfg = r.cfg;
+          switched = false;          // 取り直した continuation は「上位」側を指す。v2.10.0 の切替をもう一度通す
+          job.liveRecovers++;
+          return 'continue';
+        }
+        job.recoverError = String(r.why || '').slice(0, 200);
+      }
+    };
+
     while (cont) {
       if (job.cancelled) return;
-      if (reqs >= CFG.MAX_REQUESTS) { truncated = true; break; }
+      if (job.live) {
+        if (reqs >= CFG.LIVE_MAX_REQUESTS) { truncated = true; job.endReason = 'MAX_REQUESTS'; break; }
+      } else if (reqs >= CFG.MAX_REQUESTS) { truncated = true; break; }
 
-      const data = await postChat(cfg, cont, offsetMs, job.live);
+      let data;
+      if (job.live) {
+        /* ★v2.11.0: ライブでは回線エラーで取得全体を失敗にしない（出口④） */
+        try { data = await postChat(cfg, cont, offsetMs, true); }
+        catch (e) {
+          if ((await liveExit('error', e && e.message ? e.message : e)) === 'continue') continue;
+          break;
+        }
+      } else {
+        data = await postChat(cfg, cont, offsetMs, false);
+      }
 
       let lc = null;
       try { lc = data.continuationContents.liveChatContinuation; } catch (e) { lc = null; }
@@ -651,6 +723,13 @@
               ここを変えると全取得が壊れる。 */
         let mr = null;
         try { mr = data.contents.messageRenderer; } catch (e) { mr = null; }
+        /* ★v2.11.0: ライブの途中（2回目以降）は失敗にせず出口として扱う。
+           配信が終わった直後に返ることがあり、終わったかどうかは recoverLive が判定する。
+           1回目の messageRenderer は従来どおり CHAT_DISABLED（チャット無効の配信）。 */
+        if (job.live && (reqs > 0 || !mr)) {
+          if ((await liveExit(mr ? 'disabled' : 'noLc', mr ? textOf(mr.text) : '')) === 'continue') continue;
+          break;
+        }
         if (mr) {
           const notice = textOf(mr.text)
             || 'この配信ではチャットのリプレイが無効になっています';
@@ -758,7 +837,12 @@
            3 回続いたら打ち切る既存の式では 30 秒で取得が死ぬ。
            終わるのは「次の continuation が返らなくなったとき」＝配信終了だけ。
            ⚠️ offsetMs も進めない（ライブでは送っていない）。 */
-        if (!next) { cont = null; break; }
+        if (!next) {
+          /* ★v2.11.0: 出口②。従来はここで「配信終了」になっていた */
+          if ((await liveExit('noNext', '')) === 'continue') continue;
+          cont = null; break;
+        }
+        streak = 0;   // ★v2.11.0: 正常な応答が来たので連続回数を戻す
         let waitMs = (nx && typeof nx.timeoutMs === 'number') ? nx.timeoutMs : CFG.LIVE_POLL_DEFAULT_MS;
         if (!(waitMs > 0)) waitMs = CFG.LIVE_POLL_DEFAULT_MS;
         waitMs = Math.max(CFG.LIVE_POLL_MIN_MS, Math.min(CFG.LIVE_POLL_MAX_MS, waitMs));
@@ -817,6 +901,11 @@
       lastT: job.lastT, videoMs: job.videoMs, reqs: reqs,
       live: job.live, liveBy: job.liveBy, livePolls: job.livePolls || 0,
       view: job.view,   /* ★v2.10.0 */
+      /* ★v2.11.0: ライブの終わり方。ENDED（配信中でなくなった）/ RECOVERY_FAILED / MAX_REQUESTS。
+         アーカイブでは付けない（null）。 */
+      endReason: job.live ? (job.endReason || 'ENDED') : null,
+      endBy: job.endBy, liveRecovers: job.liveRecovers, liveExits: job.liveExits,
+      recoverError: job.recoverError,
       elapsed: Math.round(performance.now() - t0)
     });
   }
@@ -860,6 +949,8 @@
       cancelled: false, seq: 0, total: 0, lastT: 0, reqs: 0, videoMs: 0,
       /* ★v2.8.0 */
       live: false, liveBy: 'none', liveStartMs: 0, livePolls: 0, livePollMs: 0,
+      /* ★v2.11.0 自動復帰の記録 */
+      liveRecovers: 0, liveExits: {}, endReason: null, endBy: null, recoverError: null,
       seen: new Set(), emojiAll: {}
     };
     cancelIdleClose();

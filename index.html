@@ -819,12 +819,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.10.0';
+        const APP_VERSION = '2.11.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.10.0';
+        const ADDON_REQUIRED_VERSION = '2.11.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1488,6 +1488,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.11.0', d: '2026-10-04', t: [
+                'ライブ配信のチャット取得が途中で止まったとき、自動で取り直して続けるようにした（本当に配信が終わったときだけ「配信終了」と出す。🔴 アドオン 2.11.0 が必要）'] },
             { v: '2.10.0', d: '2026-10-03', t: [
                 'チャット欄の見出しのボタン（全 / 上位）で、枠ごとに「すべてのチャット」と「上位のチャット」を切り替えられるようにした（コメント流しも従う。🔴 アドオン 2.10.0 が必要）'] },
             { v: '2.9.0', d: '2026-10-03', t: [
@@ -3825,12 +3827,21 @@
                🔴 ⚠不完全 を出さない。complete は null（＝未確定）であって
                   「途中で失敗した」ではない。 */
             if (store.live) {
+                /* ★v2.11.0: 自動復帰した回数と、終わり方（endReason）を出す。
+                   🔴 RECOVERY_FAILED / MAX_REQUESTS は「配信終了」と書かない（実際は配信が続いている）。
+                   endReason が無い（旧アドオン）ときは従来どおり「配信終了」。 */
+                const rec = store.liveRecovers > 0 ? '・復帰' + store.liveRecovers + '回' : '';
+                const why = store.endReason;
                 if (chatState[videoId] === 'streaming') {
-                    el.innerText = head + ' (' + n + ' / 🔴 配信中)';
+                    el.innerText = head + ' (' + n + ' / 🔴 配信中' + rec + ')';
+                } else if (why === 'RECOVERY_FAILED') {
+                    el.innerText = head + ' (' + n + ' / ⚠途切れました・🔄で再取得)';
+                } else if (why === 'MAX_REQUESTS') {
+                    el.innerText = head + ' (' + n + ' / ⚠長時間のため打ち切り・🔄で再取得)';
                 } else if (store.comments.length === 0) {
                     el.innerText = head + ' (配信中・まだコメントなし)';
                 } else {
-                    el.innerText = head + ' (' + n + ' / 配信終了)';
+                    el.innerText = head + ' (' + n + ' / 配信終了' + rec + ')';
                 }
                 return;
             }
@@ -4200,6 +4211,7 @@
             if (d.seq !== store.nextSeq) store.gap = true;
             store.nextSeq = d.seq + 1;
             if (d.view) store.view = d.view;   /* ★v2.10.0: B側が実際に選んだ表示 */
+            if (typeof d.liveRecovers === 'number') store.liveRecovers = d.liveRecovers;   /* ★v2.11.0 */
 
             if (d.emoji) {
                 for (const k of Object.keys(d.emoji)) store.emoji[k] = d.emoji[k];
@@ -4245,6 +4257,12 @@
                 if (d.live === true) store.live = true;
                 if (d.liveBy) store.liveBy = d.liveBy;          /* ★v2.8.1 */
                 if (d.view) store.view = d.view;                /* ★v2.10.0 */
+                /* ★v2.11.0: ライブの終わり方と自動復帰の記録（旧アドオンでは undefined） */
+                if (d.endReason) store.endReason = d.endReason;
+                if (d.endBy) store.endBy = d.endBy;
+                if (typeof d.liveRecovers === 'number') store.liveRecovers = d.liveRecovers;
+                if (d.liveExits) store.liveExits = d.liveExits;
+                if (d.recoverError) store.recoverError = d.recoverError;
                 if (d.livePolls !== undefined) store.livePolls = d.livePolls;
                 store.complete = (d.complete !== false);
                 store.truncated = !!d.truncated;

@@ -137,6 +137,12 @@ if (document.getElementById('playersGrid')) {
           liveBy: message.liveBy,
           /* ★v2.10.0: B側が実際に選んだ表示（'top' / 'all' / 'unknown'）。background.js と対で明示転送する。 */
           view: message.view,
+          /* ★v2.11.0: ライブの終わり方と自動復帰の記録。background.js と対で明示転送する。 */
+          endReason: message.endReason,
+          endBy: message.endBy,
+          liveRecovers: message.liveRecovers,
+          liveExits: message.liveExits,
+          recoverError: message.recoverError,
           livePolls: message.livePolls,
           reqs: message.reqs,
           elapsed: message.elapsed,
