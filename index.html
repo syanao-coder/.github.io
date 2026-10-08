@@ -3833,8 +3833,10 @@
                 const rec = store.liveRecovers > 0 ? '・復帰' + store.liveRecovers + '回' : '';
                 const why = store.endReason;
                 if (chatState[videoId] === 'streaming') {
-                    el.innerText = head + ' (' + n + ' / 🔴 配信中' + rec + ')';
-                } else if (why === 'RECOVERY_FAILED') {
+                    /* ★v2.11.0 再測: 心拍で「復帰を試みている最中」が届いたら、そう出す */
+                    const st = (store.livePhase === 'recover') ? '🔴 再接続中' : '🔴 配信中';
+                    el.innerText = head + ' (' + n + ' / ' + st + rec + ')';
+                } else if (why === 'RECOVERY_FAILED' || why === 'STALLED') {
                     el.innerText = head + ' (' + n + ' / ⚠途切れました・🔄で再取得)';
                 } else if (why === 'MAX_REQUESTS') {
                     el.innerText = head + ' (' + n + ' / ⚠長時間のため打ち切り・🔄で再取得)';
@@ -4302,6 +4304,9 @@
             /* ★v2.6.2: 退路（ヘルパー経路）は撤去した。ここが終点になる。
                自動で別経路へ逃げない代わりに、原因の切り分け先を必ず添える。 */
             chatError[videoId] = error || 'コメントを取得できませんでした';
+            /* ★v2.11.0 再測: ライブの取得が途中で落ちた（見張りの発火・ok:false）のを「配信終了」と出さない。
+               endReason が無いと見出しは旧アドオン扱いの「配信終了」になるため、A側の理由 STALLED を置く。 */
+            if (store && store.live) store.endReason = 'STALLED';
             /* 途中まで取れているなら、そこまでを使えるようにして終わる。 */
             chatState[videoId] = gotSomething ? 'ready' : 'error';
             if (gotSomething && store) store.complete = false;
@@ -4315,6 +4320,24 @@
             for (const e of all) {
                 if (!e || chatPending[e.requestId] === undefined) continue;
                 armChatWatchdog(e.requestId, CHAT_STALL_TIMEOUT_MS);
+                /* ★v2.11.0 再測: ライブは取得中の様子を心拍で受ける（旧アドオンでは e.live が無い） */
+                if (e.live === true) {
+                    const vid = chatPending[e.requestId];
+                    const store = chatStore[vid];
+                    if (!store) continue;
+                    const was = store.livePhase + '/' + store.liveRecovers;
+                    store.livePolls = e.livePolls;
+                    store.liveRecovers = e.liveRecovers;
+                    store.liveExits = e.liveExits;
+                    store.liveChecks = e.liveChecks;
+                    store.lastCheck = e.lastCheck;
+                    store.livePhase = e.livePhase;
+                    store.lastOkAgoMs = e.lastOkAgoMs;
+                    store.lastCommentAgoMs = e.lastCommentAgoMs;
+                    store.recoverError = e.recoverError;
+                    store.livePingAt = Date.now();
+                    if (was !== store.livePhase + '/' + store.liveRecovers) updateChatHeadForVideo(vid);
+                }
             }
             for (const e of (d.waiting || [])) {
                 const videoId = e && chatPending[e.requestId];

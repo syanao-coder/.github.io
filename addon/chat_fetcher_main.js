@@ -112,6 +112,15 @@
     /* ★v2.11.0 ライブの暴走止め。アーカイブの MAX_REQUESTS（4000回）は10秒間隔だと約11時間で
        打ち切りになり、長時間配信で「配信終了」に見えていた（11節の注記 出口③）。≒55時間。 */
     LIVE_MAX_REQUESTS: 20000,
+    /* ★v2.11.0 再測（2026-10-08）: 実機で配信が終わったあとも continuation が返り続け、
+       出口に一度も来ないまま「配信中」で止まらなかった（R4）。
+       正常な応答が続いていても LIVE_CHECK_INTERVAL_MS ごとに watch を見て、配信中でなければ ENDED で終える。 */
+    LIVE_CHECK_INTERVAL_MS: 120000,
+    /* ★v2.11.0 再測: ライブの1回の要求（watch の取り直しを含む）の上限。
+       応答が返らないまま固まると、心拍だけは出続けるので A側の見張りも働かず「配信中」のまま止まる。
+       超えたら回線エラーと同じ扱い（再試行 → 出口 → 復帰）。 */
+    LIVE_FETCH_TIMEOUT_MS: 20000,
+    LIVE_WATCH_TIMEOUT_MS: 30000,
     COMPLETE_TOLERANCE_MS: 60000, // 動画長との照合の許容差
     RETRY: 3,                // 1 リクエストあたりの再試行回数
     PING_INTERVAL_MS: 5000,   // A 側の watchdog を維持する心拍
@@ -395,10 +404,14 @@
             { ok:true, cont, cfg } … 配信中。取り直した continuation で続ける
             { ok:false, why } … 取り直せなかった（待って再試行する） */
   async function recoverLive(job) {
-    const res = await fetch('/watch?v=' + encodeURIComponent(job.videoId), { credentials: 'include' });
-    if (!res.ok) return { ok: false, why: 'HTTP ' + res.status };
-    const html = await res.text();
+    const r0 = await fetchTimed('/watch?v=' + encodeURIComponent(job.videoId),
+      { credentials: 'include' }, CFG.LIVE_WATCH_TIMEOUT_MS, 'text');
+    if (!r0.res.ok) return { ok: false, why: 'HTTP ' + r0.res.status };
+    const html = r0.body;
     const lv = detectLiveNow(findPlayerResponse(html));
+    /* 🔴 再測: 判定の材料が無い（playerResponse が読めない・同意画面など）ときは「終了」にしない。
+       終了は「配信中ではない」と書いてあるときだけ。 */
+    if (lv.by === 'none') return { ok: false, why: 'NO_PLAYER_RESPONSE' };
     if (!lv.live) return { ended: true, by: lv.by };
     let lcr = null;
     try {
@@ -517,6 +530,27 @@
      ============================================================== */
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+  /* ★v2.11.0 再測: 本文の読み出しまで含めて ms で打ち切る fetch。
+     戻り値 { res, body }（res.ok でなければ body は null）。打ち切ったら 'TIMEOUT …' を投げる。
+     🔴 ライブ経路だけで使う。アーカイブの取得は変えない。 */
+  async function fetchTimed(url, opts, ms, read) {
+    const ac = (typeof AbortController === 'function') ? new AbortController() : null;
+    const timer = ac ? setTimeout(function () { ac.abort(); }, ms) : null;
+    try {
+      const o = Object.assign({}, opts);
+      if (ac) o.signal = ac.signal;
+      const res = await fetch(url, o);
+      if (!res.ok) return { res: res, body: null };
+      const body = (read === 'json') ? await res.json() : await res.text();
+      return { res: res, body: body };
+    } catch (e) {
+      if (ac && ac.signal.aborted) throw new Error('TIMEOUT ' + ms + 'ms');
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   /* ★v2.8.0: isLive のときだけ端点と body を変える。
      🔴 認証ヘッダの作り方（v2.7.5 / SAPISIDHASH）には手を入れない。
         ライブでも同じヘッダが要る（メンバー限定配信のため）。
@@ -539,12 +573,24 @@
     let lastErr = null;
     for (let attempt = 0; attempt < CFG.RETRY; attempt++) {
       try {
-        const res = await fetch(url, {
+        const opts = {
           method: 'POST',
           credentials: 'include',
           headers: headers,
           body: body
-        });
+        };
+        if (isLive) {
+          /* ★v2.11.0 再測: ライブだけ打ち切りを付ける（TIMEOUT は再試行の対象） */
+          const r = await fetchTimed(url, opts, CFG.LIVE_FETCH_TIMEOUT_MS, 'json');
+          if (r.res.ok) return r.body;
+          if (r.res.status === 429 || r.res.status >= 500) {
+            lastErr = new Error('HTTP ' + r.res.status);
+            await sleep(400 * (attempt + 1));
+            continue;
+          }
+          throw new Error('HTTP ' + r.res.status);
+        }
+        const res = await fetch(url, opts);
         if (res.ok) return await res.json();
         if (res.status === 429 || res.status >= 500) {
           lastErr = new Error('HTTP ' + res.status);
@@ -590,6 +636,7 @@
     job.live = live.live;
     job.liveBy = live.by;
     job.liveStartMs = live.live ? liveStartMsOf(prAll) : 0;
+    job.lastCheckAt = Date.now();   // ★v2.11.0 再測: 最初の watch を1回目の確認とみなす
 
     const initial = findInitialData(html);
     let lcr = null;
@@ -667,6 +714,7 @@
     const liveExit = async function (kind, detail) {
       job.liveExits[kind] = (job.liveExits[kind] || 0) + 1;
       if (detail) job.recoverError = String(detail).slice(0, 200);
+      job.livePhase = 'recover';   // ★再測: 心拍で A側へ「再接続中」を伝える
       for (;;) {
         if (job.cancelled) return 'stop';
         streak++;
@@ -683,6 +731,7 @@
           if (r.cfg) cfg = r.cfg;
           switched = false;          // 取り直した continuation は「上位」側を指す。v2.10.0 の切替をもう一度通す
           job.liveRecovers++;
+          job.livePhase = 'poll';
           return 'continue';
         }
         job.recoverError = String(r.why || '').slice(0, 200);
@@ -843,6 +892,20 @@
           cont = null; break;
         }
         streak = 0;   // ★v2.11.0: 正常な応答が来たので連続回数を戻す
+        job.lastOkAt = Date.now();
+        if (added > 0) job.lastCommentAt = job.lastOkAt;
+        /* ★v2.11.0 再測: 応答が正常でも、一定間隔で watch を見て配信が終わっていないか確かめる。
+           🔴 取り直せなかった（回線・材料なし）ときは何もしない。終了は「配信中ではない」と読めたときだけ。 */
+        if (job.lastOkAt - job.lastCheckAt >= CFG.LIVE_CHECK_INTERVAL_MS) {
+          job.lastCheckAt = job.lastOkAt;
+          job.liveChecks++;
+          let ck;
+          try { ck = await recoverLive(job); }
+          catch (e) { ck = { ok: false, why: String(e && e.message ? e.message : e) }; }
+          if (job.cancelled) return;
+          job.lastCheck = ck.ended ? 'ended' : (ck.ok ? 'live' : String(ck.why || '').slice(0, 80));
+          if (ck.ended) { job.endReason = 'ENDED'; job.endBy = ck.by; cont = null; break; }
+        }
         let waitMs = (nx && typeof nx.timeoutMs === 'number') ? nx.timeoutMs : CFG.LIVE_POLL_DEFAULT_MS;
         if (!(waitMs > 0)) waitMs = CFG.LIVE_POLL_DEFAULT_MS;
         waitMs = Math.max(CFG.LIVE_POLL_MIN_MS, Math.min(CFG.LIVE_POLL_MAX_MS, waitMs));
@@ -951,6 +1014,8 @@
       live: false, liveBy: 'none', liveStartMs: 0, livePolls: 0, livePollMs: 0,
       /* ★v2.11.0 自動復帰の記録 */
       liveRecovers: 0, liveExits: {}, endReason: null, endBy: null, recoverError: null,
+      /* ★v2.11.0 再測: 定期確認と心拍で送る観測値 */
+      liveChecks: 0, lastCheck: null, lastCheckAt: 0, lastOkAt: 0, lastCommentAt: 0, livePhase: 'poll',
       seen: new Set(), emojiAll: {}
     };
     cancelIdleClose();
@@ -993,6 +1058,21 @@
       const active = [], waiting = [];
       jobs.forEach(function (j) {
         const e = { requestId: j.requestId, videoId: j.videoId, total: j.total, lastT: j.lastT };
+        /* ★v2.11.0 再測: ライブは取得中の様子を心拍で送る（done まで待つと配信中に何も見えない）。
+           🔴 background.js / content_controller.js は active / waiting を丸ごと転送するので、中継の変更は要らない。 */
+        if (j.live) {
+          const now = Date.now();
+          e.live = true;
+          e.livePolls = j.livePolls || 0;
+          e.liveRecovers = j.liveRecovers;
+          e.liveExits = j.liveExits;
+          e.liveChecks = j.liveChecks;
+          e.lastCheck = j.lastCheck;
+          e.livePhase = j.livePhase;
+          e.lastOkAgoMs = j.lastOkAt ? now - j.lastOkAt : null;
+          e.lastCommentAgoMs = j.lastCommentAt ? now - j.lastCommentAt : null;
+          e.recoverError = j.recoverError;
+        }
         if (queue.indexOf(j) >= 0) { e.pos = queue.indexOf(j) + 1; waiting.push(e); }
         else active.push(e);
       });
