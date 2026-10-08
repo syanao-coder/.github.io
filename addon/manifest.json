@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sync Player Controller",
-  "version": "2.11.0",
+  "version": "2.11.1",
   "description": "ローカルのコントローラーから動画操作を同期制御し、YouTube一覧の追加中継と、アーカイブチャットの取得（InnerTube直接取得）を行います。",
   "permissions": [
     "tabs",
