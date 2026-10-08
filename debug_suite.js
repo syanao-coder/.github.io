@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.18.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.18.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.11.0';
@@ -7245,6 +7245,41 @@
             expect('MAX_REQUESTS は「長時間のため打ち切り」', c && /打ち切り/.test(c.h2) ? 'ok' : (c ? c.h2 : '(要求なし)'), 'ok');
             var o = await runOnce('旧アドオン（endReason なし）', 0, {});
             expect('endReason が無い（旧アドオン）ときは従来どおり「配信終了」', o && /配信終了/.test(o.h2) ? 'ok' : (o ? o.h2 : '(要求なし)'), 'ok');
+
+            /* ★v1.18.1（v2.11.0 再測）: 心拍で届く「再接続中」と、取得が落ちたとき（見張りの発火）の見出し */
+            sent.length = 0;
+            reloadChat(cid);
+            var rq = await waitFor(function () {
+                return sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; })[0] || null;
+            }, 3000, 50);
+            pc('取得要求を捕まえて応答を流せた（心拍・見張り）', function () {
+                return (rq.ok && typeof handleChatPing === 'function' && typeof failChat === 'function') ? 'ok' : false;
+            });
+            if (!rq.ok) return;
+            var rid2 = rq.value.requestId;
+            handleChatMeta({ requestId: rid2, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            handleChatChunk({ requestId: rid2, videoId: FAKE, seq: 0, comments: [{ t: 1000, n: 'u', m: 'a' }], emoji: {}, lastT: 1000, liveRecovers: 0 });
+            await wait(50);
+            var ping = function (phase, recs) {
+                handleChatPing({ active: [{ requestId: rid2, videoId: FAKE, total: 1, lastT: 1000, live: true, livePolls: 5, liveRecovers: recs,
+                    liveExits: recs ? { error: recs } : {}, liveChecks: 1, lastCheck: 'live', livePhase: phase, lastOkAgoMs: 3000, lastCommentAgoMs: 3000 }], waiting: [] });
+            };
+            ping('recover', 0);
+            await wait(50);
+            var hp1 = chatHeadText(cid);
+            ping('poll', 1);
+            await wait(50);
+            var hp2 = chatHeadText(cid);
+            var st2 = chatStore[FAKE];
+            note('心拍の見出し（再接続中 / 復帰後）', hp1 + ' → ' + hp2);
+            expect('🔴 心拍で「再接続中」が届いたら見出しが「再接続中」になる', /再接続中/.test(hp1) ? 'ok' : hp1, 'ok');
+            expect('復帰したら「配信中・復帰1回」に戻る', /配信中・復帰1回/.test(hp2) ? 'ok' : hp2, 'ok');
+            expect('心拍の観測値が store に入る（polls / checks / lastOkAgoMs）', st2 ? (st2.livePolls + ' / ' + st2.liveChecks + ' / ' + st2.lastOkAgoMs) : '(無い)', '5 / 1 / 3000');
+            failChat(rid2, FAKE, '取得が 45 秒間停止しました。');
+            await wait(50);
+            var hf = chatHeadText(cid);
+            note('取得が落ちたとき（見張りの発火）の見出し', hf);
+            expect('🔴 ライブの取得が落ちたら「途切れました」（配信終了と書かない）', /途切れました/.test(hf) && !/配信終了/.test(hf) ? 'ok' : hf, 'ok');
         } finally {
             window.postMessage = origPost;
             try { if (typeof cancelChatRequest === 'function') cancelChatRequest(FAKE); } catch (e) { }
@@ -7259,6 +7294,7 @@
     /* --- D-L9: 実機。開いているライブ枠の取得状況を記録する（配信終了・復帰の観測） --- */
     async function testL9() {
         log('  [目的] ライブ枠の取得が止まっていないか、止まったなら終わり方（endReason）が付いているかを記録する。配信終了の前後に押す。');
+        log('  ★v1.18.1: 取得中の枠は「心拍が届いている・最後の成功が60秒以内（再接続中を除く）」で判定する。取得中であるだけでは合格にしない。');
         var rows = [];
         try {
             activeCardIds.forEach(function (id) {
@@ -7273,11 +7309,23 @@
         if (!rows.length) return;
         rows.forEach(function (r) {
             var s = r.st;
+            var pingAgo = s.livePingAt ? (Date.now() - s.livePingAt) : null;
             note(r.id + '（' + r.key + '）', 'state=' + r.state + ' / コメント ' + s.comments.length + '件 / polls=' + (s.livePolls || 0)
                 + ' / 復帰=' + (s.liveRecovers || 0) + ' / 出口=' + JSON.stringify(s.liveExits || {}) + ' / endReason=' + (s.endReason || '(なし)')
+                + ' / 確認=' + (s.liveChecks || 0) + '回（最後=' + (s.lastCheck || '-') + '）/ 段階=' + (s.livePhase || '-')
+                + ' / 最後の成功=' + (s.lastOkAgoMs == null ? '-' : Math.round(s.lastOkAgoMs / 1000) + '秒前')
+                + ' / 最後のコメント=' + (s.lastCommentAgoMs == null ? '-' : Math.round(s.lastCommentAgoMs / 1000) + '秒前')
+                + ' / 心拍=' + (pingAgo == null ? '(未受信)' : Math.round(pingAgo / 1000) + '秒前')
                 + (s.recoverError ? ' / 最後のエラー=' + s.recoverError : ''));
-            var okRow = (r.state === 'streaming') || !!s.endReason;
-            expect('🔴 ' + r.id + ': 取得が続いている、または終わり方（endReason）が付いている', okRow ? 'ok' : ('state=' + r.state + ' / endReason なし'), 'ok');
+            if (r.state === 'streaming') {
+                /* 🔴 v1.18.0 は「streaming なら合格」だったため、配信終了後も取得が「配信中」のまま止まらない不具合（R4）を合格にしていた */
+                expect('🔴 ' + r.id + ': 心拍で取得の様子が届いている（15秒以内。未受信＝アドオンが再読み込み前）',
+                    pingAgo == null ? '未受信' : (pingAgo <= 15000 ? 'ok' : Math.round(pingAgo / 1000) + '秒前'), 'ok');
+                expect('🔴 ' + r.id + ': 最後に取得が成功したのが60秒以内（再接続中なら可）',
+                    s.livePhase === 'recover' ? 'ok' : (s.lastOkAgoMs != null && s.lastOkAgoMs <= 60000 ? 'ok' : (s.lastOkAgoMs == null ? '(値なし)' : Math.round(s.lastOkAgoMs / 1000) + '秒前')), 'ok');
+            } else {
+                expect('🔴 ' + r.id + ': 終わり方（endReason）が付いている', s.endReason ? 'ok' : ('state=' + r.state + ' / endReason なし'), 'ok');
+            }
         });
     }
 
