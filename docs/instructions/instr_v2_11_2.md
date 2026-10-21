@@ -75,4 +75,18 @@
 
 - 🔴 **実機で未確認**: 本物の YouTube で `getVideoData().author` がチャンネル名を返すか（用紙 R3）。返さない場合はチャンネル名の段が出ないだけで、他は壊れない。
 - 用紙は v2.11.1 のライブの持ち越し（R5・R6）を同じ用紙に入れた（`test_v2_11_1.html` は削除）。
-- 既存の重複: `debug_suite.js` の `moveMouseTo` が2回宣言されている（以前から。後の宣言が勝つ）。今回の版では触らない。
+- 既存の重複: `debug_suite.js` の `moveMouseTo` が2回宣言されている（以前から。後の宣言が勝つ）。今回の版では触らない。→ **`debug_suite.js` v1.19.1 で解消**（7節）。
+
+## 7. 追記: `debug_suite.js` v1.19.1（基盤だけ・2026-10-21）
+
+本体（`index.html`）とアドオンは変えない。用紙の `expectSuite` / 基点を 1.19.1 にした（`defVersion` は据え置き＝下書きは残る）。
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 不具合 | `moveMouseTo` を同じ IIFE に2回宣言していた。前（D-U1 用・同期・x = 幅の1/2・try/catch あり）と後（v1.14.0 の D-T1 用・`async`・x = 幅の1/3）。巻き上げで後が勝つので、**D-U1 も以前から 1/3 で動いていた**。2026-10-21 に `testS1` が既存の D-S1 を黙って置き換えたのと同じ型 |
+| 呼び出し元 | D-U1（`testU1`）3か所・D-T1（`testT1`）10か所。本体の受け手はどちらも `document` の `mousemove` で **`clientY` しか見ない**（下端の一括コントローラー: `clientY > innerHeight - 80`／トップバー: `clientY <= TOPBAR_EDGE_PX`）。x は結果に効かない |
+| 対処 | 1本にまとめた: `moveMouseTo(y, x)`（同期・try/catch・x の既定は**実際に動いていた 1/3**）。D-U1 の節に置き、D-T1 の節には参照のコメントだけ残した。`await moveMouseTo(...)` はそのまま（同期関数を await しても挙動は同じ） |
+| 検査 | `node tests/check_dup_functions.js`（既定は `debug_suite.js`・重複があれば終了コード 1）。v1.19.0 に当てると `moveMouseTo` を検出（positive control）、v1.19.1 は `[]` |
+| headless（Chromium・file://） | 変更前・変更後とも `D-U1` 合格 6/6（PC 3/3）・`D-T1` 合格 28/28（PC 3/3）。⚠️ Playwright の実ポインタは既定で (0,0)＝トップバーの上にあり、そのままだと D-T1 が変更前から 20/28 で落ちる。実ポインタを画面の中ほどへ置いてから測る（「測定中はマウスを動かさない」の前提と同じ） |
+
+- 別件（触っていない）: 同じ検査を `index.html` に当てると `escapeHtmlAttr` が2回宣言されている（本文は置換の順が違うだけで結果は同じ＝実害なし）。本体を触る版で1本にまとめる。
