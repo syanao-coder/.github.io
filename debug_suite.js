@@ -39,7 +39,7 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.19.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.19.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
     var EXPECT_APP_VERSION = '2.11.2';
@@ -5924,9 +5924,15 @@
         var oc = document.getElementById('overlayController');
         return !!(oc && oc.classList.contains('active'));
     }
-    function moveMouseTo(y) {
+    /* 🔴 ★v1.19.1: v1.14.0 で D-T1 用に同名の async 版（x = 幅の1/3）を後ろへ宣言していた。
+       関数宣言は巻き上げで後の方が勝つので、D-U1 も以前から 1/3 で動いていた。1本にまとめ、x の既定は実際に動いていた 1/3 にした。
+       本体の mousemove の受け手（下端の一括コントローラー・上端のトップバー）はどちらも clientY しか見ないので、x は結果に効かない。
+       同名の宣言が2つあると片方が黙って消える（2026-10-21 の testS1 と同じ型）。足すときは名前を grep する。 */
+    function moveMouseTo(y, x) {
         try {
-            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: Math.round(window.innerWidth / 2), clientY: y }));
+            document.dispatchEvent(new MouseEvent('mousemove', {
+                bubbles: true, clientX: (x == null) ? Math.round(window.innerWidth / 3) : x, clientY: y
+            }));
         } catch (e) { }
     }
     async function setTrigger(v) {
@@ -6694,9 +6700,7 @@
         var r = rect(topBarEl());
         return !!(r && r.bottom > 2 && r.top > -2);
     }
-    async function moveMouseTo(y) {
-        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: Math.round(window.innerWidth / 3), clientY: y }));
-    }
+    /* moveMouseTo(y, x) は D-U1 の節で宣言（★v1.19.1 で1本にまとめた） */
     async function setTopbarTriggerUI(v) {
         var sel = document.getElementById('topbarTrigger');
         if (!sel) return false;
