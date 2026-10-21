@@ -184,6 +184,11 @@
         .vol-label { width: 170px; flex-shrink: 0; font-size: 0.82rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .vol-label .vol-no { color: #00ffcc; font-weight: bold; margin-right: 6px; }
         .vol-sub { display: block; font-size: 0.68rem; color: #888; overflow: hidden; text-overflow: ellipsis; }
+        /* ★v2.12.0: 音量メーター */
+        .vol-meter-row { display: flex; align-items: center; gap: 8px; margin: -2px 0 6px 178px; }
+        .vol-meter-track { flex: 1; height: 6px; background: #2a2a33; border-radius: 3px; overflow: hidden; min-width: 80px; }
+        .vol-meter-bar { height: 100%; width: 0; background: #00ffcc; transition: width 0.08s linear; }
+        .vol-meter-txt { width: 78px; flex-shrink: 0; font-size: 0.7rem; color: #9fe; font-family: monospace; text-align: right; }
         .vol-ch { display: block; font-size: 0.68rem; color: #b8b8c8; overflow: hidden; text-overflow: ellipsis; }   /* ★v2.11.2 */
         /* ★v2.11.2: マイリストの「▸ 再生位置」 */
         .sess-pos-btn { background: transparent; border: 1px solid #555; color: #ccc; font-size: 0.68rem; padding: 0 6px; margin-left: 6px; border-radius: 3px; cursor: pointer; }
@@ -635,6 +640,11 @@
                     <span class="vol-val" id="mixerMasterVolumeVal">50</span>
                 </div>
                 <div id="volumeRows"></div>
+                <!-- ★v2.12.0: 音量メーターのスイッチ -->
+                <div class="control-row" id="meterSwitchRow" style="margin-top:6px;">
+                    <label style="font-size:0.8rem;"><input type="checkbox" id="meterOnToggle" checked onchange="setMeterOn(this.checked)"> 🎚 音量メーター（枠の音を測る）</label>
+                    <span style="font-size:0.7rem; color:#888;">切っても、すでに測っている枠は読み直すまでそのまま</span>
+                </div>
                 <div class="control-row" style="margin-top:4px;">
                     <span style="font-size:0.72rem; color:#888;">実際の音量 ＝ マスター × 枠ごとの音量。行にマウスを乗せると対象の枠が光ります。dアニメ・Amazon の枠は対象外です。</span>
                 </div>
@@ -830,12 +840,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.11.2';
+        const APP_VERSION = '2.12.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.11.1';
+        const ADDON_REQUIRED_VERSION = '2.12.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1205,7 +1215,8 @@
                 }
             }
             /* ★v2.9.0: 枠の中の YouTube（アドオンの content_yt_embed.js）から直接届く */
-            if (event.data && (event.data.type === 'SYNC_EMBED_OPEN' || event.data.type === 'SYNC_EMBED_HELLO')) {
+            if (event.data && (event.data.type === 'SYNC_EMBED_OPEN' || event.data.type === 'SYNC_EMBED_HELLO'
+                    || event.data.type === 'SYNC_EMBED_LEVEL' || event.data.type === 'SYNC_EMBED_METER_BROKEN')) {   /* ★v2.12.0 */
                 handleEmbedMessage(event.data, event.source, event.origin);
             }
         });
@@ -1257,6 +1268,9 @@
                 return;
             }
             const found = findCardByEmbedSource(source, data.embedHref);
+            /* ★v2.12.0: 音量メーター。0.1秒ごとに届くので lastEmbedEvent（「その他の動画」の記録）を上書きしない。 */
+            if (data.type === 'SYNC_EMBED_LEVEL') { if (found.cardId) handleMeterLevel(found.cardId, data); return; }
+            if (data.type === 'SYNC_EMBED_METER_BROKEN') { if (found.cardId) handleMeterBroken(found.cardId, data); return; }
             lastEmbedEvent = { type: data.type, cardId: found.cardId, how: found.how, videoId: data.videoId || null,
                                nonce: data.nonce || null, version: data.version || null, at: Date.now() };
             if (data.type === 'SYNC_EMBED_HELLO') {
@@ -1289,6 +1303,137 @@
             ifr.contentWindow.postMessage({ type: 'SYNC_EMBED_PING', nonce: nonce }, 'https://www.youtube.com');
             return true;
         }
+
+        /* ------------------------------------------------------------
+           ★v2.12.0 音量メーター（音量パネルの中）
+           枠の中のアドオン（content_yt_embed.js）が動画の音を Web Audio に付け替えて測り、
+           SYNC_EMBED_LEVEL で 0.1秒ごとに送ってくる（パネルが開いている間だけ）。
+           🔴 付け替えは元に戻せない。アドオンは A側の SYNC_EMBED_METER { attach:true } が来るまで何もしない。
+           🔴 逃げ道: METER_FEATURE を false にすると A側は一切送らない（＝アドオン 2.11.1 と同じ動き）。
+           🔴 付け替えた枠の音の処理が止まって戻らないと BROKEN が届く → その枠を付け替えなしで読み直す。
+           ------------------------------------------------------------ */
+        const METER_FEATURE = true;
+        const METER_KEY = 'sync_meter_on';
+        const METER_AVG_MS = 3000;       // 数値は3秒のエネルギー平均
+        const METER_STALE_MS = 1500;     // これより古い報告は「—」
+        const METER_FLOOR_DB = -60;      // バーの左端
+        let meterLevels = {};            // cardId → { db, speechDb, state, why, at, latencyMs, volume, loud, hist }
+        let meterNoAttach = {};          // cardId → 付け替えをやめた動画のキー（同じ動画の間は付けない）
+        let meterReloadSeek = {};        // cardId → 読み直したあと移る位置（秒）
+        let meterBrokenLog = [];         // debug_suite 用
+        let meterSendLog = [];           // debug_suite 用（直近に送った指示）
+        let meterUiTimer = null;
+
+        function isMeterOn() {
+            try { return localStorage.getItem(METER_KEY) !== '0'; } catch (e) { return true; }
+        }
+        function setMeterOn(on) {
+            try { localStorage.setItem(METER_KEY, on ? '1' : '0'); } catch (e) { }
+            renderMeters();
+        }
+        function isVolumeMenuOpen() {
+            const p = document.getElementById('volumeMenu');
+            return !!(p && p.classList.contains('open'));
+        }
+        function meterIframeOf(cardId) {
+            const p = ytPlayers[cardId];
+            try { return (p && typeof p.getIframe === 'function') ? p.getIframe() : null; } catch (e) { return null; }
+        }
+        /* 1秒ごと: 全 YouTube 枠へ「付け替えてよい／報告して」を送る（後から読み込んだ枠もこれで拾う）。 */
+        function meterTick() {
+            if (!METER_FEATURE) return;
+            const report = isVolumeMenuOpen();
+            const on = isMeterOn();
+            meterSendLog = [];
+            activeCardIds.forEach(function (cid) {
+                const ifr = meterIframeOf(cid);
+                if (!ifr || !ifr.contentWindow) return;
+                const attach = on && meterNoAttach[cid] !== (cardVideoKeys[cid] || null);
+                if (!attach && !report) return;
+                try {
+                    ifr.contentWindow.postMessage({ type: 'SYNC_EMBED_METER', attach: attach, report: report }, 'https://www.youtube.com');
+                    meterSendLog.push({ cardId: cid, attach: attach, report: report });
+                } catch (e) { }
+            });
+        }
+        function handleMeterLevel(cardId, d) {
+            const now = Date.now();
+            const m = meterLevels[cardId] || (meterLevels[cardId] = { hist: [] });
+            m.db = (typeof d.db === 'number') ? d.db : null;
+            m.speechDb = (typeof d.speechDb === 'number') ? d.speechDb : null;
+            m.state = String(d.state || '');
+            m.why = String(d.why || '');
+            m.at = now;
+            m.latencyMs = (typeof d.latencyMs === 'number') ? d.latencyMs : null;
+            m.volume = (typeof d.volume === 'number') ? d.volume : null;
+            m.loud = (typeof d.perceptualLoudnessDb === 'number') ? d.perceptualLoudnessDb : null;
+            m.version = d.version || null;
+            if (m.state === 'running' && m.db !== null) m.hist.push({ t: now, p: Math.pow(10, m.db / 10) });
+            while (m.hist.length && now - m.hist[0].t > METER_AVG_MS) m.hist.shift();
+        }
+        function meterAvgDb(m) {
+            if (!m || !m.hist.length) return null;
+            let s = 0;
+            for (let i = 0; i < m.hist.length; i++) s += m.hist[i].p;
+            const v = s / m.hist.length;
+            return v > 0 ? 10 * Math.log10(v) : null;
+        }
+        /* 付け替えた枠の音の処理が止まって戻らない → 付け替えなしで読み直し、今の位置へ戻す。 */
+        function handleMeterBroken(cardId, d) {
+            meterNoAttach[cardId] = cardVideoKeys[cardId] || null;
+            let t = 0;
+            try { t = ytPlayers[cardId].getCurrentTime() || 0; } catch (e) { }
+            meterReloadSeek[cardId] = t;
+            meterBrokenLog.push({ cardId: cardId, at: Date.now(), sec: t, why: String(d && d.why || '') });
+            if (meterBrokenLog.length > 20) meterBrokenLog.shift();
+            loadSingleYT(cardId, true);
+        }
+        /* パネルの各行のメーターを書き直す（パネルが開いている間 0.1秒ごと）。 */
+        function renderMeters() {
+            const on = isMeterOn();
+            const sw = document.getElementById('meterOnToggle');
+            if (sw && sw.checked !== on) sw.checked = on;
+            getSortedCards().forEach(function (card) {
+                const cid = card.id;
+                const bar = document.getElementById('volMeterBar_' + cid);
+                const txt = document.getElementById('volMeterTxt_' + cid);
+                if (!bar || !txt) return;
+                const m = meterLevels[cid];
+                const fresh = m && (Date.now() - m.at) <= METER_STALE_MS;
+                let pct = 0, label = '—', tip = '';
+                if (!ytPlayers[cid]) { label = ''; }
+                else if (!fresh) { label = '—'; tip = '報告が届いていません（アドオン 2.12.0 が必要・再生すると測り始めます）'; }
+                else if (m.state === 'running' && m.db !== null) {
+                    pct = Math.max(0, Math.min(100, (m.db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100));
+                    const avg = meterAvgDb(m);
+                    label = avg === null ? '—' : ('平均 ' + Math.round(avg) + ' dB');
+                    tip = '今 ' + Math.round(m.db) + ' dB / 声の帯域 ' + (m.speechDb === null ? '-' : Math.round(m.speechDb)) + ' dB'
+                        + (m.latencyMs !== null ? ' / 遅れ ' + m.latencyMs + 'ms' : '')
+                        + (m.loud !== null && m.volume ? ' / YouTube の目安 ' + Math.round(m.loud + 20 * Math.log10(Math.max(1e-4, m.volume))) + ' dB' : '');
+                }
+                else if (m.state === 'waiting') label = '再生待ち';
+                else if (m.state === 'off') {
+                    /* BROKEN で読み直した枠は、同じ動画のあいだ付け替えない */
+                    if (meterNoAttach[cid] !== undefined && meterNoAttach[cid] === (cardVideoKeys[cid] || null)) { label = '停止中'; tip = '音の処理が止まったため、この動画では測りません（読み直して音を戻しました）'; }
+                    else label = 'オフ';
+                }
+                else { label = '測れません'; tip = m.why || m.state; }
+                bar.style.width = pct.toFixed(1) + '%';
+                /* 色はその瞬間の大きさで決める（-12 dB 超は黄、-3 dB 超は赤）。バーの幅で色の割合を変えない */
+                bar.style.background = (m && fresh && m.db > -3) ? '#ff4757' : ((m && fresh && m.db > -12) ? '#ffb020' : '#00ffcc');
+                txt.textContent = label;
+                txt.title = tip;
+            });
+        }
+        function startMeterUi() {
+            if (!METER_FEATURE || meterUiTimer) return;
+            meterTick();
+            meterUiTimer = setInterval(function () {
+                if (!isVolumeMenuOpen()) { clearInterval(meterUiTimer); meterUiTimer = null; return; }
+                renderMeters();
+            }, 100);
+        }
+        if (METER_FEATURE) setInterval(meterTick, 1000);
 
         /* ------------------------------------------------------------
            YouTubeの「➕送信」ボタンから動画を受け取り、空き枠へ流し込む。
@@ -1499,6 +1644,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.12.0', d: '2026-10-21', t: [
+                '音量のパネルに、枠ごとの音の大きさのメーター（今の大きさのバーと3秒平均の数値）を出した。全枠同じ目盛りなので、どの枠が大きく鳴っているかを比べられる（🔴 アドオン 2.12.0 が必要。パネルのスイッチで切れる）'] },
             { v: '2.11.2', d: '2026-10-21', t: [
                 'マイリスト・自動バックアップの履歴で「▸ 再生位置」を押すと、保存したときの各動画の再生位置（とタイトル・チャンネル名）が見られるようにした（マウスを乗せても見える）',
                 '音量のパネルで、各枠のタイトルの下にチャンネル名も出すようにした'] },
@@ -1826,6 +1973,20 @@
                 row.addEventListener('mouseenter', () => card.classList.add('vol-highlight'));
                 row.addEventListener('mouseleave', () => card.classList.remove('vol-highlight'));
                 host.appendChild(row);
+                /* ★v2.12.0: 音量メーター（全行で同じ目盛り -60〜0 dB）。YouTube の枠だけ。 */
+                if (METER_FEATURE && kind === 'YouTube') {
+                    const mrow = document.createElement('div');
+                    mrow.className = 'vol-meter-row';
+                    mrow.id = 'volMeter_' + cid;
+                    const track = document.createElement('div'); track.className = 'vol-meter-track';
+                    const bar = document.createElement('div'); bar.className = 'vol-meter-bar'; bar.id = 'volMeterBar_' + cid;
+                    track.appendChild(bar);
+                    const txt = document.createElement('span'); txt.className = 'vol-meter-txt'; txt.id = 'volMeterTxt_' + cid; txt.textContent = '—';
+                    mrow.appendChild(track); mrow.appendChild(txt);
+                    mrow.addEventListener('mouseenter', () => card.classList.add('vol-highlight'));
+                    mrow.addEventListener('mouseleave', () => card.classList.remove('vol-highlight'));
+                    host.appendChild(mrow);
+                }
             });
         }
         function toggleVolumeMenu() {
@@ -1838,6 +1999,7 @@
                 panel.classList.add('open'); btn.classList.add('active');
                 syncMasterVolumeUI();
                 renderVolumeRows();
+                renderMeters(); startMeterUi();   // ★v2.12.0
             }
         }
         function syncMasterVolumeUI() {
@@ -2253,6 +2415,12 @@
                         if (playlistId) {
                             document.getElementById('playlistPrev_' + cardId).style.display = 'inline-block';
                             document.getElementById('playlistNext_' + cardId).style.display = 'inline-block';
+                        }
+                        /* ★v2.12.0: 音量メーターの付け替えが壊れて読み直した枠は、元の位置へ戻す */
+                        if (meterReloadSeek[cardId] !== undefined) {
+                            const sec = meterReloadSeek[cardId];
+                            delete meterReloadSeek[cardId];
+                            try { event.target.seekTo(sec, true); if (isPlayingRequest) event.target.playVideo(); } catch (e) { }
                         }
                     },
                     'onError': (event) => { handlePlayerError(cardId, event.data); },

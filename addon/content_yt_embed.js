@@ -199,7 +199,7 @@
         if (!meter.attached) meterTryAttach();
         const v = meter.video || meterVideo();
         const msg = {
-            type: 'SYNC_EMBED_LEVEL', state: meter.attached ? meter.state : (meter.state === 'running' ? 'waiting' : meter.state),
+            type: 'SYNC_EMBED_LEVEL', state: !meter.allowed ? 'off' : (meter.attached ? meter.state : (meter.state === 'running' ? 'waiting' : meter.state)),
             why: meter.why || '', db: null, speechDb: null, latencyMs: null,
             volume: v ? v.volume : null, muted: v ? v.muted : null, paused: v ? v.paused : null,
             embedHref: location.href, version: addonVersion()

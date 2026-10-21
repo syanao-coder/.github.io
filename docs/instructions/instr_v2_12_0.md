@@ -1,7 +1,7 @@
 # v2.12.0 指示書 ─ 音量パネルに枠ごとの音量メーター
 
 発行: 2026-10-21（Claude Code）
-基点: `index.html` v2.11.2 / アドオン 2.11.1 / `debug_suite.js` v1.19.0
+基点: `index.html` v2.11.2 / アドオン 2.11.1 / `debug_suite.js` v1.19.1
 読む仕様書: `get-dev-workflow` / `get-debug-suite` / `get-protocol-spec`（0-2節・4-2節 埋め込みとのメッセージ）/ `get-ui-spec`（1節）/ 記録 `docs/reports/spike_audio_a1.md`
 種別: **マイナー（埋め込みとのメッセージを3種足す）。🔴 アドオンを上げる（2.11.1 → 2.12.0・`v2.12.0.zip`）**
 
@@ -76,3 +76,18 @@
 ## 5. 用紙
 
 `tests/test_v2_12_0.html`。アドオンの入れ直し → すべて実行 → 🎯（2枠・別の動画を再生しながら）→ 目視（メーターの動き・音が途切れないか・9枠での負荷）。v2.11.1 のライブの持ち越し（R5・R6）は引き継ぐ。
+
+## 6. 実装後の確認（headless・Chromium）
+
+| 項目 | 結果 |
+| :--- | :--- |
+| `D-V1` / `D-V2` / `D-N3`（42件）/ `D-A1` / `D-A3` | 合格 |
+| `D-A4` | 合格 15/15（PC 3/3）。負の検証（変更前の `index.html`）: **不合格 0/1**（判定不能ではない） |
+| 「▶ すべて実行」23本 | すべて合格 |
+| 同名関数の検査（`tests/check_dup_functions.js`・v1.19.1 で追加） | `[]` |
+| 検証台 `w12.js`（偽の IFrame API ＋ 偽の埋め込み: 本物の `<video>` で 440Hz を鳴らし、`content_yt_embed.js` を本物のまま読む） | 2枠とも `running`・約 -19 dB・遅れ 42ms・YouTube の目安（偽の `perceptualLoudnessDb` -16.5）も届く。**付け替え後も動画は進む**（0.5秒で 0.50 秒）。`D-W3` 合格 4/4 |
+| 〃 BROKEN の場面（付け替え後に `suspend()` し `resume` を効かなくする） | 3秒で `SYNC_EMBED_METER_BROKEN` → A側がその枠を読み直し → 新しい埋め込みには **付け替えない**（`AudioContext` 0個・その枠への `attach` は false）。行の表示は「停止中」 |
+| 〃 旧アドオン（content script なし） | `D-W3` **不合格 1/2**（判定不能ではない） |
+
+- 🔴 **実機で未確認**: Floorp の content script（隔離された環境）から `createMediaElementSource` が使えるか（スパイク A1 はページの環境）。`AudioContext` が操作なしで `running` になるか（ならなければ「測れません」が出るだけで音には触らない）。音の遅れの実測（Chromium の検証台では 42ms）。枠を増やしたときの重さ。→ 用紙 R2〜R5。
+- 🔴 逃げ道: `index.html` の `METER_FEATURE` を `false` にすると A側は `SYNC_EMBED_METER` を送らず、アドオン 2.12.0 は 2.11.1 と同じ動きになる。
