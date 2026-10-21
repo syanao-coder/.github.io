@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.19.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.20.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.11.2';
+    var EXPECT_APP_VERSION = '2.12.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.11.1';
+    var EXPECT_ADDON_REQUIRED = '2.12.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.11.2', ids: ['D-V1', 'D-V2', 'D-A1', 'D-A3', 'D-B1'] };
+    var VERSION_FOCUS = { v: '2.12.0', ids: ['D-V1', 'D-V2', 'D-A1', 'D-A4', 'D-W3'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1910,13 +1910,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 41);
+        expect('配列の件数', hist ? hist.length : 0, 42);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7473,6 +7473,145 @@
         }
     }
 
+
+    /* ======================================================================
+       ★v1.20.0 : v2.12.0 の判定（音量パネルの音量メーター）
+       ==================================================================== */
+    /* --- D-A4: A側だけ。偽の SYNC_EMBED_LEVEL / BROKEN を受け口へ流してメーターの表示と後始末を見る --- */
+    async function testA4() {
+        log('  [目的] 音量メーターの行が、届いた大きさ（dB）どおりにバーと3秒平均を出し、途絶・状態・スイッチ・BROKEN（読み直し）を正しく扱うこと。');
+        await closeAllMenus();
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var cid = null, saved = null, ifr = null, savedKey, origLoad = window.loadSingleYT, loads = [];
+        var meterBefore = null;
+        try { meterBefore = localStorage.getItem('sync_meter_on'); } catch (e) { }
+        try {
+            await setCardCount(started + 1);
+            cid = lastCard();
+            pc('枠を1つ足せた', function () { return cid ? cid : false; });
+            if (!cid) return;
+            pc('A側の受け口（handleEmbedMessage）を読める', function () { return typeof handleEmbedMessage === 'function' ? 'あり' : false; });
+            /* 送り主の照合（event.source）に使う本物の contentWindow を持つ、中身の無い iframe */
+            ifr = document.createElement('iframe');
+            ifr.style.cssText = 'position:fixed;left:-50px;top:-50px;width:10px;height:10px;';
+            document.body.appendChild(ifr);
+            saved = ytPlayers[cid];
+            var fp = fakeYtPlayer({ video_id: 'dbgA4aaaaaa', title: 'メーター試験', author: '', __t: 42 });
+            fp.getIframe = function () { return ifr; };
+            ytPlayers[cid] = fp;
+            savedKey = cardVideoKeys[cid];
+            cardVideoKeys[cid] = 'dbgA4aaaaaa';
+            toggleVolumeMenu();
+            await wait(150);
+            pc('🔴 偽の YouTube 枠の行がある（土俵）', function () { return document.getElementById('volRow_' + cid) ? 'あり' : false; });
+            var bar = document.getElementById('volMeterBar_' + cid), txt = document.getElementById('volMeterTxt_' + cid);
+            expect('🔴 その行にメーター（バーと数値）がある', (bar && txt) ? 'ok' : ('バー=' + !!bar + ' / 数値=' + !!txt), 'ok');
+            if (!bar || !txt) return;
+            var lvl = function (extra) {
+                var d = { type: 'SYNC_EMBED_LEVEL', state: 'running', db: -30, speechDb: -35, latencyMs: 12, volume: 0.5, perceptualLoudnessDb: null, embedHref: 'https://www.youtube.com/embed/dbgA4aaaaaa' };
+                Object.keys(extra || {}).forEach(function (k) { d[k] = extra[k]; });
+                handleEmbedMessage(d, ifr.contentWindow, 'https://www.youtube.com');
+            };
+            delete meterLevels[cid];
+            lvl({ db: -30 }); lvl({ db: -30 }); renderMeters();
+            expect('🔴 -30 dB でバーの幅が 50%（-60〜0 dB の目盛り）', parseFloat(bar.style.width), 50);
+            expect('3秒平均の数値', txt.textContent, '平均 -30 dB');
+            delete meterLevels[cid];
+            lvl({ db: -20 }); lvl({ db: -40 }); renderMeters();
+            expect('🔴 平均はエネルギー平均（-20 と -40 → 約 -23。算術平均の -30 ではない）', txt.textContent, '平均 -23 dB');
+            lvl({ db: -1 }); renderMeters();
+            expect('-3 dB を超えるとバーが赤', /255, 71, 87|ff4757/i.test(bar.style.background) ? 'ok' : bar.style.background, 'ok');
+            lvl({ state: 'waiting', db: null }); renderMeters();
+            expect('state=waiting は「再生待ち」', txt.textContent, '再生待ち');
+            lvl({ state: 'suspended', db: null, why: 'AudioContext が suspended のまま' }); renderMeters();
+            expect('state=suspended は「測れません」（理由は title）', txt.textContent + ' / ' + txt.title, '測れません / AudioContext が suspended のまま');
+            lvl({ state: 'off', db: null }); renderMeters();
+            expect('state=off は「オフ」', txt.textContent, 'オフ');
+            lvl({ db: -30 }); meterLevels[cid].at = Date.now() - 2000; renderMeters();
+            expect('🔴 1.5秒届かなければバーを空にして「—」', txt.textContent + ' / ' + parseFloat(bar.style.width), '— / 0');
+            /* 送る指示 */
+            meterTick();
+            var mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
+            expect('🔴 パネルを開いている間は attach と report を送る', mine ? (mine.attach + ' / ' + mine.report) : '(送っていない)', 'true / true');
+            setMeterOn(false); meterTick();
+            mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
+            expect('スイッチを切ると attach を送らない（report だけ）', mine ? (mine.attach + ' / ' + mine.report) : '(送っていない)', 'false / true');
+            setMeterOn(true);
+            /* BROKEN → 読み直し・元の位置・同じ動画のあいだは付けない */
+            window.loadSingleYT = function (id) { loads.push(id); };
+            handleEmbedMessage({ type: 'SYNC_EMBED_METER_BROKEN', why: '試験', embedHref: 'https://www.youtube.com/embed/dbgA4aaaaaa' }, ifr.contentWindow, 'https://www.youtube.com');
+            expect('🔴 BROKEN でその枠を読み直す', loads.join(','), cid);
+            expect('読み直したあと移る位置を控える（偽のプレイヤーの 42秒）', meterReloadSeek[cid], 42);
+            meterTick();
+            mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
+            expect('🔴 BROKEN のあと同じ動画のあいだは attach を送らない', mine ? String(mine.attach) : '(送っていない)', 'false');
+            var atBefore = meterLevels[cid] ? meterLevels[cid].at : 0;
+            await wait(5);
+            handleEmbedMessage({ type: 'SYNC_EMBED_LEVEL', state: 'running', db: -10, embedHref: '' }, ifr.contentWindow, 'https://evil.example');
+            expect('オリジン違いの報告は捨てる', (meterLevels[cid] ? meterLevels[cid].at : 0) === atBefore ? 'ok' : '受けた', 'ok');
+        } finally {
+            window.loadSingleYT = origLoad;
+            try { if (meterBefore === null) localStorage.removeItem('sync_meter_on'); else localStorage.setItem('sync_meter_on', meterBefore); } catch (e) { }
+            try { if (cid) { delete meterLevels[cid]; delete meterNoAttach[cid]; delete meterReloadSeek[cid]; } } catch (e) { }
+            try { if (cid) { if (saved) ytPlayers[cid] = saved; else delete ytPlayers[cid]; if (savedKey === undefined) delete cardVideoKeys[cid]; else cardVideoKeys[cid] = savedKey; } } catch (e) { }
+            try { if (ifr) ifr.remove(); } catch (e) { }
+            try { await closeAllMenus(); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL・スイッチ', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり') + ' / sync_meter_on=' + (function () { try { return localStorage.getItem('sync_meter_on'); } catch (e) { return '?'; } })());
+        }
+    }
+
+    /* --- D-W3: 実機。全 YouTube 枠から音のレベルが届き、一時停止に反応する --- */
+    async function testW3() {
+        log('  [目的] 枠の中のアドオン 2.12.0 が音を付け替えて測り、全枠から running の報告が届くこと。一時停止した枠だけが無音になること（計測が音に反応している証拠）。');
+        await closeAllMenus();
+        var ids = ytCardIds();
+        var playing = ids.filter(function (id) { try { return ytPlayers[id].getPlayerState() === 1; } catch (e) { return false; } });
+        pc('YouTube の枠が1つ以上ある', function () { return ids.length ? ids.length + '枠' : false; });
+        pc('🔴 再生中の YouTube 枠が1つ以上ある（再生してから押す）', function () { return playing.length ? playing.length + '枠: ' + playing.join(',') : false; });
+        if (!ids.length || !playing.length) return;
+        var opened = false;
+        try {
+            if (typeof isVolumeMenuOpen === 'function' && !isVolumeMenuOpen()) { toggleVolumeMenu(); opened = true; }
+            expect('A側のメーター（METER_FEATURE）が有効', (typeof METER_FEATURE !== 'undefined' && METER_FEATURE) ? 'ok' : '無い', 'ok');
+            var r = await waitFor(function () {
+                if (typeof meterLevels === 'undefined') return null;
+                var ok = playing.every(function (id) { var m = meterLevels[id]; return m && Date.now() - m.at < 1500 && m.state === 'running' && typeof m.db === 'number'; });
+                return ok ? true : null;
+            }, 8000, 200);
+            var rows = ids.map(function (id) {
+                var m = (typeof meterLevels !== 'undefined') ? meterLevels[id] : null;
+                return id + '=' + (m ? (m.state + (typeof m.db === 'number' ? ' ' + Math.round(m.db) + 'dB' : '') + (m.latencyMs !== null ? ' 遅れ' + m.latencyMs + 'ms' : '') + ' v' + m.version
+                    + (m.loud !== null ? ' 目安' + m.loud : '') + (m.why ? '（' + m.why + '）' : '')) : '報告なし');
+            });
+            note('枠ごとの報告', rows.join(' | '));
+            expect('🔴 再生中の全枠から running の報告が届いた（8秒以内）', r.ok ? 'ok' : 'そろわない', 'ok');
+            if (!r.ok) return;
+            /* 2秒ぶんの最大で「音が鳴っている」を見る（静かな場面の瞬間値で落とさない） */
+            var peak = {};
+            var t0 = Date.now();
+            while (Date.now() - t0 < 2000) {
+                playing.forEach(function (id) { var m = meterLevels[id]; if (m && typeof m.db === 'number') peak[id] = Math.max(peak[id] === undefined ? -999 : peak[id], m.db); });
+                await wait(100);
+            }
+            expect('再生中の全枠で 2秒の最大が -60 dB を超える', playing.filter(function (id) { return peak[id] > -60; }).length, playing.length);
+            /* positive control: 1枠を一時停止 → その枠だけ無音 */
+            var a = playing[0];
+            try { ytPlayers[a].pauseVideo(); } catch (e) { }
+            var q = await waitFor(function () { var m = meterLevels[a]; return (m && typeof m.db === 'number' && m.db <= -60) ? m.db : null; }, 3000, 100);
+            expect('🔴 一時停止した枠は3秒以内に無音（-60 dB 以下）になる', q.ok ? 'ok' : ('最後 ' + (meterLevels[a] ? meterLevels[a].db : '-') + ' dB'), 'ok');
+            try { ytPlayers[a].playVideo(); } catch (e) { }
+            var back = await waitFor(function () { var m = meterLevels[a]; return (m && typeof m.db === 'number' && m.db > -60) ? m.db : null; }, 4000, 100);
+            note('再開後に音が戻った（' + a + '）', back.ok ? (Math.round(back.value) + ' dB / ' + back.waitedMs + 'ms') : '戻らない（静かな場面の可能性）');
+            note('BROKEN（読み直し）の記録', (meterBrokenLog || []).length ? JSON.stringify(meterBrokenLog) : 'なし');
+        } finally {
+            if (opened) { try { await closeAllMenus(); } catch (e) { } }
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -7532,6 +7671,9 @@
         /* ★v1.19.0: v2.11.2。どちらも枠数を変えるので manual。 */
         { id: 'D-A3', name: '★音量ミキサーにチャンネル名が出る（取れない回は覚えた名前）', run: testA3, manual: true },
         { id: 'D-B1', name: '★マイリストの履歴で各動画の再生位置・タイトル・チャンネル名が見られる', run: testB1, manual: true },
+        /* ★v1.20.0: v2.12.0。D-A4 は枠数を変える・D-W3 は再生中の YouTube とアドオン 2.12.0 が要るので manual。 */
+        { id: 'D-A4', name: '★音量メーターの表示（dB→バー・3秒平均・途絶・状態・スイッチ・BROKEN で読み直し）', run: testA4, manual: true },
+        { id: 'D-W3', name: '★音量メーター（実機）: 全枠から音のレベルが届き、一時停止した枠だけ無音になる', run: testW3, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
