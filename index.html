@@ -184,6 +184,17 @@
         .vol-label { width: 170px; flex-shrink: 0; font-size: 0.82rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .vol-label .vol-no { color: #00ffcc; font-weight: bold; margin-right: 6px; }
         .vol-sub { display: block; font-size: 0.68rem; color: #888; overflow: hidden; text-overflow: ellipsis; }
+        .vol-ch { display: block; font-size: 0.68rem; color: #b8b8c8; overflow: hidden; text-overflow: ellipsis; }   /* ★v2.11.2 */
+        /* ★v2.11.2: マイリストの「▸ 再生位置」 */
+        .sess-pos-btn { background: transparent; border: 1px solid #555; color: #ccc; font-size: 0.68rem; padding: 0 6px; margin-left: 6px; border-radius: 3px; cursor: pointer; }
+        .sess-pos-btn:hover { border-color: #ff9f43; color: #ff9f43; }
+        .sess-detail { display: none; margin: 4px 0 2px; padding: 4px 6px; background: rgba(255,255,255,0.04); border-radius: 3px; }
+        .sess-detail.open { display: block; }
+        .sess-detail-row { display: flex; gap: 6px; align-items: baseline; font-size: 0.72rem; color: #ccc; padding: 1px 0; }
+        .sess-detail-row .sd-no { color: #ff9f43; flex-shrink: 0; }
+        .sess-detail-row .sd-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sess-detail-row .sd-ch { color: #999; }
+        .sess-detail-row .sd-time { flex-shrink: 0; font-family: monospace; color: #00ffcc; }
         .vol-val { width: 34px; text-align: right; font-family: monospace; font-size: 0.8rem; color: #00ffcc; }
         .vol-master-row { padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
         .vol-row.vol-disabled { opacity: 0.45; }
@@ -819,7 +830,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.11.1';
+        const APP_VERSION = '2.11.2';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1488,6 +1499,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.11.2', d: '2026-10-21', t: [
+                'マイリスト・自動バックアップの履歴で「▸ 再生位置」を押すと、保存したときの各動画の再生位置（とタイトル・チャンネル名）が見られるようにした（マウスを乗せても見える）',
+                '音量のパネルで、各枠のタイトルの下にチャンネル名も出すようにした'] },
             { v: '2.11.1', d: '2026-10-08', t: [
                 'ライブ配信が終わっても「配信中」のまま長く変わらない不具合を直した（取得中も2分ごとに配信中かを確かめる）。応答が固まったときは20秒で打ち切って取り直し、その間は「再接続中」と出す（🔴 アドオン 2.11.1 が必要）'] },
             { v: '2.11.0', d: '2026-10-04', t: [
@@ -1786,13 +1800,19 @@
                 row.className = 'control-row vol-row' + (kind ? '' : ' vol-disabled');
                 row.id = 'volRow_' + cid;
                 row.dataset.cardId = cid;
+                const channel = (kind === 'YouTube') ? getCardChannel(cid) : '';   /* ★v2.11.2 */
                 const label = document.createElement('span');
                 label.className = 'vol-label';
-                label.title = title;
+                label.title = title + (channel ? '\n📺 ' + channel : '');
                 const no = document.createElement('span'); no.className = 'vol-no'; no.textContent = '枠' + (i + 1);
                 const sub = document.createElement('span'); sub.className = 'vol-sub';
                 sub.textContent = kind ? title : '（動画なし）';
                 label.appendChild(no); label.appendChild(document.createTextNode(kind || '')); label.appendChild(sub);
+                if (channel) {
+                    const ch = document.createElement('span'); ch.className = 'vol-ch';
+                    ch.textContent = '📺 ' + channel;
+                    label.appendChild(ch);
+                }
                 const input = document.createElement('input');
                 input.type = 'range'; input.min = '0'; input.max = '100';
                 input.id = 'volRowInput_' + cid;
@@ -2094,7 +2114,25 @@
                 if (playerVerifyTimer[cardId]) { clearTimeout(playerVerifyTimer[cardId]); delete playerVerifyTimer[cardId]; }
                 delete playerVerifyDeadline[cardId];
                 hidePlayerNotice(cardId);
+                getCardChannel(cardId);   // ★v2.11.2: 再生が始まった時点のチャンネル名を覚えておく
             }
+        }
+
+        /* ★v2.11.2: チャンネル名（音量ミキサー・マイリストの表示用）。
+           🔴 getVideoData() は読み込み直後に空を返す回がある（v2.7.4 の注記）。
+              取れたら動画ごとに覚え、取れないときは覚えた値を返す。どちらも無ければ空文字（表示しない）。 */
+        let ytChannelByVideo = {};
+        function getCardChannel(cardId) {
+            const yt = ytPlayers[cardId];
+            if (!yt || typeof yt.getVideoData !== 'function') return '';
+            try {
+                const d = yt.getVideoData();
+                if (d && d.video_id) {
+                    if (d.author) ytChannelByVideo[d.video_id] = String(d.author);
+                    return ytChannelByVideo[d.video_id] || '';
+                }
+            } catch (e) { }
+            return '';
         }
 
         /* 🔴 再生が指示されていない間は確定しない。
@@ -2564,6 +2602,7 @@
                     pState.title = document.getElementById('title_' + cardId).innerText;
                     pState.currentTime = yt.getCurrentTime();
                     pState.url = cardUrls[cardId] || localStorage.getItem('sync_url_' + cardId) || ''; // ★v2.7.1
+                    pState.channel = getCardChannel(cardId);   // ★v2.11.2: 履歴の表示用（取れなければ空）
                 }
                 session.players.push(pState);
             });
@@ -2731,13 +2770,58 @@
                     else if (p.type === 'local') badges += '<span style="background:#00ffcc; color:#000; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">Local</span>';
                 });
                 const safeName = escapeJsString(session.name);
-                html += '<div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #222; padding:6px 4px; font-size:0.8rem;">' +
+                /* ★v2.11.2: 枠ごとの再生位置（保存は以前から行っていた。表示だけを足す）。
+                   内部タイマーの時刻（⏱ globalTime）は出さない（利用者要望）。
+                   🔴 ボタンは行の読み込み（onclick）の内側にあるので stopPropagation する。 */
+                const pos = sessionPositionRows(session);
+                const hoverText = pos.map(function (r) { return r.text; }).join('\n');
+                let detail = '';
+                pos.forEach(function (r) { detail += r.html; });
+                html += '<div style="border-bottom:1px solid #222; padding:6px 4px; font-size:0.8rem;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                     '<div style="cursor:pointer; flex:1; min-width:0; margin-right:8px;" onclick="loadSessionByIndex(' + index + ')">' +
                     '<div style="font-weight:bold; color:' + color + '; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">[' + label + '] ' + safeName + '</div>' +
-                    '<div style="font-size:0.7rem; color:#888; display:flex; align-items:center; margin-top:2px;"><span style="margin-right:8px;">⏱ ' + formatTime(session.globalTime) + '</span>' + badges + '</div>' +
-                    '</div><button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>';
+                    '<div style="font-size:0.7rem; color:#888; display:flex; align-items:center; margin-top:2px;">' + badges +
+                    '<button class="sess-pos-btn" id="sessPosBtn_' + index + '" title="' + escapeHtmlAttr(hoverText) + '" ' +
+                    'onclick="event.stopPropagation(); toggleSessionDetail(' + index + ')">▸ 再生位置</button></div>' +
+                    '</div><button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>' +
+                    '<div class="sess-detail" id="sessDetail_' + index + '">' + detail + '</div></div>';
             });
             listEl.innerHTML = html;
+        }
+        /* ★v2.11.2: 履歴の1件から、枠ごとの「番号・種別・タイトル（チャンネル名）・再生位置」を作る。
+           html は詳細の行、text はマウスを乗せたときの文字。 */
+        function sessionPositionRows(session) {
+            const rows = [];
+            (session.players || []).forEach(function (p, i) {
+                const no = '枠' + (i + 1);
+                if (!p || (p.type !== 'yt' && p.type !== 'local')) {
+                    rows.push({ text: no + ' （空）', html: '<div class="sess-detail-row"><span class="sd-no">' + no + '</span><span class="sd-title">（空）</span></div>' });
+                    return;
+                }
+                const kind = p.type === 'yt' ? 'YT' : 'Local';
+                const title = p.title || '';
+                const ch = p.channel || '';
+                const t = formatTime(Math.max(0, Number(p.currentTime) || 0));
+                rows.push({
+                    text: no + ' [' + kind + '] ' + title + (ch ? '（' + ch + '）' : '') + '  ' + t,
+                    html: '<div class="sess-detail-row"><span class="sd-no">' + no + '</span>' +
+                        '<span class="sd-title">' + escapeHtmlAttr(title) + (ch ? ' <span class="sd-ch">（' + escapeHtmlAttr(ch) + '）</span>' : '') + '</span>' +
+                        '<span class="sd-time">' + t + '</span></div>'
+                });
+            });
+            return rows;
+        }
+        function escapeHtmlAttr(s) {
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function toggleSessionDetail(index) {
+            const d = document.getElementById('sessDetail_' + index);
+            const b = document.getElementById('sessPosBtn_' + index);
+            if (!d) return;
+            const open = !d.classList.contains('open');
+            d.classList.toggle('open', open);
+            if (b) b.textContent = (open ? '▾' : '▸') + ' 再生位置';
         }
         function loadSessionByIndex(index) {
             const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
