@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.18.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.19.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.11.1';
+    var EXPECT_APP_VERSION = '2.11.2';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.11.1';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.11.1', ids: ['D-V1', 'D-V2', 'D-L8'] };
+    var VERSION_FOCUS = { v: '2.11.2', ids: ['D-V1', 'D-V2', 'D-A1', 'D-A3', 'D-B1'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1910,13 +1910,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 40);
+        expect('配列の件数', hist ? hist.length : 0, 41);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7329,6 +7329,146 @@
         });
     }
 
+
+    /* ======================================================================
+       ★v1.19.0 : v2.11.2 の判定（ミキサーのチャンネル名・マイリストの再生位置）
+       ==================================================================== */
+    /* 偽の YouTube プレイヤー。cardKindOf が 'YouTube' と見なし、tick から呼ばれても落ちない形にする。 */
+    function fakeYtPlayer(data) {
+        var d = data;
+        return {
+            __dbgFake: true,
+            setData: function (x) { d = x; },
+            getVideoData: function () { return d; },
+            getCurrentTime: function () { return d.__t || 0; }, getDuration: function () { return 0; },
+            getPlayerState: function () { return 2; }, getVolume: function () { return 50; },
+            setVolume: function () { }, mute: function () { }, unMute: function () { }, isMuted: function () { return false; },
+            setPlaybackRate: function () { }, getPlaybackRate: function () { return 1; },
+            playVideo: function () { }, pauseVideo: function () { }, seekTo: function () { },
+            getIframe: function () { return null; }, destroy: function () { }
+        };
+    }
+
+    /* --- D-A3: 音量ミキサーにチャンネル名が出る ------------------------------- */
+    async function testA3() {
+        log('  [目的] 音量ミキサーの行に、タイトルに加えてチャンネル名が出ること（getVideoData().author。空の回は覚えた名前）。');
+        await closeAllMenus();
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var cid = null, saved = null, hadTitle = null;
+        try {
+            await setCardCount(started + 1);
+            cid = lastCard();
+            pc('枠を1つ足せた', function () { return cid ? cid : false; });
+            if (!cid) return;
+            saved = ytPlayers[cid];
+            var titleEl = document.getElementById('title_' + cid);
+            hadTitle = titleEl ? titleEl.innerText : null;
+            if (titleEl) titleEl.innerText = 'デバッグ動画A';
+            var fp = fakeYtPlayer({ video_id: 'dbgA3aaaaaa', title: 'デバッグ動画A', author: 'デバッグちゃんねる' });
+            ytPlayers[cid] = fp;
+            pc('🔴 偽のプレイヤーで行が YouTube 扱いになる（土俵）', function () { return cardKindOf(cid) === 'YouTube' ? 'YouTube' : false; });
+            function rowOf() {
+                renderVolumeRows();
+                var r = document.getElementById('volRow_' + cid);
+                return r ? { ch: (r.querySelector('.vol-ch') || {}).textContent || '', tip: (r.querySelector('.vol-label') || {}).title || '' } : null;
+            }
+            var r1 = rowOf();
+            note('行（チャンネル名 / title）', r1 ? (r1.ch + ' / ' + r1.tip.replace(/\n/g, ' ⏎ ')) : '(行なし)');
+            expect('🔴 行にチャンネル名が出る', r1 && /デバッグちゃんねる/.test(r1.ch) ? 'ok' : (r1 ? r1.ch || '(なし)' : '(行なし)'), 'ok');
+            expect('マウスを乗せる title にもタイトルとチャンネル名', r1 && /デバッグ動画A/.test(r1.tip) && /デバッグちゃんねる/.test(r1.tip) ? 'ok' : (r1 ? r1.tip : '-'), 'ok');
+            fp.setData({ video_id: 'dbgA3aaaaaa', title: '', author: '' });
+            var r2 = rowOf();
+            expect('🔴 author が空の回でも、覚えた名前が出る', r2 && /デバッグちゃんねる/.test(r2.ch) ? 'ok' : (r2 ? r2.ch || '(なし)' : '(行なし)'), 'ok');
+            fp.setData({ video_id: 'dbgA3bbbbbb', title: '', author: '' });
+            var r3 = rowOf();
+            expect('覚えていない動画で author が空なら、チャンネル名の段を出さない', r3 && !r3.ch ? 'ok' : (r3 ? r3.ch : '(行なし)'), 'ok');
+        } finally {
+            try { if (cid) { if (saved) ytPlayers[cid] = saved; else delete ytPlayers[cid]; } } catch (e) { }
+            try { delete ytChannelByVideo['dbgA3aaaaaa']; delete ytChannelByVideo['dbgA3bbbbbb']; } catch (e) { }
+            try { var te = cid && document.getElementById('title_' + cid); if (te && hadTitle !== null) te.innerText = hadTitle; } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-B1: マイリストの履歴に各動画の再生位置を出す ------------------------
+       🔴 D-S1 / testS1 は境界線のドラッグの判定が使っている。同名の関数を書くと後の宣言が勝ち、
+          既存の判定が黙って置き換わる（2026-10-21 に一度踏んだ）。 */
+    async function testB1() {
+        log('  [目的] マイリスト・自動保存の履歴で「▸ 再生位置」を押すと枠ごとの位置・タイトル・チャンネル名が出ること。押しても読み込まれないこと。');
+        var KEY = 'sync_session_history';
+        var before = null;
+        try { before = localStorage.getItem(KEY); } catch (e) { }
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var origLoad = window.loadSessionByIndex;
+        var loaded = 0;
+        var cid = null, saved = null;
+        try {
+            var fake = [
+                { name: 'dbgS1 手動', timestamp: Date.now(), isAutoSave: false, playerCount: 3, globalTime: 4321,
+                  players: [
+                      { cardId: 'x1', type: 'yt', title: 'デバッグ動画1', channel: 'ちゃんねるA', currentTime: 754.9, url: '' },
+                      { cardId: 'x2', type: 'yt', title: '昔の保存', currentTime: 3723, url: '' },
+                      { cardId: 'x3', type: 'empty', title: '未ロード', currentTime: 0, url: '' }] },
+                { name: 'dbgS1 自動', timestamp: Date.now(), isAutoSave: true, playerCount: 1, globalTime: 0,
+                  players: [{ cardId: 'y1', type: 'local', title: 'ローカル<b>動画</b>', currentTime: 61, url: '' }] }
+            ];
+            localStorage.setItem(KEY, JSON.stringify(fake));
+            window.loadSessionByIndex = function () { loaded++; };   /* 🔴 確認ダイアログを出さずに「読み込もうとしたか」を数える */
+            updateSessionListUI();
+            var listEl = document.getElementById('sessionHistoryList');
+            var b0 = document.getElementById('sessPosBtn_0'), d0 = document.getElementById('sessDetail_0');
+            pc('偽の履歴が描画される（土俵）', function () { return (listEl && /dbgS1 手動/.test(listEl.textContent)) ? 'あり' : false; });
+            expect('🔴 「▸ 再生位置」ボタンと詳細の箱がある', (b0 && d0) ? 'ok' : ('ボタン=' + !!b0 + ' / 箱=' + !!d0), 'ok');
+            if (!b0 || !d0) return;
+            expect('最初は閉じている', d0.classList.contains('open'), false);
+            b0.click();
+            expect('🔴 押すと開く', d0.classList.contains('open'), true);
+            expect('🔴 押してもセッションは読み込まれない（stopPropagation）', loaded, 0);
+            var rows = Array.prototype.slice.call(d0.querySelectorAll('.sess-detail-row')).map(function (r) { return r.textContent.replace(/\s+/g, ' ').trim(); });
+            note('詳細の行', rows.join(' ｜ '));
+            expect('枠の数だけ行がある', rows.length, 3);
+            expect('🔴 1行目: タイトル・チャンネル名・位置 12:34', /デバッグ動画1/.test(rows[0] || '') && /ちゃんねるA/.test(rows[0] || '') && /12:34/.test(rows[0] || '') ? 'ok' : rows[0], 'ok');
+            expect('2行目（チャンネル名の無い過去の保存）: タイトルと 01:02:03', /昔の保存/.test(rows[1] || '') && /01:02:03/.test(rows[1] || '') && !/（/.test(rows[1] || '') ? 'ok' : rows[1], 'ok');
+            expect('3行目: 空の枠は「（空）」', /（空）/.test(rows[2] || '') ? 'ok' : rows[2], 'ok');
+            expect('マウスを乗せる title にも同じ内容', /デバッグ動画1（ちゃんねるA）\s+12:34/.test(b0.title) ? 'ok' : b0.title, 'ok');
+            expect('内部タイマーの時刻（⏱ 01:12:01）は出ない', /⏱/.test(listEl.textContent) ? '出ている' : 'ok', 'ok');
+            var d1 = document.getElementById('sessDetail_1');
+            expect('タイトルの HTML は文字として出す（<b> を解釈しない）', d1 && !d1.querySelector('b') && /ローカル<b>動画<\/b>/.test(d1.textContent) ? 'ok' : (d1 ? d1.innerHTML : '-'), 'ok');
+            b0.click();
+            expect('もう一度押すと閉じる', d0.classList.contains('open'), false);
+            /* positive control: 名前の部分を押せば「読み込もうとした」が数えられる（数え方自体が効いている） */
+            var nameArea = b0.closest('[onclick^="loadSessionByIndex"]');
+            if (nameArea) nameArea.click();
+            pc('名前の部分を押すと読み込みが呼ばれる（数え方の土俵）', function () { return loaded === 1 ? '1回' : false; });
+            /* 保存（getNewSessionState）にチャンネル名が入る */
+            await setCardCount(started + 1);
+            cid = lastCard();
+            saved = ytPlayers[cid];
+            ytPlayers[cid] = fakeYtPlayer({ video_id: 'dbgS1aaaaaa', title: 'T', author: '保存ちゃんねる', __t: 90 });
+            var st = getNewSessionState('dbg', false);
+            var mine = (st.players || []).filter(function (p) { return p.cardId === cid; })[0];
+            pc('🔴 保存の土俵: 偽のプレイヤーの枠が YouTube として保存される', function () { return mine && mine.type === 'yt' ? 'yt' : false; });
+            expect('🔴 保存に channel と位置が入る', mine ? (mine.channel + ' / ' + mine.currentTime) : '(枠なし)', '保存ちゃんねる / 90');
+        } finally {
+            window.loadSessionByIndex = origLoad;
+            try { if (before === null) localStorage.removeItem(KEY); else localStorage.setItem(KEY, before); } catch (e) { }
+            try { updateSessionListUI(); } catch (e) { }
+            try { if (cid) { if (saved) ytPlayers[cid] = saved; else delete ytPlayers[cid]; } } catch (e) { }
+            try { delete ytChannelByVideo['dbgS1aaaaaa']; } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            var nowList = null;
+            try { nowList = localStorage.getItem(KEY); } catch (e) { }
+            note('後始末: 履歴・枠数・保存URL', (nowList === before ? '履歴は元どおり' : '⚠ 履歴に差分') + ' / ' + cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -7385,6 +7525,9 @@
         /* ★v1.18.0: v2.11.0（ライブ取得の自動復帰）。D-L8 は枠数を変える・D-L9 はライブ素材が要るので manual。 */
         { id: 'D-L8', name: '★ライブの終わり方（ENDED / 途切れ / 打ち切り）と復帰回数を見出しで出し分ける', run: testL8, manual: true },
         { id: 'D-L9', name: '★ライブ枠の取得状況（復帰・出口・終了理由）を記録する', run: testL9, manual: true },
+        /* ★v1.19.0: v2.11.2。どちらも枠数を変えるので manual。 */
+        { id: 'D-A3', name: '★音量ミキサーにチャンネル名が出る（取れない回は覚えた名前）', run: testA3, manual: true },
+        { id: 'D-B1', name: '★マイリストの履歴で各動画の再生位置・タイトル・チャンネル名が見られる', run: testB1, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
