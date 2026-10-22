@@ -245,7 +245,7 @@ A側の文言の出し分けは 8-8節。プロトコル上の扱いは `/get-pr
 | 次の continuation | `liveChatReplayContinuationData` | **`invalidationContinuationData`**（`timeoutMs` を持つ） |
 | actions | `replayChatItemAction` に包まれる | 🔴 **`addChatItemAction` が直に来る** |
 | コメントの時刻 | `videoOffsetTimeMsec` | 🔴 **無い。`timestampUsec` から作る** |
-| 終わり方 | 終端に達したら完了 | 🔴 **終わらない**（次の continuation が返らなくなったら＝配信終了） |
+| 終わり方 | 終端に達したら完了 | 🔴 **終わらない。** ⚠️ 「次の continuation が返らなくなったら配信終了」は**誤り**だった（実機では終了後も返り続ける）。2分ごとに watch で確かめる（1-6-7節 ★v2.11.1） |
 
 🔴 **認証ヘッダ（SAPISIDHASH / 1-3-2節）はライブでも同じものが要る。作り方は変えていない。**
 ⚠️ **continuation の入れ物名を決め打ちにしないこと。** 「`continuation` という文字列を持つ子」を探す形にしてある。
@@ -355,6 +355,29 @@ t = timestampUsec / 1000 − liveBroadcastDetails.startTimestamp   ＝ 配信開
 
 ---
 
+
+#### 1-6-7. 自動復帰と配信終了の検知 ★v2.11.0 / v2.11.1
+
+**出口と復帰（v2.11.0）**: ライブ経路で ① `liveChatContinuation` が無い ② 次の continuation が無い ③ 2回目以降の `messageRenderer` ④ `postChat` の例外（429 / 5xx を3回再試行しても駄目・打ち切り）を「出口」とし、すぐには終えない（`liveExits` に種類ごとに数える）。出口では `recoverLive()` が watch を取り直し、配信中でなければ **`ENDED`**、配信中なら `reloadContinuationData` で取り直して続ける（`liveRecovers`）。取り直せなければ 5秒から倍々（上限60秒）で再試行し、連続8回（約5分）で **`RECOVERY_FAILED`**。正常な応答が1回来たら連続回数を0に戻す。上限 `LIVE_MAX_REQUESTS` 20,000（≒55時間・**`MAX_REQUESTS`**）。重複は `toComment()` の `r.id` で除くので、取り直しで再送されても二重にならない。取り直した continuation は「上位」側なので v2.10.0 の表示の切替をもう一度通す（`switched = false`）。
+
+🔴 **実機で分かったこと（2026-10-08）: 配信が終わっても `get_live_chat` は普通の応答（continuation つき）を返し続ける。** 出口に来るのはずっと後（その回は `noLc` 1回 → `ENDED`）。v2.11.0 の「出口で確かめる」だけでは配信終了をすぐ検知できなかった。
+
+**v2.11.1 の追加**:
+- 正常な応答でも **`LIVE_CHECK_INTERVAL_MS`（120秒）ごとに `recoverLive`** で watch を見て、配信中でなければ `ENDED`（`liveChecks` / `lastCheck`）。最初の watch を1回目の確認とみなす。
+- 🔴 **ライブの要求に打ち切り**（`fetchTimed`: 本文の読み出しまで含めて 20秒・watch は 30秒）。打ち切らないと応答が返らないまま `await` で固まり、**心拍は別のタイマーで出続けるので A側の見張りも働かず「配信中」のまま止まる。** アーカイブの取得は変えていない。
+- 🔴 **`playerResponse` が読めない（同意画面など）ときは `ENDED` にしない**（`detectLiveNow(null)` は `live:false / by:'none'` を返すため、v2.11.0 までは配信中なのに「配信終了」になりえた）。
+- 心拍の `active` にライブの観測値（`livePolls` / `liveRecovers` / `liveExits` / `liveChecks` / `lastCheck` / `livePhase` / `lastOkAgoMs` / `lastCommentAgoMs`）。A側は `handleChatPing` で store に入れ、`livePhase === 'recover'` のあいだ見出しを「🔴 再接続中」にする。
+- A側: ライブの取得が落ちた（見張りの発火・`ok:false`）ときは `endReason = 'STALLED'` を置き「⚠途切れました・🔄で再取得」（「配信終了」と書かない）。
+
+| 見出し（ライブ） | 条件 |
+| :--- | :--- |
+| `🔴 配信中`（復帰したら `・復帰N回`） | 取得中 |
+| `🔴 再接続中` | 心拍の `livePhase === 'recover'` |
+| `配信終了`（`・復帰N回`） | `ENDED`・または `endReason` が無い（旧アドオン） |
+| `⚠途切れました・🔄で再取得` | `RECOVERY_FAILED` / `STALLED` |
+| `⚠長時間のため打ち切り・🔄で再取得` | `MAX_REQUESTS` |
+
+🔴 **v2.11.1 は実機未確認**（`/get-protocol-spec` 11節 持ち越し10）。検証台 `live_mock.js`（取得エンジンを本物のまま読み `fetch` を差し替え）で、変更前のエンジンは「終了後も応答が続く」で終わらず・「応答が固まる」で止まったまま・「`playerResponse` が無い」で誤って `ENDED` になることを再現し、変更後は3つとも直ることを確かめた（`instr_v2_11_1.md`）。
 
 ## 2. 確定した定数と見積もり
 

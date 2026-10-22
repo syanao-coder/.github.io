@@ -67,6 +67,11 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 | 版数 | 内容 |
 | :--- | :--- |
+| **v2.12.1** | **音量メーターのピークホールドと動きのなめらか化**（バーは rAF で補間・上がるのは即座／下がるのは 24 dB/秒・ピークの線は1秒止まって 10 dB/秒で落ちる・平均は0.4秒ごと）。A側のみ・**プロトコル変更なし**・アドオン 2.12.0 のまま。`APP_HISTORY` **43件**・`debug_suite.js` **v1.21.0**（`D-A4` 23判定）。実機合格（2026-10-22）。⚠️ 4枠以上で**バーとコメントが同時にカクつき動画は滑らか**（ページのメインスレッドの詰まりが有力 ─ スパイク S1 で切り分け中）。記録 `report_v2_12_1.md` |
+| **v2.12.0** | **音量パネルに枠ごとの音量メーター**（今の大きさのバー・3秒のエネルギー平均）。アドオンの `content_yt_embed.js` が埋め込みの中で `createMediaElementSource` に付け替えて測る（スパイク A1 ─ `mozCaptureStream` は元の音が戻らず不採用）。🔴 **付け替えは元に戻せない**ので、A側の許可（`SYNC_EMBED_METER`）が来て再生中・`AudioContext` が `running` のときだけ付ける。止まって戻らなければ `SYNC_EMBED_METER_BROKEN` → A側がその枠を付け替えなしで読み直す。逃げ道 `METER_FEATURE`。🔴 **メッセージ3種を追加＝マイナー**（4-2節）。アドオン **2.12.0**（`v2.12.0.zip`）・`APP_HISTORY` **42件**・`debug_suite.js` **v1.20.0**（`D-A4` / `D-W3`）。実機合格（遅れ 32〜36ms・音は途切れず）。記録 `report_v2_12_0.md` |
+| **v2.11.2** | **マイリストの履歴に各動画の再生位置**（「▸ 再生位置」で枠ごとのタイトル・チャンネル名・位置。位置は以前から保存・復元していた＝表示だけ足した。内部タイマーの ⏱ はやめた）・**音量ミキサーにチャンネル名**（`getVideoData().author`。空の回は動画ごとに覚えた値）。保存に `channel`。A側のみ・**プロトコル変更なし**。`APP_HISTORY` **41件**・`debug_suite.js` **v1.19.0**（`D-A3` / `D-B1`）〜**v1.19.1**（`moveMouseTo` の二重宣言の解消・同名関数の検査 `tests/check_dup_functions.js`）。⚠️ **実機の専用測定なし**（v2.12.0 / v2.12.1 の「すべて実行」で回帰のみ） |
+| **v2.11.1** | **ライブの配信終了の検知**: YouTube は**配信が終わっても `get_live_chat` に普通の応答を返し続ける**（v2.11.0 の実機 R4）ので、正常な応答でも **2分ごとに watch を見て**配信中でなければ `ENDED`。ライブの要求に打ち切り（`fetchTimed` 20秒・watch 30秒）。`playerResponse` が読めないときは `ENDED` にしない。心拍（`chatPing` の `active`）にライブの観測値。A側は「🔴 再接続中」・取得が落ちたら `STALLED`（途切れました）。**パッチ**（既存メッセージへの任意フィールド）。アドオン **2.11.1**。🔴 **実機未確認**（ライブ素材なし ─ 11節 持ち越し10）。⚠️ 最初は版数を 2.11.0 のまま配った（0-2節違反・利用者の指摘で上げ直し） |
+| **v2.11.0** | **ライブのチャット取得の自動復帰**: 出口（continuation 無し・`messageRenderer`・回線エラー）で watch を取り直し、配信中なら continuation を取り直して続ける（5秒から倍々・連続8回で `RECOVERY_FAILED`）。上限 `LIVE_MAX_REQUESTS` 20,000（`MAX_REQUESTS`）。🔴 **`chatDone` に `endReason` / `endBy` / `liveRecovers` / `liveExits` / `recoverError`、`chatChunk` に `liveRecovers`＝マイナー。** アドオン **2.11.0**・`APP_HISTORY` **39件**・`debug_suite.js` **v1.18.0**（`D-L8` / `D-L9`）。実機: 取得中は止まらなかったが**配信終了を検知できなかった**（→ v2.11.1） |
 | **v2.10.0** | **チャットの「上位のチャット / すべてのチャット」を枠ごとに切替**（見出しの「全 / 上位」ボタン・既定は全）。A側の取得結果のキーを `getChatKey`（すべて＝videoId のまま／上位＝`videoId#top`）に揃えた＝**既存のキャッシュはそのまま**。🔴 **要求（`CHAT_STREAM_REQUEST` → `FETCH_CHAT_STREAM` → `CHAT_ENQUEUE`）に `mode`、応答（`chatChunk` / `chatDone`）に `view` を追加＝マイナー。** B側は `pickChatView`（index 0 = 上位 / 1 = 全件）。実測 `zuuZyNH0F1Y` 全 356件 / 上位 350件。アドオン **2.10.0**・`APP_HISTORY` **38件**・`debug_suite.js` **v1.17.1**（D-K1 / D-K2）。⚠️ ロードマップの v2.11.0 を先に行ったため番号を入れ替えた（版数を逆戻りさせない） |
 | **v2.9.0** | **枠の中の「その他の動画」をその枠で開く**（R-11）。アドオンに `content_yt_embed.js`（`www.youtube.com/embed/*`・`all_frames`・`document_start`）を新設し、親がこのツールのときだけ別の動画へのリンクの左クリックを止めて親へ渡す。A側は `event.source` で枠を決め `loadSingleYT` で読み込む（**自動再生しない**）。🔴 **メッセージ3種を追加＝マイナー**（4-2節）。アドオン **2.9.0**・`APP_HISTORY` **37件**・`debug_suite.js` **v1.16.0**（D-W1 / D-W2） |
 | **v2.8.13** | **YouTube の再生ページ（`/watch?v=`）にも「➕ 送信 │ ⧉」**（`#owner` の `#subscribe-button` の直後。送るURLはクリック時に `location` から取るので SPA で動画が替わっても作り直さない。`/watch` 以外では取り除く）。`createButtonGroup(resolver, opts)` に一般化。**メッセージは増やさない＝パッチ。** 🔴 **アドオン 2.8.7 → 2.8.13**（`ADDON_REQUIRED_VERSION` 2.8.13・`v2.8.13.zip`）。`APP_HISTORY` **36件**。`debug_suite.js` **v1.15.0** |
@@ -293,9 +298,9 @@ content_video.js / content_youtube_scrape.js / background.js
 | addonInfo | version | アドオンの版数 | ✅ | ✅ |
 | **ytPermission** ★v2.7.0 | granted | YouTube への実行許可があるか（4-1節） | ✅ | ✅ |
 | **chatMeta** | requestId, videoId, videoMs, ok, error | 取得開始の通知。動画長を先に渡す | ✅ | ✅ |
-| **chatChunk** | requestId, videoId, seq, comments[], emoji{}, lastT, **view**（★v2.10.0） | 逐次配送されるコメント塊。`view` は B側が実際に選んだ表示（`top` / `all` / `unknown`） | ✅ | ✅ |
-| **chatDone** | requestId, videoId, total, complete, truncated, reqs, elapsed, **view**（★v2.10.0）, **+最終チャンク** | 取得完了 | ✅ | ✅ |
-| **chatPing** | active[], waiting[] | 5秒ごとの心拍。順番待ちの位置も含む | ✅ | ✅ |
+| **chatChunk** | requestId, videoId, seq, comments[], emoji{}, lastT, **view**（★v2.10.0）, **liveRecovers**（★v2.11.0） | 逐次配送されるコメント塊。`view` は B側が実際に選んだ表示（`top` / `all` / `unknown`） | ✅ | ✅ |
+| **chatDone** | requestId, videoId, total, complete, truncated, reqs, elapsed, **view**（★v2.10.0）, **endReason / endBy / liveRecovers / liveExits / recoverError**（★v2.11.0・ライブのみ。`endReason` = `ENDED` / `RECOVERY_FAILED` / `MAX_REQUESTS`）, **+最終チャンク** | 取得完了 | ✅ | ✅ |
+| **chatPing** | active[], waiting[] | 5秒ごとの心拍。順番待ちの位置も含む。★v2.11.1: ライブの `active` に `live` / `livePolls` / `liveRecovers` / `liveExits` / `liveChecks` / `lastCheck` / `livePhase`（`poll` / `recover`）/ `lastOkAgoMs` / `lastCommentAgoMs` / `recoverError`（中継は `active` を丸ごと転送するので中継の変更は不要） | ✅ | ✅ |
 | relativeSeekReport | diff または time | 手動シークの差分 | ❌ 未実装 | ✅ |
 | youtubeScrapeReport | items[] | 検索結果の一括取得 | ❌ 未実装 | △ |
 
@@ -351,11 +356,15 @@ YouTube の許可が外れることがある（8節🔴 の最重要項目）。
 | embed → A | `SYNC_EMBED_OPEN` | `videoId` / `list` / `href` / `title` / `embedHref` / `version` | 関連動画が押された。A側はその枠で読み込む |
 | A → embed | `SYNC_EMBED_PING` | `nonce` | 点呼（debug_suite の D-W1） |
 | embed → A | `SYNC_EMBED_HELLO` | `nonce` / `embedHref` / `version` | 点呼への返事 |
+| A → embed | `SYNC_EMBED_METER` ★v2.12.0 | `attach` / `report` | 音量メーター。`attach:true` で付け替えを許可、`report:true` で 0.1秒ごとの報告を3秒間貸し出す。A側は1秒ごとに全 YouTube 枠へ送る |
+| embed → A | `SYNC_EMBED_LEVEL` ★v2.12.0 | `db` / `speechDb` / `state`（`running` / `waiting` / `suspended` / `error` / `off`）/ `why` / `latencyMs` / `volume` / `muted` / `paused` / `loudnessDb` / `perceptualLoudnessDb` / `embedHref` / `version` | 音のレベル（音量を掛けた後の RMS dBFS）。`perceptualLoudnessDb` は YouTube の動画全体の音の大きさ（`getPlayerResponse().playerConfig.audioConfig`） |
+| embed → A | `SYNC_EMBED_METER_BROKEN` ★v2.12.0 | `why` / `embedHref` / `version` | 付け替えた後、再生中なのに `AudioContext` が3秒 `running` に戻らない。A側はその枠を付け替えなしで読み直し、元の位置へ戻す（同じ動画のあいだは `attach` を送らない） |
 
 - **A側の受け口**（`handleEmbedMessage`）: `event.origin` が `https://www.youtube.com` 以外は捨てる。枠は ① `event.source` ＝ `ytPlayers[id].getIframe().contentWindow` ② 無ければ `embedHref` と iframe の `src` の videoId が一致する枠が1つだけのとき。どちらで決めたかを `lastEmbedEvent.how` に残す。`videoId` は11文字の形だけ通す。
 - **embed 側の条件**: 親のオリジン（embed URL の `origin=`、無ければ `document.referrer`）が `syanao-coder.github.io` / `localhost` / `127.0.0.1` / `file://` のときだけ動く（他のサイトの埋め込みは変えない）。止めるのは**修飾キーなしの左クリック**で、**今の動画と同じ ID のリンク（タイトル・ロゴ）は止めない**。window の capture に `document_start` で付けるので YouTube 自身の click 処理より先に走る。
 - `manifest.json` は `https://*.youtube.com/*` の権限の内側（`youtube-nocookie.com` は IFrame API が使わないので入れない＝権限を増やさない）。
 - 実測（2026-10-03 Floorp）: `source` で全枠が決まり、点呼の返事は約1.0秒。読み込み後3秒の `playerState` は 5（cued）。
+- ★v2.12.0 音量メーター: 🔴 **`createMediaElementSource` は元に戻せない。** 付け替えるのは「A側の許可あり・動画が再生中・`AudioContext` が `running`」のときだけ（`suspended` のまま付け替えると無音になるおそれ）。🔴 **`mozCaptureStream` は使わない**（Floorp で元の音が戻らなかった ─ `report spike_audio_a1.md`）。content script（隔離環境）からの付け替えは実機で動いた（2026-10-22）。遅れ 32〜36ms（全枠同じなので枠どうしのずれは出ない）。逃げ道: A側の `METER_FEATURE = false` で指示を送らなければアドオンは何もしない。
 
 ---
 
@@ -1112,24 +1121,11 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 
 | 版数 | 内容 | 主な対象 | ライブ素材 |
 | :--- | :--- | :--- | :--: |
-| **v2.11.0**（マイナー） | 🔴 **ライブ配信のチャット取得が途中で「配信終了」になる不具合の自動復帰**（下の注記）。**`chatDone` に終了理由コードと自動復帰回数を追加＝マイナー。** 併せて**持ち越し2・3**と**ライブでの解放の実測**を行う | `chat_fetcher_main.js` / A側 | 🔴 **必要** |
+| **（次）カクつき対策** | 🔴 **4枠以上で音量メーターのバーとコメントが同時にカクつく（動画は滑らか）。** スパイク S1（`flow-s1-1.1.0`・`tests/test_spike_flow_s1.html`）の結果で方針を決める: 詰まりが自前の処理なら軽くする／外（YouTube の処理・GC）なら動きを合成器へ移す（CSS の transform アニメーション。利用者の「透明な四角の群れ」案と同じ考え方） | A側 | ─ |
+| **要望（2026-10-08・順番未決定）** | ① **ライブのチャットの塊の平滑化**（約10〜15秒ごとにまとめて届くのを次の取得までの間に散らして表示。A側だけ・パッチ）② **配信中の視聴者数の表示**（別の要求が要る・マイナー）③ **配信中の動画へのコメント投稿**（InnerTube の送信・ログイン必須。誤投稿・連投の防止が要るので調査を先に） | ①A側 ②③アドオン | ①③ 必要 |
 | **未定** | リアルタイム同時視聴対応 + **COLD再生の同期**（点呼メッセージ追加＝プロトコル変更） | 全般 | ─ |
 
-#### v2.11.0 の注記（旧 v2.9.0 → v2.10.0 → 2026-10-04 に v2.11.0 ─ 2026-08-30 / コードを読んで特定）
-
-`chat_fetcher_main.js` の `runJob()` のライブ経路には、**再試行なしでループを抜ける出口が3つ**ある。
-**どれを通っても `ev:'done' / ok:true / live:true` が飛ぶため、A側は真の配信終了と区別できない。**
-
-| # | 場所 | 発火条件 |
-| :-: | :--- | :--- |
-| 1 | `if (!lc) break;` | 応答に `continuationContents.liveChatContinuation` が無く、`contents.messageRenderer` も無い |
-| 2 | `if (!next) { cont = null; break; }` | `pickContinuationEntry(lc)` が `null` |
-| 3 | `if (reqs >= CFG.MAX_REQUESTS)` | 4000回到達。10秒間隔なので**約11.1時間** |
-
-⚠️ **これはコードから読んだ仮説であって実測ではない。** どの出口を通ったかを記録していない。
-利用者の「再取得すれば直る」という観察は **#1 か #2** と整合する（#3 は11時間なので頻度が合わない）。
-🔴 **3つとも修復手段が同じ**（watch HTML から continuation を取り直す＝利用者が手でやっている
-「再取得」）なので、**切り分け専用の版を先に切る必要はない。直しながら記録できる。**
+⚪ **v2.11.0 の注記（ライブの出口3つ）は v2.11.0 / v2.11.1 で解消した。** 経緯と実測は `/get-chat-feature-spec` 1-6-7節。
 
 #### ⚪ 取り下げた要望（再提案を止めるための記録）
 
@@ -1166,14 +1162,17 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 | # | 内容 |
 | :-: | :--- |
 | 1 | 🔴 **`CHAT_DISABLED`（`liveChatRenderer` 到達後）の B側判定が未検証。** 実素材が未確保で、**人工再現も成立しないことが確定した**（`/get-chat-feature-spec` 9-8節）。**v2.6.4 から4バージョン目。実素材を見つけ次第 9-8節へ登録すること** |
-| 2 | **N1（ライブの同時ポーリングの負荷）が未実施**（2026-08-15）。上限を設けるかは測ってから決める方針のまま。🔴 **v2.11.0 で測る** |
-| 3 | **配信終了時の挙動が未検証**（2026-08-15）。配信が終わった瞬間に何が起きるか。🔴 **v2.11.0 でまさにこの経路を書き換えるので、同じ版で測る** |
-| 4 | ⭐ **ライブ配信での解放の実測が未了**（2026-09-05）。v2.8.3 は**ライブ素材を使っていない。** 「配信中は取得が終わらないので、中止しないと解放できない」は**設計上の帰結として実装したが実測していない。** 🔴 **v2.11.0 でライブを触るので、そのときに `D-G3` 相当をライブで1本測ること** |
+| 2 | **N1（ライブの同時ポーリングの負荷）が未実施**（2026-08-15）。上限を設けるかは測ってから決める方針のまま。v2.11.0 でも測れなかった（ライブ素材の都合）。**ライブ素材のある版で測る** |
+| 3 | ⚪ **配信終了時の挙動は v2.11.0 の実機で分かった**: 配信が終わっても `get_live_chat` は普通の応答を返し続け、出口に来るのはずっと後（`noLc` 1回で `ENDED`）。→ v2.11.1 で2分ごとの確認を入れた。🔴 **v2.11.1 の実機確認は持ち越し10** |
+| 4 | ⭐ **ライブ配信での解放の実測が未了**（2026-09-05）。v2.8.3 は**ライブ素材を使っていない。** 「配信中は取得が終わらないので、中止しないと解放できない」は**設計上の帰結として実装したが実測していない。** v2.11.0 でも未実施。**ライブ素材のある版で `D-G3` 相当をライブで1本測ること** |
 | 5 | **`D-C10`（非ログインでの取得）・`D-C11`（重いアーカイブの所要時間）が未実施**（2026-09-05）。理由は他項目のログイン前提との両立と所要時間。**取得エンジンを触る版で消化すること** |
 | 6 | ⚠️ **`sync_url_` のキー体系が2系統に分かれている**（2026-09-07 / 実害は未確認）。`loadSingleYT()` は **`sync_url_<cardId>`**（例 `sync_url_card_17`）へ、`resaveUrlsBasedOnOrder()` は **`sync_url_<index>`（1..N）**へ書き、**両者は同期されない。** URLを読み込んだだけでは連番キーが空のまま。🔴 **v2.8.5 の指示書はこれを取り違えており、`D-Y4` が「空欄どうしの比較」で自明に成立しかけた**（着手前照会で発覚）。**保存URLに触る版では必ず確認すること** |
 | 7 | ⚠️ **9枠のピン前の行トラック 299px の説明がつかない**（2026-09-07）。1fr 相当 293.33px を 5.67px 上回るが、**同じ3列3行・同じカード幅 524px の「6枠＋ピン」は 293.33px ちょうど**で矛盾する。🔴 **切り分けられなかったので「9枠はピン無しでも崩れる」とは主張しない。** スパイク 7-A で測り直すこと |
 | 8 | ⚠️ **矩形の収束が同一構成・同一実行内で 100ms 対 2012ms と20倍ぶれる**（2026-09-16 / v2.8.7）。原因は未特定。`LAYOUT_SETTLE_MS` は 3000 なので時間切れではなく実際に2秒動き続けている。2026-10-02 の再測では出なかった。**版数を切らないスパイク向き** |
 | 9 | ⚠️ **6枠・自動以外の構成で、ピン枠の隅の自動判定が無い**（2026-09-16 / v2.8.7）。`D-Y11` / `D-Y12` は 6枠・自動（3×3）のみ。手動2列・1列・3枠で「選べる隅が2つになる」ことは**目視のみ**。`D-Y11` に構成を足すかは未定 |
+| 10 | 🔴 **v2.11.1（ライブの配信終了の検知・取得の打ち切り）の実機確認**（2026-10-22 締め）。用紙 `tests/test_v2_12_1.html` の R6・R7。配信終了から「配信終了」表示までの時間（目安2分）・止まったときの見出しの文言（`STALLED` / 再接続中）を測る |
+| 11 | **v2.11.2 の専用測定なし**（マイリストの再生位置・ミキサーのチャンネル名）。本物の YouTube で `getVideoData().author` がチャンネル名を返すかは**実機で確かめていない**（headless の偽プレイヤーのみ） |
+| 12 | **音量メーターの 9枠での負荷**が未測定（v2.12.0 の R5 は「測れなかった」）。カクつき対策（11節 上表）と一緒に測る |
 
 ### 保留（版数を切らない）
 - `relativeSeekReport` の `diff` 欠落（B側が未実装のため現時点で実害なし）
