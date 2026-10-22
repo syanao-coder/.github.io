@@ -7,7 +7,7 @@
    ============================================================ */
 (function () {
     'use strict';
-    var SNIP_VERSION = 'flow-s1-1.0.0';
+    var SNIP_VERSION = 'flow-s1-1.1.0';
     var RUN_MS = 20000, GAP_MS = 3000;
     var MODES = [
         { id: 'D-F1', name: '基準（今のまま）', noShadow: false, waapi: false },
@@ -21,7 +21,10 @@
 
     var orig = {
         raf: window.flowRafLoop, spawn: window.flowSpawn,
-        pumpFlow: window.pumpFlowProgress, pumpChat: window.pumpChatProgress
+        pumpFlow: window.pumpFlowProgress, pumpChat: window.pumpChatProgress,
+        /* ★1.1.0: v2.12.x の音量メーターと埋め込みからの受信も測る（無い版では null） */
+        renderMeters: (typeof window.renderMeters === 'function') ? window.renderMeters : null,
+        embed: (typeof window.handleEmbedMessage === 'function') ? window.handleEmbedMessage : null
     };
     var haveAll = typeof orig.raf === 'function' && typeof orig.spawn === 'function'
         && typeof orig.pumpFlow === 'function' && typeof orig.pumpChat === 'function';
@@ -49,7 +52,9 @@
     function newM(mode) {
         return { mode: mode, frames: [], rafDur: [], tickChat: [], tickFlow: [], spawnPerTick: [], spawnNow: 0,
                  spawnMs: 0, spawns: 0, onscreen: [], clockDev: [], clockBack: 0, clockBig: 0, anims: 0,
-                 lastEst: {}, shadowBefore: null, shadowAfter: null, liveCards: 0, archiveCards: 0 };
+                 lastEst: {}, shadowBefore: null, shadowAfter: null, liveCards: 0, archiveCards: 0,
+                 /* ★1.1.0: 自前の処理の合計と、ページへ届くメッセージの量 */
+                 meterMs: 0, meterN: 0, embedMs: 0, embedN: 0, msgN: 0, msgYt: 0, msgChars: 0 };
     }
 
     /* ---------- F3/F4: 合成器で動かす ---------- */
@@ -154,6 +159,18 @@
             orig.pumpChat.apply(this, arguments);
             m.tickChat.push(performance.now() - t);
         };
+        if (orig.renderMeters) window.renderMeters = function () {
+            var t = performance.now();
+            var r = orig.renderMeters.apply(this, arguments);
+            m.meterMs += performance.now() - t; m.meterN++;
+            return r;
+        };
+        if (orig.embed) window.handleEmbedMessage = function () {
+            var t = performance.now();
+            var r = orig.embed.apply(this, arguments);
+            m.embedMs += performance.now() - t; m.embedN++;
+            return r;
+        };
         if (mode.noShadow) {
             var st = document.createElement('style');
             st.id = '__flowSpikeStyle';
@@ -164,6 +181,8 @@
     function uninstall() {
         window.flowRafLoop = orig.raf; window.flowSpawn = orig.spawn;
         window.pumpFlowProgress = orig.pumpFlow; window.pumpChatProgress = orig.pumpChat;
+        if (orig.renderMeters) window.renderMeters = orig.renderMeters;
+        if (orig.embed) window.handleEmbedMessage = orig.embed;
         var st = document.getElementById('__flowSpikeStyle');
         if (st) st.remove();
     }
@@ -187,6 +206,13 @@
             requestAnimationFrame(mon);
         }
         requestAnimationFrame(mon);
+        /* ★1.1.0: ページへ届くメッセージを数える（YouTube の枠は 1枠あたり毎秒数回、状態を送ってくる） */
+        var onMsg = function (e) {
+            m.msgN++;
+            if (e.origin === 'https://www.youtube.com') m.msgYt++;
+            if (typeof e.data === 'string') m.msgChars += e.data.length;
+        };
+        window.addEventListener('message', onMsg, true);
         var iv = setInterval(function () {
             m.onscreen.push(document.querySelectorAll('.flow-msg').length);
             if (m.shadowAfter === null) m.shadowAfter = shadowNow();   // 切替後に流れているコメントで見る
@@ -194,6 +220,7 @@
         }, 500);
         await sleep(RUN_MS);
         stop = true; clearInterval(iv);
+        window.removeEventListener('message', onMsg, true);
         uninstall();
         return summarize(m);
     }
@@ -223,6 +250,17 @@
         notes.push({ name: '落ちたフレーム（中央値の1.5倍超）/ 50ms超', value: drops + ' / ' + big + '（全 ' + fr.n + '）' });
         notes.push({ name: '流しの1フレームの処理 ms（平均 / 95% / 最大）', value: f1(rd.mean) + ' / ' + f1(rd.p95) + ' / ' + f1(rd.max) });
         notes.push({ name: 'tick: チャット欄 ms（平均 / 最大）', value: f1(tc.mean) + ' / ' + f1(tc.max) });
+        /* ★1.1.0: 落ちたフレームで失った時間と、自前の処理の合計を同じ単位（ms/秒）で並べる。
+           失った時間が自前の処理より大きく多いなら、詰まらせているのは自前の処理ではない（YouTube の処理・GC など）。 */
+        var secs = RUN_MS / 1000;
+        var lost = 0; m.frames.slice(1).forEach(function (d) { if (d > refresh * 1.5) lost += d - refresh; });
+        var sum = function (a) { var t = 0; a.forEach(function (x) { t += x; }); return t; };
+        var ours = sum(m.rafDur) + sum(m.tickChat) + sum(m.tickFlow) + m.meterMs + m.embedMs;
+        notes.push({ name: '🔴 落ちたフレームで失った時間 ms/秒', value: f1(lost / secs) });
+        notes.push({ name: '🔴 自前の処理の合計 ms/秒（流しの描画・tick・メーター・埋め込みの受信）', value: f1(ours / secs)
+            + '（内訳: 流し ' + f1(sum(m.rafDur) / secs) + ' / tick ' + f1((sum(m.tickChat) + sum(m.tickFlow)) / secs)
+            + ' / メーター ' + f1(m.meterMs / secs) + '（' + m.meterN + '回）/ 受信 ' + f1(m.embedMs / secs) + '（' + m.embedN + '件））' });
+        notes.push({ name: 'ページへ届くメッセージ 件/秒（全体 / YouTube から）・文字数/秒', value: f1(m.msgN / secs) + ' / ' + f1(m.msgYt / secs) + ' ・ ' + Math.round(m.msgChars / secs) });
         notes.push({ name: 'tick: 流しの生成 ms（平均 / 最大）', value: f1(tf.mean) + ' / ' + f1(tf.max) });
         notes.push({ name: '1tickの生成数（平均 / 最大）・生成の合計時間', value: f1(sp.mean) + ' / ' + sp.max + ' ・ ' + f1(m.spawnMs) + 'ms（' + m.spawns + '件）' });
         notes.push({ name: '同時表示（平均 / 最大）', value: f1(on.mean) + ' / ' + on.max });
