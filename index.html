@@ -186,8 +186,9 @@
         .vol-sub { display: block; font-size: 0.68rem; color: #888; overflow: hidden; text-overflow: ellipsis; }
         /* ★v2.12.0: 音量メーター */
         .vol-meter-row { display: flex; align-items: center; gap: 8px; margin: -2px 0 6px 178px; }
-        .vol-meter-track { flex: 1; height: 6px; background: #2a2a33; border-radius: 3px; overflow: hidden; min-width: 80px; }
-        .vol-meter-bar { height: 100%; width: 0; background: #00ffcc; transition: width 0.08s linear; }
+        .vol-meter-track { position: relative; flex: 1; height: 8px; background: #2a2a33; border-radius: 3px; overflow: hidden; min-width: 80px; }
+        .vol-meter-bar { height: 100%; width: 0; background: #00ffcc; }   /* ★v2.12.1: 動きは rAF で補間する（CSS の transition はやめた） */
+        .vol-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; display: none; }   /* ★v2.12.1 ピークホールド */
         .vol-meter-txt { width: 78px; flex-shrink: 0; font-size: 0.7rem; color: #9fe; font-family: monospace; text-align: right; }
         .vol-ch { display: block; font-size: 0.68rem; color: #b8b8c8; overflow: hidden; text-overflow: ellipsis; }   /* ★v2.11.2 */
         /* ★v2.11.2: マイリストの「▸ 再生位置」 */
@@ -840,7 +841,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.12.0';
+        const APP_VERSION = '2.12.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1389,25 +1390,62 @@
             loadSingleYT(cardId, true);
         }
         /* パネルの各行のメーターを書き直す（パネルが開いている間 0.1秒ごと）。 */
-        function renderMeters() {
+        /* ★v2.12.1: バーの動き（一般的なメーターの「弾道」）とピークホールド。
+           報告は 0.1秒ごとに届くが、届き方が乱れても（枠が多いと乱れる）バーがガタつかないよう、
+           描画は毎フレーム（rAF）で行い、上がるときは即座に・下がるときは一定の速さで落とす。
+           ピークの線は最大値で止まり、HOLD のあいだ動かず、その後ゆっくり左へ落ちる。超える音が来たら跳ね上がる。
+           数値（3秒平均）は 0.4秒ごとにだけ書き換える（毎回書くと 1 dB 単位でちらついて読みにくい）。 */
+        const METER_RELEASE_DB_S = 24;     // バーが下がる速さ（dB/秒）
+        const METER_PEAK_HOLD_MS = 1000;   // ピークの線が止まっている時間
+        const METER_PEAK_FALL_DB_S = 10;   // ピークの線が落ちる速さ（dB/秒）
+        const METER_TEXT_MS = 400;         // 数値を書き換える間隔
+        let meterDisp = {};                // cardId → { lvl, peak, peakAt, lastT, textAt }
+        function meterPct(db) {
+            return Math.max(0, Math.min(100, (db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100));
+        }
+        /* force=true（既定）: 数値もその場で書き換える。rAF からは false で呼ぶ。 */
+        function renderMeters(force) {
+            if (force === undefined) force = true;
             const on = isMeterOn();
             const sw = document.getElementById('meterOnToggle');
             if (sw && sw.checked !== on) sw.checked = on;
+            const nowP = performance.now();
             getSortedCards().forEach(function (card) {
                 const cid = card.id;
                 const bar = document.getElementById('volMeterBar_' + cid);
                 const txt = document.getElementById('volMeterTxt_' + cid);
                 if (!bar || !txt) return;
+                const pk = document.getElementById('volMeterPeak_' + cid);
                 const m = meterLevels[cid];
                 const fresh = m && (Date.now() - m.at) <= METER_STALE_MS;
-                let pct = 0, label = '—', tip = '';
+                const live = !!(fresh && m.state === 'running' && m.db !== null);
+                const d = meterDisp[cid] || (meterDisp[cid] = { lvl: METER_FLOOR_DB, peak: METER_FLOOR_DB, peakAt: 0, lastT: nowP, textAt: 0 });
+                const dt = Math.max(0, Math.min(0.5, (nowP - d.lastT) / 1000));   // 背面から戻ったときに一度に動かしすぎない
+                d.lastT = nowP;
+                if (!live) {
+                    d.lvl = METER_FLOOR_DB; d.peak = METER_FLOOR_DB; d.peakAt = 0;   // 信号が無いときは残さない
+                } else {
+                    d.lvl = Math.max(m.db, d.lvl - METER_RELEASE_DB_S * dt);        // 上がるのは即座・下がるのは一定の速さ
+                    if (d.lvl >= d.peak) { d.peak = d.lvl; d.peakAt = nowP; }
+                    else if (nowP - d.peakAt > METER_PEAK_HOLD_MS) d.peak = Math.max(d.lvl, d.peak - METER_PEAK_FALL_DB_S * dt);
+                }
+                bar.style.width = meterPct(d.lvl).toFixed(1) + '%';
+                /* 色はその瞬間の大きさで決める（-12 dB 超は黄、-3 dB 超は赤）。バーの幅で色の割合を変えない */
+                bar.style.background = (live && d.lvl > -3) ? '#ff4757' : ((live && d.lvl > -12) ? '#ffb020' : '#00ffcc');
+                if (pk) {
+                    pk.style.left = meterPct(d.peak).toFixed(1) + '%';
+                    pk.style.display = (live && d.peak > METER_FLOOR_DB) ? 'block' : 'none';
+                    pk.style.background = d.peak > -3 ? '#ff4757' : (d.peak > -12 ? '#ffb020' : '#ffffff');
+                }
+                if (!force && nowP - d.textAt < METER_TEXT_MS) return;
+                d.textAt = nowP;
+                let label = '—', tip = '';
                 if (!ytPlayers[cid]) { label = ''; }
                 else if (!fresh) { label = '—'; tip = '報告が届いていません（アドオン 2.12.0 が必要・再生すると測り始めます）'; }
-                else if (m.state === 'running' && m.db !== null) {
-                    pct = Math.max(0, Math.min(100, (m.db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100));
+                else if (live) {
                     const avg = meterAvgDb(m);
                     label = avg === null ? '—' : ('平均 ' + Math.round(avg) + ' dB');
-                    tip = '今 ' + Math.round(m.db) + ' dB / 声の帯域 ' + (m.speechDb === null ? '-' : Math.round(m.speechDb)) + ' dB'
+                    tip = '今 ' + Math.round(m.db) + ' dB / ピーク ' + Math.round(d.peak) + ' dB / 声の帯域 ' + (m.speechDb === null ? '-' : Math.round(m.speechDb)) + ' dB'
                         + (m.latencyMs !== null ? ' / 遅れ ' + m.latencyMs + 'ms' : '')
                         + (m.loud !== null && m.volume ? ' / YouTube の目安 ' + Math.round(m.loud + 20 * Math.log10(Math.max(1e-4, m.volume))) + ' dB' : '');
                 }
@@ -1418,9 +1456,6 @@
                     else label = 'オフ';
                 }
                 else { label = '測れません'; tip = m.why || m.state; }
-                bar.style.width = pct.toFixed(1) + '%';
-                /* 色はその瞬間の大きさで決める（-12 dB 超は黄、-3 dB 超は赤）。バーの幅で色の割合を変えない */
-                bar.style.background = (m && fresh && m.db > -3) ? '#ff4757' : ((m && fresh && m.db > -12) ? '#ffb020' : '#00ffcc');
                 txt.textContent = label;
                 txt.title = tip;
             });
@@ -1428,10 +1463,13 @@
         function startMeterUi() {
             if (!METER_FEATURE || meterUiTimer) return;
             meterTick();
-            meterUiTimer = setInterval(function () {
-                if (!isVolumeMenuOpen()) { clearInterval(meterUiTimer); meterUiTimer = null; return; }
-                renderMeters();
-            }, 100);
+            /* ★v2.12.1: setInterval(100ms) をやめ、毎フレーム描く（バーとピークの線を補間する） */
+            const loop = function () {
+                if (!isVolumeMenuOpen()) { meterUiTimer = null; return; }
+                renderMeters(false);
+                meterUiTimer = requestAnimationFrame(loop);
+            };
+            meterUiTimer = requestAnimationFrame(loop);
         }
         if (METER_FEATURE) setInterval(meterTick, 1000);
 
@@ -1644,6 +1682,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.12.1', d: '2026-10-22', t: [
+                '音量メーターに、いちばん大きかった所に残る線（ピークホールド）を足した。線は1秒止まってからゆっくり下がり、超える音が来ると跳ね上がる',
+                'メーターのバーを毎フレーム補間して動かすようにした（枠が多いときもガタつきにくい）。平均の数値は0.4秒ごとに更新してちらつきを抑えた'] },
             { v: '2.12.0', d: '2026-10-21', t: [
                 '音量のパネルに、枠ごとの音の大きさのメーター（今の大きさのバーと3秒平均の数値）を出した。全枠同じ目盛りなので、どの枠が大きく鳴っているかを比べられる（🔴 アドオン 2.12.0 が必要。パネルのスイッチで切れる）'] },
             { v: '2.11.2', d: '2026-10-21', t: [
@@ -1981,6 +2022,8 @@
                     const track = document.createElement('div'); track.className = 'vol-meter-track';
                     const bar = document.createElement('div'); bar.className = 'vol-meter-bar'; bar.id = 'volMeterBar_' + cid;
                     track.appendChild(bar);
+                    const peak = document.createElement('div'); peak.className = 'vol-meter-peak'; peak.id = 'volMeterPeak_' + cid;   /* ★v2.12.1 */
+                    track.appendChild(peak);
                     const txt = document.createElement('span'); txt.className = 'vol-meter-txt'; txt.id = 'volMeterTxt_' + cid; txt.textContent = '—';
                     mrow.appendChild(track); mrow.appendChild(txt);
                     mrow.addEventListener('mouseenter', () => card.classList.add('vol-highlight'));

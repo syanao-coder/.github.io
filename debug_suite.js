@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.20.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.21.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.12.0';
+    var EXPECT_APP_VERSION = '2.12.1';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.12.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.12.0', ids: ['D-V1', 'D-V2', 'D-A1', 'D-A4', 'D-W3'] };
+    var VERSION_FOCUS = { v: '2.12.1', ids: ['D-V1', 'D-V2', 'D-A1', 'D-A4', 'D-W3'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1910,13 +1910,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 42);
+        expect('配列の件数', hist ? hist.length : 0, 43);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7529,8 +7529,26 @@
             expect('state=suspended は「測れません」（理由は title）', txt.textContent + ' / ' + txt.title, '測れません / AudioContext が suspended のまま');
             lvl({ state: 'off', db: null }); renderMeters();
             expect('state=off は「オフ」', txt.textContent, 'オフ');
+            /* ★v1.21.0（v2.12.1）: ピークホールドとバーの落ち方。時間の経過は meterDisp の時刻をずらして作る */
+            var pk = document.getElementById('volMeterPeak_' + cid);
+            expect('🔴 ピークの線（volMeterPeak_）がある', pk ? 'ok' : '無い', 'ok');
+            if (pk && typeof meterDisp !== 'undefined') {
+                delete meterDisp[cid];
+                lvl({ db: -10 }); renderMeters();
+                expect('大きい音でピークの線がその位置へ（-10 dB → 83.3%）', parseFloat(pk.style.left).toFixed(1), '83.3');
+                var dd = meterDisp[cid];
+                lvl({ db: -40 }); dd.peakAt = performance.now(); dd.lastT = performance.now() - 500; renderMeters();
+                expect('🔴 止まっている間（1秒以内）はピークの線が動かない', parseFloat(pk.style.left).toFixed(1), '83.3');
+                expect('バーは一定の速さで下がる（24 dB/秒 × 0.5秒 → -22 dB ＝ 63.3%。一気に -40 へ落ちない）', parseFloat(bar.style.width).toFixed(1), '63.3');
+                dd.peakAt = performance.now() - 2000; dd.lastT = performance.now() - 500; renderMeters();
+                expect('🔴 止まる時間を過ぎるとピークの線がゆっくり落ちる（10 dB/秒 × 0.5秒 → -15 dB ＝ 75.0%）', parseFloat(pk.style.left).toFixed(1), '75.0');
+                expect('ピークの線はバーより右にある', parseFloat(pk.style.left) > parseFloat(bar.style.width) ? 'ok' : (pk.style.left + ' / ' + bar.style.width), 'ok');
+                lvl({ db: -5 }); renderMeters();
+                expect('🔴 超える音が来たらピークの線が跳ね上がる（-5 dB → 91.7%）', parseFloat(pk.style.left).toFixed(1), '91.7');
+            }
             lvl({ db: -30 }); meterLevels[cid].at = Date.now() - 2000; renderMeters();
             expect('🔴 1.5秒届かなければバーを空にして「—」', txt.textContent + ' / ' + parseFloat(bar.style.width), '— / 0');
+            if (pk) expect('信号が無いときはピークの線も消える', pk.style.display, 'none');
             /* 送る指示 */
             meterTick();
             var mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
@@ -7554,7 +7572,9 @@
         } finally {
             window.loadSingleYT = origLoad;
             try { if (meterBefore === null) localStorage.removeItem('sync_meter_on'); else localStorage.setItem('sync_meter_on', meterBefore); } catch (e) { }
-            try { if (cid) { delete meterLevels[cid]; delete meterNoAttach[cid]; delete meterReloadSeek[cid]; } } catch (e) { }
+            try { if (cid) { delete meterLevels[cid]; delete meterNoAttach[cid]; delete meterReloadSeek[cid]; if (typeof meterDisp !== 'undefined') delete meterDisp[cid]; } } catch (e) { }
+            /* ★v1.21.0: 偽の BROKEN の記録を残さない（v1.20.0 は残し、D-W3 の観測に混ざった ─ 2026-10-22 実機） */
+            try { for (var bi = meterBrokenLog.length - 1; bi >= 0; bi--) { if (meterBrokenLog[bi].why === '試験') meterBrokenLog.splice(bi, 1); } } catch (e) { }
             try { if (cid) { if (saved) ytPlayers[cid] = saved; else delete ytPlayers[cid]; if (savedKey === undefined) delete cardVideoKeys[cid]; else cardVideoKeys[cid] = savedKey; } } catch (e) { }
             try { if (ifr) ifr.remove(); } catch (e) { }
             try { await closeAllMenus(); } catch (e) { }
@@ -7672,7 +7692,7 @@
         { id: 'D-A3', name: '★音量ミキサーにチャンネル名が出る（取れない回は覚えた名前）', run: testA3, manual: true },
         { id: 'D-B1', name: '★マイリストの履歴で各動画の再生位置・タイトル・チャンネル名が見られる', run: testB1, manual: true },
         /* ★v1.20.0: v2.12.0。D-A4 は枠数を変える・D-W3 は再生中の YouTube とアドオン 2.12.0 が要るので manual。 */
-        { id: 'D-A4', name: '★音量メーターの表示（dB→バー・3秒平均・途絶・状態・スイッチ・BROKEN で読み直し）', run: testA4, manual: true },
+        { id: 'D-A4', name: '★音量メーターの表示（dB→バー・ピークホールド・3秒平均・途絶・状態・スイッチ・BROKEN で読み直し）', run: testA4, manual: true },
         { id: 'D-W3', name: '★音量メーター（実機）: 全枠から音のレベルが届き、一時停止した枠だけ無音になる', run: testW3, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
