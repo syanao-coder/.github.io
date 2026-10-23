@@ -515,7 +515,7 @@
             line-height: 1; padding: 2px 4px;
         }
         .player-notice-close:hover { color: #ff6b81; }
-        .flow-msg { position: absolute; left: 100%; top: 0; white-space: nowrap; will-change: transform; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000; }
+        .flow-msg { position: absolute; left: 100%; top: 0; white-space: nowrap; will-change: transform; color: #fff; font-weight: bold; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; }
         .flow-msg .chat-emoji { height: 1em; width: auto; vertical-align: -0.15em; }
         .flow-toggle-btn { opacity: 0.45; }
         .flow-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
@@ -841,7 +841,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.12.1';
+        const APP_VERSION = '2.12.2';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1682,6 +1682,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.12.2', d: '2026-10-23', t: [
+                'ライブのチャットが約10秒ごとに塊で出ていたのを、投稿された時刻どおりの間隔で出すようにした（チャット欄と流しの両方。そのぶん最大で約10秒遅れて出る）',
+                'コメント流しの縁取りを、ぼかしの無い縁取りに変えた（見た目はほぼ同じで描画が軽い）'] },
             { v: '2.12.1', d: '2026-10-22', t: [
                 '音量メーターに、いちばん大きかった所に残る線（ピークホールド）を足した。線は1秒止まってからゆっくり下がり、超える音が来ると跳ね上がる',
                 'メーターのバーを毎フレーム補間して動かすようにした（枠が多いときもガタつきにくい）。平均の数値は0.4秒ごとに更新してちらつきを抑えた'] },
@@ -3678,6 +3681,14 @@
         /* 追いつけないほど溜まったら、古い方は捨てて最新へ飛ぶ。
            配信中に何分も前のコメントを流しても意味がないため。 */
         const FLOW_LIVE_BACKLOG_MAX = 60;
+        /* ★v2.12.2: ライブのチャットの塊の平滑化。約10秒ごとにまとめて届くコメントを、
+           投稿の時刻 t どおりの間隔で、一定の遅れ K を付けて出す（チャット欄と流しで同じ予定表）。
+           K = 届いた時刻 − t の最大（同じ時計どうしの差なので PC の時計のずれは効かない）。
+           🔴 LIVE_SMOOTH_FEATURE = false で従来どおり（届いたら全部出す）。 */
+        const LIVE_SMOOTH_FEATURE = true;
+        const LIVE_SMOOTH_MAX_LAG_MS = 30000;   // これより遅れたものはすぐ出し、K に入れない（初回の過去ぶん・復帰後の重複）
+        const LIVE_SMOOTH_DECAY = 0.1;          // K は経過時間 × 0.1 ずつ縮む（急に縮めると塊が出る）
+        let liveSmoothOn = LIVE_SMOOTH_FEATURE;
         let flowRaf = null;      // 🔴 全枠で1本だけ。枠ごとに立てないこと
         let flowCanvasCtx = null;
 
@@ -4124,6 +4135,9 @@
                🔴 ⚠不完全 を出さない。complete は null（＝未確定）であって
                   「途中で失敗した」ではない。 */
             if (store.live) {
+                /* ★v2.12.2: 平滑化の遅れは title にだけ出す（見た目は変えない） */
+                el.title = (liveSmoothOn && store.liveLagMs > 0)
+                    ? '投稿の時刻どおりに散らして表示（約' + Math.round(store.liveLagMs / 1000) + '秒遅れ）' : '';
                 /* ★v2.11.0: 自動復帰した回数と、終わり方（endReason）を出す。
                    🔴 RECOVERY_FAILED / MAX_REQUESTS は「配信終了」と書かない（実際は配信が続いている）。
                    endReason が無い（旧アドオン）ときは従来どおり「配信終了」。 */
@@ -4498,12 +4512,53 @@
             if (d.liveBy) store.liveBy = d.liveBy;
         }
 
+        /* ★v2.12.2: 届いたライブのコメント（from 以降）に、出す時刻 due を付ける。
+           🔴 最初にコメントの入ったチャンクは直近の過去ぶんなので全部すぐ出す（K に入れると数分遅れる）。 */
+        function liveSmoothIngest(store, from, now) {
+            if (!store.liveDue) { store.liveDue = []; store.liveShown = 0; store.liveLagMs = null; store.liveLagAt = null; }
+            const due = store.liveDue, cs = store.comments;
+            if (due.length !== from) return;   // 予定表の無いコメントがある → liveShownCount が全部出す側へ倒す
+            const primed = store.liveLagAt !== null;
+            let maxLag = -Infinity;
+            if (primed) {
+                for (let i = from; i < cs.length; i++) {
+                    const lag = now - cs[i].t;
+                    if (lag <= LIVE_SMOOTH_MAX_LAG_MS && lag > maxLag) maxLag = lag;
+                }
+                const decayed = store.liveLagMs - (now - store.liveLagAt) * LIVE_SMOOTH_DECAY;
+                store.liveLagMs = Math.max(decayed, maxLag, 0);
+            } else if (cs.length > from) {
+                store.liveLagMs = 0;
+            }
+            if (cs.length > from) store.liveLagAt = now;
+            let prev = due.length ? due[due.length - 1] : -Infinity;
+            for (let i = from; i < cs.length; i++) {
+                const lag = now - cs[i].t;
+                let at = (!primed || lag > LIVE_SMOOTH_MAX_LAG_MS) ? now : cs[i].t + store.liveLagMs;
+                if (at < prev) at = prev;      // 順番を崩さない
+                due.push(at);
+                prev = at;
+            }
+        }
+
+        /* ★v2.12.2: いま出してよいライブのコメントの数（comments の先頭から）。
+           🔴 予定表と長さが違う・平滑化オフ のときは全部（取りこぼすより出す側に倒す）。 */
+        function liveShownCount(store, now) {
+            const cs = store.comments, due = store.liveDue;
+            if (!liveSmoothOn || !due || due.length !== cs.length) return cs.length;
+            let k = store.liveShown || 0;
+            while (k < due.length && due[k] <= now) k++;
+            store.liveShown = k;
+            return k;
+        }
+
         function handleChatChunk(d) {
             const videoId = chatPending[d.requestId];
             if (videoId === undefined) return;
             armChatWatchdog(d.requestId, CHAT_STALL_TIMEOUT_MS);
 
             const store = ensureChatStore(videoId);
+            const fromN = store.comments.length;   /* ★v2.12.2 */
 
             /* 欠番の検出。実測では190,510件で欠落0だったが、
                静かに減るのが一番まずい失敗なので検出だけはしておく。 */
@@ -4518,6 +4573,7 @@
             if (Array.isArray(d.comments) && d.comments.length) {
                 for (let i = 0; i < d.comments.length; i++) store.comments.push(d.comments[i]);
                 if (typeof d.lastT === 'number' && d.lastT > store.lastT) store.lastT = d.lastT;
+                if (store.live) liveSmoothIngest(store, fromN, performance.now());   /* ★v2.12.2 */
             }
 
             /* ★末尾に足すだけなので chatCursor はそのままで正しい。
@@ -4805,7 +4861,7 @@
             /* ★v2.8.0: ライブは再生位置で組み直せない。直近を末尾から見せる。 */
             let idx, from, now;
             if (store.live) {
-                idx = store.comments.length;
+                idx = liveShownCount(store, performance.now());   /* ★v2.12.2 */
                 from = Math.max(0, idx - CHAT_CONTEXT_COUNT);
                 now = 0;
             } else {
@@ -4876,12 +4932,13 @@
                      利用者の再生位置とは無関係にどんどん増えるため）。
                    🔴 アーカイブ枠はこの if の下（従来のコード）をそのまま通る。 */
                 if (store.live) {
+                    const shownL = liveShownCount(store, performance.now());   /* ★v2.12.2: 予定の時刻が来た分だけ */
                     let cursorL = chatCursor[cardId] || 0;
-                    if (cursorL >= store.comments.length) return;
+                    if (cursorL >= shownL) return;
                     const stickL = chatStick[cardId] !== false;
                     const fragL = document.createDocumentFragment();
                     let addedL = 0;
-                    while (cursorL < store.comments.length) {
+                    while (cursorL < shownL) {
                         fragL.appendChild(buildChatMessageNode(store.comments[cursorL], store.emoji));
                         cursorL++; addedL++;
                     }
@@ -5470,18 +5527,19 @@
                         flowLiveT0[cardId] = performance.now();
                     }
                     const lanesL = flowEnsureLanes(cardId, layer);
+                    const shownF = liveShownCount(store, performance.now());   /* ★v2.12.2: 予定の時刻が来た分だけ */
                     let iL = flowCursor[cardId];
-                    if (iL === undefined || iL === null) iL = comments.length;   // 開いた時点より後だけ流す
+                    if (iL === undefined || iL === null) iL = shownF;   // 開いた時点より後だけ流す
 
                     /* 溜まりすぎたら古い方を捨てて最新へ飛ぶ。 */
-                    if (comments.length - iL > FLOW_LIVE_BACKLOG_MAX) {
-                        iL = comments.length - FLOW_LIVE_BACKLOG_MAX;
+                    if (shownF - iL > FLOW_LIVE_BACKLOG_MAX) {
+                        iL = shownF - FLOW_LIVE_BACKLOG_MAX;
                     }
                     /* 1tickで湧かせる上限。10秒ぶんが一度に届くため、
                        そのまま出すとレーンの空き待ちでほとんどが捨てられる。 */
                     let spawned = 0;
                     const nowL = performance.now() - flowLiveT0[cardId];
-                    while (iL < comments.length && spawned < FLOW_LIVE_SPAWN_PER_TICK) {
+                    while (iL < shownF && spawned < FLOW_LIVE_SPAWN_PER_TICK) {
                         flowSpawn(cardId, layer, lanesL, comments[iL], store.emoji, nowL);
                         iL++; spawned++;
                     }
