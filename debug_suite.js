@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.22.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.23.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.12.2';
+    var EXPECT_APP_VERSION = '2.13.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.12.0';
+    var EXPECT_ADDON_REQUIRED = '2.13.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.12.2', ids: ['D-V1', 'D-V2', 'D-A5', 'D-A6', 'D-W4'] };
+    var VERSION_FOCUS = { v: '2.13.0', ids: ['D-V1', 'D-V2', 'D-L10', 'D-W5'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 44);
+        expect('配列の件数', hist ? hist.length : 0, 45);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7857,6 +7857,123 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.23.0 : v2.13.0 の判定（配信中の視聴者数）
+       ==================================================================== */
+    /* --- D-L10: A側だけ。心拍の視聴者数を見出しに出す（古い数・旧アドオン・終了後は出さない） --- */
+    async function testL10() {
+        log('  [目的] ライブのチャット欄の見出しに、心拍で届いた視聴者数（👤 ○人）を出すこと。取ってから120秒を超えた数・旧アドオン（項目なし）・配信終了後は出さないこと。');
+        var has = (typeof liveViewersLabel === 'function');
+        expect('🔴 A側の視聴者数の表示（liveViewersLabel）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var FAKE = 'dbgL10aaaaa';
+        var origPost = window.postMessage;
+        var sent = [];
+        var cid = null;
+        try {
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            window.postMessage = function (msg) {
+                if (msg && (msg.type === 'CHAT_STREAM_REQUEST' || msg.type === 'CHAT_STREAM_CANCEL')) { sent.push(msg); return; }
+                return origPost.apply(window, arguments);
+            };
+            cardVideoKeys[cid] = FAKE;
+            if (typeof setChatMode === 'function') setChatMode(cid, 'all');
+            await openChatPane(cid);
+            sent.length = 0;
+            reloadChat(cid);
+            var req = await waitFor(function () {
+                return sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; })[0] || null;
+            }, 3000, 50);
+            pc('取得要求を捕まえた', function () { return req.ok ? 'ok' : false; });
+            if (!req.ok) return;
+            var rid = req.value.requestId;
+            handleChatMeta({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            handleChatChunk({ requestId: rid, videoId: FAKE, seq: 0, comments: [{ t: 1000, n: 'u', m: 'a' }], emoji: {}, lastT: 1000, liveRecovers: 0 });
+            await wait(50);
+            pc('🔴 偽のライブの見出しが「🔴 配信中」（土俵）', function () { var h = chatHeadText(cid); return /🔴 配信中/.test(h) ? h : false; });
+            function ping(extra) {
+                var e = { requestId: rid, videoId: FAKE, total: 1, lastT: 1000, live: true, livePolls: 3, liveRecovers: 0, liveExits: {}, liveChecks: 0, livePhase: 'poll', lastOkAgoMs: 1000, lastCommentAgoMs: 1000 };
+                Object.keys(extra || {}).forEach(function (k) { e[k] = extra[k]; });
+                handleChatPing({ active: [e], waiting: [] });
+            }
+            var n1 = (1234).toLocaleString(), n2 = (2345).toLocaleString();
+            ping({ viewers: 1234, viewersText: '1,234 人が視聴中', viewersAgoMs: 5000, viewersBy: 'updated_metadata', viewersOk: 1, viewersFails: 0 });
+            await wait(30);
+            var h1 = chatHeadText(cid);
+            expect('🔴 視聴者数が見出しに出る', h1.indexOf('👤 ' + n1 + '人') >= 0 ? 'ok' : h1, 'ok');
+            var tt = (document.getElementById('chatHeadTitle_' + cid) || {}).title || '';
+            expect('見出しの title に YouTube の文字', /1,234 人が視聴中/.test(tt) ? 'ok' : (tt || '(空)'), 'ok');
+            ping({ viewers: 2345, viewersText: '2,345 人が視聴中', viewersAgoMs: 3000, viewersBy: 'watch', viewersOk: 2, viewersFails: 1 });
+            await wait(30);
+            var h2 = chatHeadText(cid);
+            expect('数が変われば見出しも変わる', h2.indexOf('👤 ' + n2 + '人') >= 0 ? 'ok' : h2, 'ok');
+            ping({ viewers: 2345, viewersText: '2,345 人が視聴中', viewersAgoMs: 200000, viewersBy: 'watch' });
+            await wait(30);
+            var h3 = chatHeadText(cid);
+            expect('🔴 取ってから120秒を超えた数は出さない', /👤/.test(h3) ? h3 : 'なし', 'なし');
+            ping({});
+            await wait(30);
+            var h4 = chatHeadText(cid);
+            expect('旧アドオン（項目なし）では出さない', /👤/.test(h4) ? h4 : 'なし', 'なし');
+            ping({ viewers: 1234, viewersText: '1,234 人が視聴中', viewersAgoMs: 5000, viewersBy: 'updated_metadata' });
+            handleChatDone({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', total: 1, complete: null, truncated: false, reqs: 3, livePolls: 3, endReason: 'ENDED' });
+            await wait(50);
+            var h5 = chatHeadText(cid);
+            note('見出し（数あり / 変化 / 古い / 旧アドオン / 終了後）', [h1, h2, h3, h4, h5].join(' → '));
+            expect('🔴 配信終了後は出さない', /配信終了/.test(h5) && !/👤/.test(h5) ? 'ok' : h5, 'ok');
+        } finally {
+            window.postMessage = origPost;
+            try { if (typeof cancelChatRequest === 'function') cancelChatRequest(FAKE); } catch (e) { }
+            try { delete liveVideoIds[FAKE]; delete chatStore[FAKE]; delete chatState[FAKE]; } catch (e) { }
+            try { if (cid) delete cardVideoKeys[cid]; } catch (e) { }
+            try { if (cid) await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-W5: 実機（ライブ）。心拍から視聴者数が届き、見出しに出る --- */
+    async function testW5() {
+        log('  [目的] アドオン 2.13.0 が配信中の視聴者数を取り、心拍で A側へ届けること（どの経路で取れたかも記録する）。最大70秒待つ。');
+        var has = (typeof liveViewersLabel === 'function');
+        expect('🔴 A側の視聴者数の表示（liveViewersLabel）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var ids = (activeCardIds || []).filter(function (id) {
+            var v = chatLoadedVideoId[id];
+            return chatVisible[id] && v && isLiveVideo(v) && chatState[v] === 'streaming';
+        });
+        pc('🔴 チャット欄を開いた配信中のライブ枠がある', function () { return ids.length ? ids.join(',') : false; });
+        if (!ids.length) return;
+        var cid = ids[0], vid = chatLoadedVideoId[cid];
+        var st0 = chatStore[vid];
+        pc('心拍が15秒以内に届いている（アドオン 2.11.1 以降）', function () {
+            return (st0 && st0.livePingAt && Date.now() - st0.livePingAt < 15000) ? Math.round((Date.now() - st0.livePingAt) / 1000) + '秒前' : false;
+        });
+        var r = await waitFor(function () {
+            var s = chatStore[vid];
+            return (s && typeof s.viewers === 'number' && typeof s.viewersAgoMs === 'number' && s.viewersAgoMs <= 120000) ? s.viewers : null;
+        }, 70000, 500);
+        var s = chatStore[vid] || {};
+        note('視聴者数・経路・YouTube の文字', (typeof s.viewers === 'number' ? s.viewers : '-') + ' / ' + (s.viewersBy || '-') + ' / ' + (s.viewersText || '-'));
+        note('取得の回数（成功 / 失敗）・直近の失敗', (s.viewersOk || 0) + ' / ' + (s.viewersFails || 0) + ' ・ ' + (s.viewersError || 'なし'));
+        expect('🔴 70秒以内に視聴者数が届いた', r.ok ? 'ok' : '届かない', 'ok');
+        if (!r.ok) return;
+        expect('数は 0 以上の整数', (r.value >= 0 && Math.floor(r.value) === r.value) ? 'ok' : String(r.value), 'ok');
+        expect('取れた経路が記録されている', (s.viewersBy === 'updated_metadata' || s.viewersBy === 'watch') ? 'ok' : String(s.viewersBy), 'ok');
+        await wait(300);
+        var h = chatHeadText(cid);
+        note('見出し', h);
+        expect('🔴 見出しに「👤」が出る', /👤/.test(h) ? 'ok' : h, 'ok');
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -7923,6 +8040,9 @@
         { id: 'D-A5', name: '★ライブのコメントを投稿の時刻どおりに散らす（予定表とチャット欄）', run: testA5, manual: true },
         { id: 'D-A6', name: '★流しの縁取りがぼかし無し（設定オフでは none）', run: testA6, manual: true },
         { id: 'D-W4', name: '★ライブの平滑化（実機）: 従来と比べて塊で出る割合が下がる（約1分）', run: testW4, manual: true },
+        /* ★v1.23.0: v2.13.0。D-L10 は枠数を変える・D-W5 はライブとアドオン 2.13.0 が要るので manual。 */
+        { id: 'D-L10', name: '★ライブの見出しに視聴者数（古い数・旧アドオン・終了後は出さない）', run: testL10, manual: true },
+        { id: 'D-W5', name: '★配信中の視聴者数（実機）: 心拍で届き、見出しに出る（最大70秒）', run: testW5, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */

@@ -841,12 +841,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.12.2';
+        const APP_VERSION = '2.13.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.12.0';
+        const ADDON_REQUIRED_VERSION = '2.13.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1682,6 +1682,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.13.0', d: '2026-10-23', t: [
+                'ライブのチャット欄の見出しに、配信中の視聴者数（👤 ○人）を出すようにした（30秒ごとに更新。アドオン 2.13.0 が必要）'] },
             { v: '2.12.2', d: '2026-10-23', t: [
                 'ライブのチャットが約10秒ごとに塊で出ていたのを、投稿された時刻どおりの間隔で出すようにした（チャット欄と流しの両方。そのぶん最大で約10秒遅れて出る）',
                 'コメント流しの縁取りを、ぼかしの無い縁取りに変えた（見た目はほぼ同じで描画が軽い）'] },
@@ -4138,6 +4140,8 @@
                 /* ★v2.12.2: 平滑化の遅れは title にだけ出す（見た目は変えない） */
                 el.title = (liveSmoothOn && store.liveLagMs > 0)
                     ? '投稿の時刻どおりに散らして表示（約' + Math.round(store.liveLagMs / 1000) + '秒遅れ）' : '';
+                const vw = (chatState[videoId] === 'streaming') ? liveViewersLabel(store) : '';   /* ★v2.13.0 */
+                if (vw && store.viewersText) el.title = (el.title ? el.title + '\n' : '') + 'YouTube の表示: ' + store.viewersText;
                 /* ★v2.11.0: 自動復帰した回数と、終わり方（endReason）を出す。
                    🔴 RECOVERY_FAILED / MAX_REQUESTS は「配信終了」と書かない（実際は配信が続いている）。
                    endReason が無い（旧アドオン）ときは従来どおり「配信終了」。 */
@@ -4146,7 +4150,7 @@
                 if (chatState[videoId] === 'streaming') {
                     /* ★v2.11.0 再測: 心拍で「復帰を試みている最中」が届いたら、そう出す */
                     const st = (store.livePhase === 'recover') ? '🔴 再接続中' : '🔴 配信中';
-                    el.innerText = head + ' (' + n + ' / ' + st + rec + ')';
+                    el.innerText = head + ' (' + n + ' / ' + st + rec + vw + ')';
                 } else if (why === 'RECOVERY_FAILED' || why === 'STALLED') {
                     el.innerText = head + ' (' + n + ' / ⚠途切れました・🔄で再取得)';
                 } else if (why === 'MAX_REQUESTS') {
@@ -4174,6 +4178,14 @@
             } else {
                 el.innerText = head + ' (' + n + ')';
             }
+        }
+
+        /* ★v2.13.0: 見出しに出す視聴者数。🔴 取ってから120秒を超えた数は出さない（古い数を今の数に見せない）。 */
+        const LIVE_VIEWERS_STALE_MS = 120000;
+        function liveViewersLabel(store) {
+            if (!store || typeof store.viewers !== 'number') return '';
+            if (typeof store.viewersAgoMs !== 'number' || store.viewersAgoMs > LIVE_VIEWERS_STALE_MS) return '';
+            return '・👤 ' + store.viewers.toLocaleString() + '人';
         }
 
         function updateChatHeadForVideo(videoId) {
@@ -4689,7 +4701,16 @@
                     store.lastCommentAgoMs = e.lastCommentAgoMs;
                     store.recoverError = e.recoverError;
                     store.livePingAt = Date.now();
-                    if (was !== store.livePhase + '/' + store.liveRecovers) updateChatHeadForVideo(vid);
+                    /* ★v2.13.0: 視聴者数（旧アドオンでは undefined） */
+                    const wasV = liveViewersLabel(store);
+                    store.viewers = e.viewers;
+                    store.viewersText = e.viewersText;
+                    store.viewersAgoMs = e.viewersAgoMs;
+                    store.viewersBy = e.viewersBy;
+                    store.viewersError = e.viewersError;
+                    store.viewersOk = e.viewersOk;
+                    store.viewersFails = e.viewersFails;
+                    if (was !== store.livePhase + '/' + store.liveRecovers || wasV !== liveViewersLabel(store)) updateChatHeadForVideo(vid);
                 }
             }
             for (const e of (d.waiting || [])) {
