@@ -1,19 +1,24 @@
 /* ============================================================
    スパイク S1: コメント流しのカクつきの切り分け（版数を切らない・本番コードは変えない）
    使い方: コントローラーのページを開き、流しを出した状態で、この全文をコンソールへ貼って Enter。
-   画面左下に小さなパネルが出る。「▶ 計測」で F1→F4 を各20秒ずつ流し、「📋 結果をコピー」で結果を写す。
+   画面左下に小さなパネルが出る。「▶ 計測」で F0・F1・F5・F6・F4 を各20秒ずつ流し、「📋 結果をコピー」で結果を写す。
    🔴 計測のあいだだけ本番の関数（flowRafLoop / flowSpawn / pumpFlowProgress / pumpChatProgress）を包み、
       終わったら元に戻す。終わったらページを読み込み直すこと（F3/F4 で作ったアニメーションが残るため）。
    ============================================================ */
 (function () {
     'use strict';
-    var SNIP_VERSION = 'flow-s1-1.1.0';
+    var SNIP_VERSION = 'flow-s1-1.2.0';
     var RUN_MS = 20000, GAP_MS = 3000;
+    /* ★1.2.0（2026-10-23）: 1.1.0 の実機で「描画が毎秒17〜26回しか回っていない・自前の処理は 35 ms/秒」と分かった。
+       縁取り（ぼかし付きの影4重）を外すと速くなったが、利用者は「縁取りなしは見にくい」。
+       → ぼかし無しの縁取り（F5・F6）と、流しを隠した「動画だけ」の基準（F0）を測る。
+       css: そのモードで足す CSS / shadowRe: 計測中のコメントの text-shadow が満たすべき形（切替が効いた証拠） */
     var MODES = [
-        { id: 'D-F1', name: '基準（今のまま）', noShadow: false, waapi: false },
-        { id: 'D-F2', name: '縁取りなし', noShadow: true, waapi: false },
-        { id: 'D-F3', name: '合成器で動かす（CSS アニメーション相当）', noShadow: false, waapi: true },
-        { id: 'D-F4', name: '合成器で動かす＋縁取りなし', noShadow: true, waapi: true }
+        { id: 'D-F0', name: '流しを隠す（動画とメーターだけ）', css: '.flow-layer { display: none !important; }', hidden: true, waapi: false },
+        { id: 'D-F1', name: '基準（今のまま・ぼかし付きの縁取り）', css: '', waapi: false },
+        { id: 'D-F5', name: 'ぼかし無しの縁取り', css: '.flow-msg { text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000 !important; }', shadowRe: /1px 1px 0px/, waapi: false },
+        { id: 'D-F6', name: 'ぼかし無しの縁取り＋合成器', css: '.flow-msg { text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000 !important; }', shadowRe: /1px 1px 0px/, waapi: true },
+        { id: 'D-F4', name: '縁取りなし＋合成器（1.1.0 で滑らかだった基準）', css: '.flow-msg { text-shadow: none !important; }', shadowRe: /^none$/, waapi: true }
     ];
 
     if (window.__flowSpike && window.__flowSpike.panel) { try { window.__flowSpike.panel.remove(); } catch (e) { } }
@@ -171,10 +176,10 @@
             m.embedMs += performance.now() - t; m.embedN++;
             return r;
         };
-        if (mode.noShadow) {
+        if (mode.css) {
             var st = document.createElement('style');
             st.id = '__flowSpikeStyle';
-            st.textContent = '.flow-msg { text-shadow: none !important; }';
+            st.textContent = mode.css;
             document.head.appendChild(st);
         }
     }
@@ -235,17 +240,23 @@
         var res = [], pcs = [], notes = [];
         pcs.push({ name: '流しを出している枠が1つ以上ある', ok: (m.liveCards + m.archiveCards) > 0,
                    value: (m.liveCards + m.archiveCards) + '枠（ライブ ' + m.liveCards + ' / アーカイブ ' + m.archiveCards + '）' });
-        pcs.push({ name: '画面にコメントが流れていた（平均1件以上）', ok: on.mean >= 1, value: '平均 ' + f1(on.mean) + '件' });
-        pcs.push({ name: 'フレームを数えられた（300以上）', ok: fr.n >= 300, value: fr.n + 'フレーム' });
-        if (m.mode.noShadow) {
-            res.push({ name: '縁取りが消えた（切替が効いた）', ok: m.shadowAfter === 'none',
-                       actual: String(m.shadowAfter) + '（切替前: ' + String(m.shadowBefore) + '）', expected: 'none' });
+        if (m.mode.hidden) {
+            res.push({ name: '流しの層が隠れていた（切替が効いた）', ok: on.max === 0, actual: '表示中のコメント 最大 ' + on.max + '件', expected: '0件' });
         } else {
+            pcs.push({ name: '画面にコメントが流れていた（平均1件以上）', ok: on.mean >= 1, value: '平均 ' + f1(on.mean) + '件' });
+        }
+        /* 1.1.0 は 300 にしていて、描画が遅い実機（毎秒13回）で判定不能になった。20秒で 100 あれば統計には足りる */
+        pcs.push({ name: 'フレームを数えられた（100以上）', ok: fr.n >= 100, value: fr.n + 'フレーム' });
+        if (m.mode.shadowRe) {
+            res.push({ name: '縁取りが切り替わった（切替が効いた）', ok: m.shadowAfter !== null && m.mode.shadowRe.test(m.shadowAfter),
+                       actual: String(m.shadowAfter) + '（切替前: ' + String(m.shadowBefore) + '）', expected: String(m.mode.shadowRe) });
+        } else if (!m.mode.hidden) {
             res.push({ name: '縁取りは元のまま', ok: true, actual: String(m.shadowAfter), expected: '（記録）' });
         }
         if (m.mode.waapi) {
             res.push({ name: 'アニメーションを作れた（切替が効いた）', ok: m.anims > 0, actual: m.anims + '個', expected: '1個以上' });
         }
+        notes.push({ name: '🔴 1秒あたりの描画回数（フレーム数 ÷ 秒）', value: f1(fr.n / (RUN_MS / 1000)) + ' 回/秒' });
         notes.push({ name: 'フレーム間隔 ms（中央 / 平均 / 95% / 最大）', value: f1(fr.p50) + ' / ' + f1(fr.mean) + ' / ' + f1(fr.p95) + ' / ' + f1(fr.max) });
         notes.push({ name: '落ちたフレーム（中央値の1.5倍超）/ 50ms超', value: drops + ' / ' + big + '（全 ' + fr.n + '）' });
         notes.push({ name: '流しの1フレームの処理 ms（平均 / 95% / 最大）', value: f1(rd.mean) + ' / ' + f1(rd.p95) + ' / ' + f1(rd.max) });
@@ -338,7 +349,7 @@
     var status = document.createElement('div');
     status.style.cssText = 'margin:4px 0;font-size:15px;font-weight:bold;';
     var bRun = document.createElement('button');
-    bRun.textContent = '▶ 計測（F1→F4・約1分半）';
+    bRun.textContent = '▶ 計測（F0→F1→F5→F6→F4・約2分）';
     var bCopy = document.createElement('button');
     bCopy.textContent = '📋 結果をコピー';
     var bClose = document.createElement('button');
