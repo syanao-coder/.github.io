@@ -192,6 +192,12 @@
         .vol-meter-txt { width: 78px; flex-shrink: 0; font-size: 0.7rem; color: #9fe; font-family: monospace; text-align: right; }
         .vol-ch { display: block; font-size: 0.68rem; color: #b8b8c8; overflow: hidden; text-overflow: ellipsis; }   /* ★v2.11.2 */
         /* ★v2.11.2: マイリストの「▸ 再生位置」 */
+        .gd-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+        .gd-row input[type=text] { width: 220px; font-size: 0.75rem; }
+        .gd-row button { font-size: 0.75rem; padding: 2px 8px; }
+        #gdriveStatus { font-size: 0.75rem; color: #aaa; }
+        #gdriveStatus.ok { color: #2ed573; }
+        #gdriveStatus.ng { color: #ffb020; }
         .sess-pos-btn { background: transparent; border: 1px solid #555; color: #ccc; font-size: 0.68rem; padding: 0 6px; margin-left: 6px; border-radius: 3px; cursor: pointer; }
         .sess-pos-btn:hover { border-color: #ff9f43; color: #ff9f43; }
         .sess-detail { display: none; margin: 4px 0 2px; padding: 4px 6px; background: rgba(255,255,255,0.04); border-radius: 3px; }
@@ -675,9 +681,26 @@
                     <span style="font-size:0.8rem; color:#888;">または</span>
                     <input type="file" id="importFileInput" accept=".json" onchange="importSessionFile(event)" style="font-size:0.75rem; width:160px;">
                 </div>
+                <!-- ★v2.14.0: 自動保存は既定でオフ -->
+                <div class="control-row" style="margin-top:15px; border-top:1px solid #333; padding-top:10px;">
+                    <label style="font-size:0.9rem;"><input type="checkbox" id="autoSaveOn" onchange="setAutoSaveOn(this.checked)"> 自動保存（一括再生時・ページを閉じる前）</label>
+                </div>
+                <!-- ★v2.14.0: Google ドライブ同期（⭐マイリストだけ） -->
+                <div id="gdriveSection" style="margin-top:10px; border-top:1px solid #333; padding-top:10px;">
+                    <label style="font-size:0.9rem;">☁ Google ドライブ同期（⭐マイリストだけ）:</label>
+                    <div class="gd-row">
+                        <input type="text" id="gdriveClientId" placeholder="クライアント ID（…apps.googleusercontent.com）" onchange="setGdriveClientId(this.value)">
+                    </div>
+                    <div class="gd-row">
+                        <button id="gdriveLoginBtn" onclick="gdriveLogin()">☁ Google でログイン</button>
+                        <button id="gdriveSyncBtn" onclick="gdriveSync('button', true)">🔄 同期</button>
+                        <button id="gdriveLogoutBtn" onclick="gdriveLogout()">ログアウト</button>
+                        <span id="gdriveStatus">未設定</span>
+                    </div>
+                </div>
             </div>
             <div class="settings-section" style="flex:2; min-width:300px;">
-                <h3>📂 マイリスト・自動バックアップ履歴 (最大50件)</h3>
+                <h3>📂 マイリスト・自動バックアップ履歴 (⭐100件・🕒10件まで)</h3>
                 <div id="sessionHistoryList" style="max-height:220px; overflow-y:auto; border:1px solid #333; border-radius:4px; padding:5px; background:rgba(0,0,0,0.3);"></div>
             </div>
         </div>
@@ -841,7 +864,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.13.2';
+        const APP_VERSION = '2.14.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1058,6 +1081,7 @@
             renderAppHistory();
             setupHelpTips();
             loadSavedSettings();
+            try { gdrivePreload(); } catch (e) { }   /* ★v2.14.0: ID を貼った環境だけ Google のログイン部品を先に読む */
             /* 設定を読み込んだ直後にアドオンへ伝える。
                アドオン側は storage.local に持つが、版数を上げた直後や
                別PCへ持ち込んだ直後でも確実に一致させるため毎回送る。 */
@@ -1682,6 +1706,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.14.0', d: '2026-10-24', t: [
+                'マイリスト（⭐）を Google ドライブで同期できるようにした。別のパソコン・ブラウザで保存・削除してもどちらにも反映される（📂 マイリストの「☁ Google ドライブ同期」）',
+                'マイリストの自動保存（一括再生時・ページを閉じる前）を既定でオフにした。📂 マイリストのスイッチでオンにできる'] },
             { v: '2.13.2', d: '2026-10-24', t: [
                 'ライブのチャットで 🔄（取り直し）を押すと、チャット欄は流れるのにコメント流しが止まったままになる不具合を直した'] },
             { v: '2.13.1', d: '2026-10-24', t: [
@@ -1908,6 +1935,8 @@
             if (willOpen) {
                 container.classList.add('open'); btn.classList.add('active');
                 updateSessionListUI();
+                gdriveInitUI();                 /* ★v2.14.0 */
+                gdriveSync('open', true);        // クリックの中なので、切れていれば Google の窓で取り直せる
             }
         }
         /* ★v2.7.2: コメント系設定のドロップダウン。
@@ -2832,6 +2861,7 @@
         }
         function saveSessionState(name, isAutoSave = false) {
             const newState = getNewSessionState(name, isAutoSave);
+            if (!isAutoSave) { newState.id = newSessionId(); newState.updatedAt = Date.now(); }   /* ★v2.14.0 */
             let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
             if (isAutoSave) {
                 let autosaves = list.filter(item => item.isAutoSave);
@@ -2840,9 +2870,11 @@
                 if (autosaves.length > 10) autosaves = autosaves.slice(0, 10);
                 list = [...manualSaves, ...autosaves];
             } else { list.unshift(newState); }
-            if (list.length > 50) list = list.slice(0, 50);
+            /* ★v2.14.0: ⭐ は100件・🕒 は10件まで（全体50件の上限は同期で混ぜた件を黙って捨てるのでやめた） */
+            list = capSessionList(list);
             localStorage.setItem('sync_session_history', JSON.stringify(list));
             updateSessionListUI();
+            if (!isAutoSave) gdriveSync('save', true);
         }
         function saveSessionManual() {
             const input = document.getElementById('sessionNameInput');
@@ -3051,9 +3083,232 @@
         }
         function deleteSessionByIndex(index) {
             let list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            const gone = list[index];
             list.splice(index, 1);
             localStorage.setItem('sync_session_history', JSON.stringify(list));
+            /* ★v2.14.0: 消した ⭐ は墓標を残す（無いともう一方の環境から復活する） */
+            if (gone && !gone.isAutoSave && gone.id) {
+                const tb = loadTombstones(); tb[gone.id] = Date.now(); saveTombstones(tb);
+            }
             updateSessionListUI();
+            if (gone && !gone.isAutoSave) gdriveSync('delete', true);
+        }
+
+        /* ==============================================================
+           ★v2.14.0: マイリストの Google ドライブ同期（⭐ だけ・A側だけ）
+           スコープは drive.appdata（アプリ専用の隠しフォルダ）だけ。トークンはメモリにだけ持つ。
+           🔴 逃げ道: GDRIVE_FEATURE = false で欄ごと出さない
+           ============================================================== */
+        const GDRIVE_FEATURE = true;
+        const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+        const GDRIVE_FILE = 'mylist.json';
+        const MYLIST_MANUAL_MAX = 100;
+        const MYLIST_AUTO_MAX = 10;
+        const TOMBSTONE_KEEP_MS = 180 * 24 * 3600 * 1000;
+        let gdriveToken = null;          // { token, exp }
+        let gdriveTokenClient = null;
+        let gdriveBusy = false, gdrivePending = false;
+        let gdriveFileId = null;
+        let gdriveLastLog = [];          // 判定用: 直近の要求（メソッドと URL の頭だけ）
+
+        function newSessionId() {
+            return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        }
+        function capSessionList(list) {
+            const manual = list.filter(function (x) { return !x.isAutoSave; }).slice(0, MYLIST_MANUAL_MAX);
+            const autos = list.filter(function (x) { return x.isAutoSave; }).slice(0, MYLIST_AUTO_MAX);
+            return manual.concat(autos).sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });   // 従来どおり新しい順に混ぜて並べる
+        }
+        function loadTombstones() {
+            try { return JSON.parse(localStorage.getItem('sync_session_tombstones')) || {}; } catch (e) { return {}; }
+        }
+        function saveTombstones(tb) {
+            try { localStorage.setItem('sync_session_tombstones', JSON.stringify(tb)); } catch (e) { }
+        }
+        /* 件ごとに新しい方を採る。墓標の時刻がそれ以上なら消えたまま。純関数（判定から直接呼ぶ） */
+        function mergeMylist(localManual, remote, localTomb, now) {
+            now = now || Date.now();
+            const tomb = {};
+            [localTomb || {}, (remote && remote.tombstones) || {}].forEach(function (t) {
+                Object.keys(t).forEach(function (id) { if (!(tomb[id] >= t[id])) tomb[id] = t[id]; });
+            });
+            Object.keys(tomb).forEach(function (id) { if (now - tomb[id] > TOMBSTONE_KEEP_MS) delete tomb[id]; });
+            const pick = {};
+            const take = function (it) {
+                if (!it || it.isAutoSave) return;
+                if (!it.id) { it.id = newSessionId(); }
+                if (!it.updatedAt) it.updatedAt = it.timestamp || 0;
+                const cur = pick[it.id];
+                if (!cur || it.updatedAt > cur.updatedAt) pick[it.id] = it;
+            };
+            (localManual || []).forEach(take);
+            ((remote && remote.items) || []).forEach(take);
+            const items = Object.keys(pick).map(function (id) { return pick[id]; })
+                .filter(function (it) { return !(tomb[it.id] >= it.updatedAt); })
+                .sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); })
+                .slice(0, MYLIST_MANUAL_MAX);
+            return { items: items, tombstones: tomb };
+        }
+        function mylistDoc(merged) {
+            return { format: 'sync-mylist', version: 1, updatedAt: Date.now(), items: merged.items, tombstones: merged.tombstones };
+        }
+        function mylistSig(doc) {   // 書く必要があるかを見るための比較用（updatedAt を除く・並び順に依らない）
+            const items = ((doc && doc.items) || []).map(function (it) { return JSON.stringify(it); }).sort();
+            const t = (doc && doc.tombstones) || {};
+            const tomb = Object.keys(t).sort().map(function (k) { return k + ':' + t[k]; });
+            return JSON.stringify({ i: items, t: tomb });
+        }
+
+        function gdriveClientId() {
+            try { return (localStorage.getItem('sync_gdrive_client') || '').trim(); } catch (e) { return ''; }
+        }
+        function setGdriveClientId(v) {
+            try { localStorage.setItem('sync_gdrive_client', String(v || '').trim()); } catch (e) { }
+            gdriveTokenClient = null;
+            gdriveStatus(gdriveClientId() ? 'ログインしてください' : '未設定', '');
+            gdrivePreload();
+        }
+        function gdriveLinked() {
+            try { return localStorage.getItem('sync_gdrive_on') === 'true'; } catch (e) { return false; }
+        }
+        function gdriveStatus(text, kind) {
+            const el = document.getElementById('gdriveStatus');
+            if (!el) return;
+            el.textContent = text;
+            el.className = kind || '';
+        }
+        function gdriveInitUI() {
+            const sec = document.getElementById('gdriveSection');
+            if (sec) sec.style.display = GDRIVE_FEATURE ? '' : 'none';
+            const cid = document.getElementById('gdriveClientId');
+            if (cid) cid.value = gdriveClientId();
+            const as = document.getElementById('autoSaveOn');
+            if (as) as.checked = isAutoSaveOn();
+            if (!gdriveClientId()) gdriveStatus('未設定（クライアント ID を貼る）', '');
+            else if (!gdriveLinked()) gdriveStatus('ログインしてください', '');
+            else gdriveStatus('☁ 同期を使う（📂 を開くと同期）', '');
+        }
+        /* ログインの窓はクリックから数秒以内に開かないと止められるので、部品は先に読んでおく */
+        function gdrivePreload() {
+            if (GDRIVE_FEATURE && gdriveClientId()) loadGisScript().catch(function () { });
+        }
+        function loadGisScript() {
+            return new Promise(function (resolve, reject) {
+                if (window.google && google.accounts && google.accounts.oauth2) { resolve(); return; }
+                const sc = document.createElement('script');
+                sc.src = 'https://accounts.google.com/gsi/client';
+                sc.async = true;
+                sc.onload = function () { resolve(); };
+                sc.onerror = function () { reject(new Error('Google のログイン部品を読めませんでした（追跡防止などで止められた可能性）')); };
+                document.head.appendChild(sc);
+            });
+        }
+        /* 有効なトークンを返す。無ければ interactive のときだけ Google の窓で取り直す */
+        async function gdriveEnsureToken(interactive) {
+            if (gdriveToken && gdriveToken.exp - Date.now() > 60000) return gdriveToken.token;
+            if (!interactive) throw new Error('NEED_LOGIN');
+            const cid = gdriveClientId();
+            if (!cid) throw new Error('クライアント ID が未設定です');
+            await loadGisScript();
+            return await new Promise(function (resolve, reject) {
+                if (!gdriveTokenClient) {
+                    gdriveTokenClient = google.accounts.oauth2.initTokenClient({
+                        client_id: cid, scope: GDRIVE_SCOPE, callback: function () { }
+                    });
+                }
+                gdriveTokenClient.callback = function (resp) {
+                    if (resp && resp.access_token) {
+                        gdriveToken = { token: resp.access_token, exp: Date.now() + (Number(resp.expires_in) || 3600) * 1000 };
+                        resolve(gdriveToken.token);
+                    } else reject(new Error((resp && (resp.error_description || resp.error)) || 'ログインできませんでした'));
+                };
+                gdriveTokenClient.error_callback = function (err) { reject(new Error((err && (err.message || err.type)) || 'ログインの窓が開けませんでした')); };
+                setTimeout(function () { reject(new Error('ログインの応答がありません（窓を閉じた・止められた可能性）')); }, 120000);   // 同期中のまま固まらないように
+                gdriveTokenClient.requestAccessToken({ prompt: gdriveLinked() ? '' : 'consent' });
+            });
+        }
+        async function gdriveFetch(method, url, token, body, ctype) {
+            gdriveLastLog.push(method + ' ' + url.replace(/^https:\/\/www\.googleapis\.com\//, '').slice(0, 80));
+            if (gdriveLastLog.length > 20) gdriveLastLog.shift();
+            const headers = { 'Authorization': 'Bearer ' + token };
+            if (ctype) headers['Content-Type'] = ctype;
+            const res = await fetch(url, { method: method, headers: headers, body: body });
+            if (res.status === 401) { gdriveToken = null; throw new Error('NEED_LOGIN'); }
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res;
+        }
+        async function gdriveReadRemote(token) {
+            if (!gdriveFileId) {
+                const q = encodeURIComponent("name='" + GDRIVE_FILE + "'");
+                const r = await gdriveFetch('GET', 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=' + q + '&fields=files(id,modifiedTime)', token);
+                const j = await r.json();
+                gdriveFileId = (j.files && j.files[0]) ? j.files[0].id : null;
+            }
+            if (!gdriveFileId) return null;
+            const r2 = await gdriveFetch('GET', 'https://www.googleapis.com/drive/v3/files/' + gdriveFileId + '?alt=media', token);
+            try { return JSON.parse(await r2.text()); } catch (e) { return null; }
+        }
+        async function gdriveWriteRemote(token, doc) {
+            const text = JSON.stringify(doc);
+            if (gdriveFileId) {
+                await gdriveFetch('PATCH', 'https://www.googleapis.com/upload/drive/v3/files/' + gdriveFileId + '?uploadType=media', token, text, 'application/json');
+                return;
+            }
+            const boundary = 'syncmylist' + Date.now();
+            const meta = { name: GDRIVE_FILE, parents: ['appDataFolder'], mimeType: 'application/json' };
+            const body = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(meta) +
+                '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' + text + '\r\n--' + boundary + '--';
+            const r = await gdriveFetch('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', token, body, 'multipart/related; boundary=' + boundary);
+            const j = await r.json();
+            gdriveFileId = j.id || null;
+        }
+        /* 読む → 混ぜる → 手元へ反映 → ドライブと違えば書く。同期中に来たら、終わってから1回だけ回す */
+        async function gdriveSync(reason, interactive) {
+            if (!GDRIVE_FEATURE || !gdriveLinked() || !gdriveClientId()) return { skipped: true };
+            if (gdriveBusy) { gdrivePending = true; return { queued: true }; }
+            gdriveBusy = true;
+            gdriveStatus('同期中…', '');
+            try {
+                const token = await gdriveEnsureToken(!!interactive);
+                const remote = await gdriveReadRemote(token);
+                const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+                const localManual = list.filter(function (x) { return !x.isAutoSave; });
+                const autos = list.filter(function (x) { return x.isAutoSave; });
+                const merged = mergeMylist(localManual, remote, loadTombstones());
+                localStorage.setItem('sync_session_history', JSON.stringify(capSessionList(merged.items.concat(autos))));
+                saveTombstones(merged.tombstones);
+                const doc = mylistDoc(merged);
+                const wrote = (!remote || mylistSig(remote) !== mylistSig(doc));
+                if (wrote) await gdriveWriteRemote(token, doc);
+                updateSessionListUI();
+                const t = new Date();
+                gdriveStatus('☁ 同期済み ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) + '（' + merged.items.length + '件）', 'ok');
+                return { ok: true, wrote: wrote, count: merged.items.length };
+            } catch (e) {
+                const m = String(e && e.message ? e.message : e);
+                gdriveStatus(m === 'NEED_LOGIN' ? '⚠ ログインし直してください（☁ ボタン）' : '⚠ 同期できませんでした: ' + m.slice(0, 80), 'ng');
+                return { ok: false, error: m };
+            } finally {
+                gdriveBusy = false;
+                if (gdrivePending) { gdrivePending = false; setTimeout(function () { gdriveSync('pending', false); }, 0); }
+            }
+        }
+        async function gdriveLogin() {
+            if (!gdriveClientId()) { gdriveStatus('⚠ 先にクライアント ID を貼ってください', 'ng'); return; }
+            try {
+                gdriveToken = null;
+                await gdriveEnsureToken(true);
+                try { localStorage.setItem('sync_gdrive_on', 'true'); } catch (e) { }
+                await gdriveSync('login', true);
+            } catch (e) {
+                gdriveStatus('⚠ ログインできませんでした: ' + String(e && e.message ? e.message : e).slice(0, 80), 'ng');
+            }
+        }
+        function gdriveLogout() {
+            try { if (gdriveToken && window.google && google.accounts && google.accounts.oauth2) google.accounts.oauth2.revoke(gdriveToken.token, function () { }); } catch (e) { }
+            gdriveToken = null; gdriveFileId = null;
+            try { localStorage.setItem('sync_gdrive_on', 'false'); } catch (e) { }
+            gdriveStatus('ログアウトしました（手元のマイリストは残ります）', '');
         }
         function exportSessionFile() {
             const state = getNewSessionState("エクスポートセッション", false);
@@ -3108,7 +3363,22 @@
             });
         }
 
+        /* ★v2.14.0: 自動保存は既定でオフ（利用者要望）。オンは sync_autosave_on === 'true' のときだけ */
+        function isAutoSaveOn() {
+            try { return localStorage.getItem('sync_autosave_on') === 'true'; } catch (e) { return false; }
+        }
+        function setAutoSaveOn(on) {
+            try { localStorage.setItem('sync_autosave_on', on ? 'true' : 'false'); } catch (e) { }
+            const el = document.getElementById('autoSaveOn');
+            if (el) el.checked = !!on;
+        }
+        function autoSaveBeforeUnload() {
+            if (!isAutoSaveOn()) return;
+            saveSessionState(null, true);
+        }
+
         function tryAutoSaveOnFirstPlay() {
+            if (!isAutoSaveOn()) return;   /* ★v2.14.0 */
             if (hasAutoSavedThisSession) return;
             if (!areAllSlotsLoaded()) return;
             saveSessionState(null, true);
@@ -3116,7 +3386,7 @@
         }
 
         // タブを閉じる／リロードする直前の保険的な保存は従来どおり残す
-        window.addEventListener('beforeunload', () => { saveSessionState(null, true); });
+        window.addEventListener('beforeunload', autoSaveBeforeUnload);   /* ★v2.14.0: オンのときだけ */
 
         function destroyPlayerCard(cardId) {
             if (ytPlayers[cardId]) { try { ytPlayers[cardId].destroy(); } catch(e){} delete ytPlayers[cardId]; }

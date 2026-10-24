@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.23.2';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.24.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.13.2';
+    var EXPECT_APP_VERSION = '2.14.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.13.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.13.2', ids: ['D-V1', 'D-V2', 'D-L11', 'D-A7', 'D-W6'] };
+    var VERSION_FOCUS = { v: '2.14.0', ids: ['D-V1', 'D-V2', 'D-B2', 'D-B3', 'D-B4', 'D-W7'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 48);
+        expect('配列の件数', hist ? hist.length : 0, 49);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -8243,6 +8243,191 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.24.0 : v2.14.0 の判定（マイリストの Google ドライブ同期・自動保存の既定オフ）
+       ==================================================================== */
+    var MYLIST_KEYS = ['sync_session_history', 'sync_session_tombstones', 'sync_gdrive_on', 'sync_gdrive_client', 'sync_autosave_on'];
+    function mylistBackup() {
+        var b = {};
+        MYLIST_KEYS.forEach(function (k) { try { b[k] = localStorage.getItem(k); } catch (e) { b[k] = null; } });
+        return b;
+    }
+    function mylistRestore(b) {
+        MYLIST_KEYS.forEach(function (k) { try { if (b[k] === null) localStorage.removeItem(k); else localStorage.setItem(k, b[k]); } catch (e) { } });
+    }
+    function fakeSession(id, name, ts, upd, auto) {
+        var s = { name: name, timestamp: ts, isAutoSave: !!auto, playerCount: 1, players: [{ cardId: 'card_1', type: 'yt', url: 'https://www.youtube.com/watch?v=dbgB2aaaaaa', title: name, currentTime: 0 }] };
+        if (id) s.id = id;
+        if (upd) s.updatedAt = upd;
+        return s;
+    }
+
+    /* --- D-B2: 混ぜ方（純関数） --- */
+    async function testB2() {
+        log('  [目的] 2つの環境のマイリストを件ごとに混ぜること（新しい方が勝つ・墓標が新しければ消える・保存し直しは残る・🕒 は混ぜない・墓標は180日で捨てる）。');
+        var has = (typeof mergeMylist === 'function');
+        expect('🔴 混ぜ方の関数（mergeMylist）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var now = 10000;   // 墓標の時刻（450 など）が180日の範囲に入るよう now を小さく取る
+        var L = [fakeSession('a', 'A だけ', 100, 100), fakeSession('c', 'C 手元が古い', 300, 300), fakeSession('d', 'D 手元で消す前', 400, 400)];
+        var R = { items: [fakeSession('b', 'B だけ', 200, 200), fakeSession('c', 'C ドライブが新しい', 300, 350), fakeSession('e', 'E 消したあと保存し直し', 500, 900)], tombstones: { e: 800 } };
+        var T = { d: 450, old: now - 200 * 24 * 3600 * 1000 };
+        var m = mergeMylist(L, R, T, now);
+        var names = m.items.map(function (x) { return x.id; }).join(',');
+        expect('🔴 両方の件を足し、消した件（d）は出さない（新しい順: e,c,b,a）', names, 'e,c,b,a');
+        var c = m.items.filter(function (x) { return x.id === 'c'; })[0];
+        expect('🔴 同じ件は updatedAt の新しい方が勝つ', c ? c.name : '-', 'C ドライブが新しい');
+        expect('🔴 墓標（800）より新しく保存し直した件（900）は残る', m.items.some(function (x) { return x.id === 'e'; }) ? 'ok' : '消えた', 'ok');
+        expect('墓標は両方を合わせて持つ（d・e）', [m.tombstones.d, m.tombstones.e].join(','), '450,800');
+        expect('🔴 180日を超えた墓標は捨てる', m.tombstones.old === undefined ? 'ok' : '残った', 'ok');
+        var m2 = mergeMylist([fakeSession(null, 'id なし', 50, 0), fakeSession('z', '🕒', 60, 60, true)], null, {}, now);
+        expect('🔴 id の無い ⭐ に id を付ける・updatedAt は timestamp から', m2.items.length === 1 && m2.items[0].id && m2.items[0].updatedAt === 50 ? 'ok' : JSON.stringify(m2.items), 'ok');
+        expect('🔴 🕒（自動保存）は混ぜない', m2.items.some(function (x) { return x.isAutoSave; }) ? '混ざった' : 'ok', 'ok');
+        var m3 = mergeMylist([fakeSession('x', '同時刻', 10, 10)], { items: [fakeSession('x', '同時刻', 10, 10)], tombstones: { x: 10 } }, {}, now);
+        expect('墓標と同じ時刻の件は消えたまま（墓標が勝つ）', m3.items.length, 0);
+    }
+
+    /* --- D-B3: 偽のドライブで同期の流れ --- */
+    async function testB3() {
+        log('  [目的] Google ドライブの隠しフォルダ（appDataFolder）へマイリストを作る・読む・書く流れ。ドライブ側の件が手元に出る・消した件の墓標が書かれる・401 でログインし直し・同じなら書かない。');
+        var has = (typeof gdriveSync === 'function' && typeof gdriveToken !== 'undefined');
+        expect('🔴 ドライブ同期（gdriveSync）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var bk = mylistBackup();
+        var origFetch = window.fetch;
+        var tokB = gdriveToken, fidB = gdriveFileId;
+        var reqs = [], file = null, mode = 'ok';
+        function J(o) { return new Response(JSON.stringify(o), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+        try {
+            window.fetch = function (url, opts) {
+                var u = String(url);
+                if (u.indexOf('https://www.googleapis.com/') !== 0) return origFetch.apply(window, arguments);
+                opts = opts || {};
+                reqs.push({ m: opts.method || 'GET', u: u, auth: (opts.headers || {})['Authorization'] || '', body: opts.body || '' });
+                if (mode === '401') return Promise.resolve(new Response('{}', { status: 401 }));
+                if (u.indexOf('/drive/v3/files?spaces=appDataFolder') > 0) return Promise.resolve(J({ files: file ? [{ id: 'F1' }] : [] }));
+                if (u.indexOf('/drive/v3/files/F1?alt=media') > 0) return Promise.resolve(new Response(file || '', { status: 200 }));
+                if (u.indexOf('/upload/drive/v3/files?uploadType=multipart') > 0) {
+                    var b = String(opts.body), parts = b.split('\r\n\r\n');
+                    file = parts[2].split('\r\n--')[0];
+                    return Promise.resolve(J({ id: 'F1' }));
+                }
+                if (u.indexOf('/upload/drive/v3/files/F1?uploadType=media') > 0) { file = String(opts.body); return Promise.resolve(J({ id: 'F1' })); }
+                return Promise.resolve(new Response('{}', { status: 404 }));
+            };
+            localStorage.setItem('sync_gdrive_client', 'dbg.apps.googleusercontent.com');
+            localStorage.setItem('sync_gdrive_on', 'true');
+            localStorage.setItem('sync_session_history', JSON.stringify([fakeSession('h1', '手元の⭐', 100, 100), fakeSession(null, '🕒手元', 90, 0, true)]));
+            localStorage.removeItem('sync_session_tombstones');
+            gdriveToken = { token: 'dbgTOKEN', exp: Date.now() + 3600000 };
+            gdriveFileId = null;
+            var r1 = await gdriveSync('test', false);
+            pc('偽のドライブへの要求を捕まえた', function () { return reqs.length ? reqs.length + '件' : false; });
+            var create = reqs.filter(function (x) { return x.u.indexOf('uploadType=multipart') > 0; })[0];
+            expect('🔴 初回はファイルを作る（parents が appDataFolder）', create && /"parents":\["appDataFolder"\]/.test(create.body) ? 'ok' : (create ? create.body.slice(0, 120) : '作らない'), 'ok');
+            expect('🔴 Authorization: Bearer で送る', reqs.every(function (x) { return x.auth === 'Bearer dbgTOKEN'; }) ? 'ok' : JSON.stringify(reqs.map(function (x) { return x.auth; })), 'ok');
+            var doc = file ? JSON.parse(file) : null;
+            expect('🔴 ドライブには ⭐ だけ（🕒 は書かない）', doc ? doc.items.map(function (x) { return x.name; }).join(',') : '-', '手元の⭐');
+            /* もう一方の環境が足した件 */
+            doc.items.push(fakeSession('r1', 'もう一方の⭐', 200, 200));
+            file = JSON.stringify(doc);
+            reqs.length = 0;
+            await gdriveSync('test', false);
+            var list = JSON.parse(localStorage.getItem('sync_session_history'));
+            expect('🔴 ドライブ側にだけある件が手元の一覧に出る（🕒 は残る）', list.map(function (x) { return x.name; }).join(','), 'もう一方の⭐,手元の⭐,🕒手元');
+            expect('手元とドライブが同じなら書かない', reqs.filter(function (x) { return x.m === 'PATCH' || x.m === 'POST'; }).length, 0);
+            /* 手元で消す → 墓標がドライブへ */
+            reqs.length = 0;
+            deleteSessionByIndex(1);   // 手元の⭐
+            await wait(50);
+            var t0 = Date.now(); while (gdriveBusy && Date.now() - t0 < 3000) await wait(20);
+            var doc2 = file ? JSON.parse(file) : {};
+            expect('🔴 手元で消すと墓標がドライブへ書かれ、件も消える', (doc2.tombstones && doc2.tombstones.h1 && !doc2.items.some(function (x) { return x.id === 'h1'; })) ? 'ok' : JSON.stringify(doc2).slice(0, 160), 'ok');
+            /* 401 */
+            mode = '401';
+            var r4 = await gdriveSync('test', false);
+            var st = (document.getElementById('gdriveStatus') || {}).textContent || '';
+            expect('🔴 401 なら「ログインし直してください」を出し、トークンを捨てる', (/ログインし直して/.test(st) && gdriveToken === null) ? 'ok' : st, 'ok');
+            note('同期の結果（初回 / 401）', JSON.stringify(r1) + ' / ' + JSON.stringify(r4));
+        } finally {
+            window.fetch = origFetch;
+            gdriveToken = tokB; gdriveFileId = fidB;
+            mylistRestore(bk);
+            try { updateSessionListUI(); gdriveInitUI(); } catch (e) { }
+            note('後始末', 'localStorage のマイリスト関係を元へ戻した');
+        }
+    }
+
+    /* --- D-B4: 自動保存は既定でオフ --- */
+    async function testB4() {
+        log('  [目的] マイリストの自動保存（一括再生時・ページを閉じる前）が既定でオフで、スイッチでオンにできること。');
+        var has = (typeof isAutoSaveOn === 'function' && typeof autoSaveBeforeUnload === 'function');
+        expect('🔴 自動保存のスイッチ（isAutoSaveOn）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var bk = mylistBackup();
+        var flagB = hasAutoSavedThisSession;
+        var origAll = window.areAllSlotsLoaded;
+        try {
+            localStorage.removeItem('sync_autosave_on');
+            localStorage.setItem('sync_session_history', '[]');
+            window.areAllSlotsLoaded = function () { return true; };
+            pc('偽の「全枠に動画」の状態を作れた', function () { return areAllSlotsLoaded() === true ? 'ok' : false; });
+            var autos = function () { return (JSON.parse(localStorage.getItem('sync_session_history')) || []).filter(function (x) { return x.isAutoSave; }).length; };
+            hasAutoSavedThisSession = false;
+            tryAutoSaveOnFirstPlay(); autoSaveBeforeUnload();
+            expect('🔴 既定（設定なし）では一括再生時もページを閉じる前も保存しない', autos(), 0);
+            expect('スイッチの見た目も既定オフ', (function () { gdriveInitUI(); var el = document.getElementById('autoSaveOn'); return el ? String(el.checked) : '無い'; })(), 'false');
+            setAutoSaveOn(true);
+            hasAutoSavedThisSession = false;
+            tryAutoSaveOnFirstPlay();
+            expect('オンなら一括再生時に1件保存する', autos(), 1);
+            autoSaveBeforeUnload();
+            expect('オンならページを閉じる前にも保存する', autos(), 2);
+            expect('スイッチが保存される（sync_autosave_on）', localStorage.getItem('sync_autosave_on'), 'true');
+        } finally {
+            window.areAllSlotsLoaded = origAll;
+            hasAutoSavedThisSession = flagB;
+            mylistRestore(bk);
+            try { updateSessionListUI(); gdriveInitUI(); } catch (e) { }
+            note('後始末', 'localStorage のマイリスト関係を元へ戻した');
+        }
+    }
+
+    /* --- D-W7: 実機（☁ ログイン済み）。試験の ⭐ を本物のドライブへ書いて消す --- */
+    async function testW7() {
+        log('  [目的] 本物の Google ドライブ（アプリ専用の隠しフォルダ）へマイリストを書き、読み直して確かめ、消した印（墓標）も書けること。試験の1件は最後に消す。');
+        var has = (typeof gdriveSync === 'function');
+        expect('🔴 ドライブ同期（gdriveSync）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        pc('🔴 ☁ がログイン済み（トークンがある・同期を使う）', function () {
+            return (gdriveToken && gdriveToken.exp > Date.now() && gdriveLinked()) ? Math.round((gdriveToken.exp - Date.now()) / 60000) + '分有効' : false;
+        });
+        if (!(gdriveToken && gdriveToken.exp > Date.now() && gdriveLinked())) return;
+        var before = localStorage.getItem('sync_session_history');
+        var id = 'dbgW7' + Date.now().toString(36);
+        try {
+            var list = JSON.parse(before) || [];
+            list.unshift(fakeSession(id, '試験（D-W7・自動で消えます）', Date.now(), Date.now()));
+            localStorage.setItem('sync_session_history', JSON.stringify(list));
+            var r1 = await gdriveSync('test', false);
+            expect('🔴 書けた（同期が成功）', r1 && r1.ok ? 'ok' : JSON.stringify(r1), 'ok');
+            var token = gdriveToken.token;
+            var remote = await gdriveReadRemote(token);
+            expect('🔴 ドライブを読み直すと試験の件がある', remote && remote.items && remote.items.some(function (x) { return x.id === id; }) ? 'ok' : '無い', 'ok');
+            var idx = (JSON.parse(localStorage.getItem('sync_session_history')) || []).findIndex(function (x) { return x.id === id; });
+            if (idx >= 0) deleteSessionByIndex(idx);
+            var t0 = Date.now(); while (gdriveBusy && Date.now() - t0 < 10000) await wait(100);
+            var remote2 = await gdriveReadRemote(token);
+            expect('🔴 消すとドライブからも消え、墓標が残る', remote2 && !remote2.items.some(function (x) { return x.id === id; }) && remote2.tombstones && remote2.tombstones[id] ? 'ok' : '残っている', 'ok');
+            note('ドライブの件数・墓標の数', remote2 ? (remote2.items.length + '件 / ' + Object.keys(remote2.tombstones || {}).length + '件') : '-');
+            note('直近の要求', (gdriveLastLog || []).slice(-6).join(' | '));
+        } finally {
+            var now = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            if (now.some(function (x) { return x.id === id; })) localStorage.setItem('sync_session_history', JSON.stringify(now.filter(function (x) { return x.id !== id; })));
+            try { updateSessionListUI(); } catch (e) { }
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -8317,6 +8502,11 @@
         { id: 'D-W6', name: '★ライブの自動の取り直し（実機）: 途切れを起こして戻る・重複が増えない（最大60秒）', run: testW6, manual: true },
         /* ★v1.23.2: v2.13.2。枠数を変えるので manual。 */
         { id: 'D-A7', name: '★ライブで 🔄 を押しても流しが止まらない（読む位置の引き直し）', run: testA7, manual: true },
+        /* ★v1.24.0: v2.14.0。マイリストの localStorage を一時的に書き換えるので manual。 */
+        { id: 'D-B2', name: '★マイリストの混ぜ方（新しい方が勝つ・墓標・🕒 は混ぜない）', run: testB2, manual: true },
+        { id: 'D-B3', name: '★マイリストの Google ドライブ同期（偽のドライブ）', run: testB3, manual: true },
+        { id: 'D-B4', name: '★マイリストの自動保存は既定でオフ（スイッチでオン）', run: testB4, manual: true },
+        { id: 'D-W7', name: '★マイリストの Google ドライブ同期（実機・☁ ログイン済み）', run: testW7, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
