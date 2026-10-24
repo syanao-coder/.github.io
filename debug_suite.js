@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.23.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.23.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.13.1';
+    var EXPECT_APP_VERSION = '2.13.2';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.13.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.13.1', ids: ['D-V1', 'D-V2', 'D-L11', 'D-W6'] };
+    var VERSION_FOCUS = { v: '2.13.2', ids: ['D-V1', 'D-V2', 'D-L11', 'D-A7', 'D-W6'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 47);
+        expect('配列の件数', hist ? hist.length : 0, 48);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -8171,6 +8171,78 @@
         expect('見出しが「配信中」に戻り「再接続」が付く', /🔴 配信中/.test(h) && /再接続\d+回/.test(h) ? 'ok' : h, 'ok');
     }
 
+    /* ======================================================================
+       ★v1.23.2 : v2.13.2 の判定（🔄 のあと流しが止まる不具合）
+       ==================================================================== */
+    /* --- D-A7: A側だけ。ライブで 🔄（store の作り直し）をしても流しが続く --- */
+    async function testA7() {
+        log('  [目的] ライブで 🔄（reloadChat）を押して store が作り直されても、流しの読む位置が引き直され、新しいコメントが流れること（v2.13.1 までは前の位置が残って止まった）。');
+        var has = (typeof flowStoreSid !== 'undefined');
+        expect('🔴 A側の流しの位置の引き直し（flowStoreSid）がある', has ? 'あり' : '無い', 'あり');
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var FAKE = 'dbgA7aaaaaa', OFF = 7200000;
+        var origPost = window.postMessage;
+        var rid = null, k = 0, cid = null;
+        var smoothB = (typeof liveSmoothOn !== 'undefined') ? liveSmoothOn : null;
+        function feed(n) {
+            var A = performance.now(), cs = [];
+            for (var i = 0; i < n; i++) cs.push({ t: A + OFF - (n - i) * 300, n: 'u', m: 'c' + (k++) });
+            handleChatChunk({ requestId: rid, videoId: FAKE, seq: 0, comments: cs, emoji: {}, lastT: 0 });
+        }
+        function onscreen() { return document.querySelectorAll('#flowLayer_' + cid + ' .flow-msg').length; }
+        try {
+            if (smoothB !== null) liveSmoothOn = false;   // 平滑化の待ちを入れず、届いた分をすぐ数える
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            cid = lastCard();
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            if (typeof clearCard === 'function') await clearCard(cid);
+            window.postMessage = function (msg) {
+                if (msg && msg.type === 'CHAT_STREAM_REQUEST') { rid = msg.requestId; return; }
+                if (msg && msg.type === 'CHAT_STREAM_CANCEL') return;
+                return origPost.apply(window, arguments);
+            };
+            cardVideoKeys[cid] = FAKE;
+            if (!flowVisible[cid]) toggleFlowVisibility(cid);
+            var r0 = await waitFor(function () { return rid; }, 3000, 50);
+            pc('流しをオンにすると取得要求が出る', function () { return r0.ok ? 'ok' : false; });
+            if (!r0.ok) return;
+            handleChatMeta({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            feed(30); await wait(400);
+            for (var j = 0; j < 3; j++) { feed(20); await wait(1200); }
+            var st0 = chatStore[FAKE];
+            pc('🔴 偽のライブの流しが流れている（土俵）', function () { var c = flowCursor[cid]; return (c > 50 && onscreen() > 0) ? '位置 ' + c + ' / 件数 ' + st0.comments.length : false; });
+            var before = flowCursor[cid];
+            var oldRid = rid; rid = null;
+            reloadChat(cid);
+            var r1 = await waitFor(function () { return (rid && rid !== oldRid) ? rid : null; }, 3000, 50);
+            pc('🔄 で取得要求が出た', function () { return r1.ok ? 'ok' : false; });
+            if (!r1.ok) return;
+            handleChatMeta({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            feed(10); await wait(400);
+            for (var q = 0; q < 3; q++) { feed(5); await wait(1200); }
+            var st1 = chatStore[FAKE];
+            note('流しの位置（🔄 の前 / 後）・新しい store の件数・画面上の数', before + ' / ' + flowCursor[cid] + ' ・ ' + (st1 ? st1.comments.length : '-') + ' ・ ' + onscreen());
+            expect('🔴 🔄 のあと、流しの位置が新しい store の件数を超えていない（引き直された）', (st1 && flowCursor[cid] <= st1.comments.length) ? 'ok' : (flowCursor[cid] + ' > ' + (st1 ? st1.comments.length : '-')), 'ok');
+            expect('🔴 🔄 のあと、新しいコメントが流れている', onscreen() > 0 ? 'ok' : '0件', 'ok');
+            /* ライブで流しを入れ直すと、開いた時点より後から流す（再生位置と突き合わせない） */
+            toggleFlowVisibility(cid); toggleFlowVisibility(cid);
+            expect('ライブで流しを入れ直すと読む位置は「開いた時点」（null）', flowCursor[cid] === null ? 'null' : String(flowCursor[cid]), 'null');
+        } finally {
+            if (smoothB !== null) liveSmoothOn = smoothB;
+            window.postMessage = origPost;
+            try { if (cid && flowVisible[cid]) toggleFlowVisibility(cid); } catch (e) { }
+            try { if (typeof cancelChatRequest === 'function') cancelChatRequest(FAKE); } catch (e) { }
+            try { delete liveVideoIds[FAKE]; delete chatStore[FAKE]; delete chatState[FAKE]; } catch (e) { }
+            try { if (cid) delete cardVideoKeys[cid]; } catch (e) { }
+            try { if (cid) await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -8243,6 +8315,8 @@
         /* ★v1.23.1: v2.13.1。D-L11 は枠数を変える・D-W6 はライブが要るので manual。 */
         { id: 'D-L11', name: '★ライブの取得が途切れたら自動で取り直す（重複を消す・上限・配信終了）', run: testL11, manual: true },
         { id: 'D-W6', name: '★ライブの自動の取り直し（実機）: 途切れを起こして戻る・重複が増えない（最大60秒）', run: testW6, manual: true },
+        /* ★v1.23.2: v2.13.2。枠数を変えるので manual。 */
+        { id: 'D-A7', name: '★ライブで 🔄 を押しても流しが止まらない（読む位置の引き直し）', run: testA7, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
