@@ -121,10 +121,6 @@
        超えたら回線エラーと同じ扱い（再試行 → 出口 → 復帰）。 */
     LIVE_FETCH_TIMEOUT_MS: 20000,
     LIVE_WATCH_TIMEOUT_MS: 30000,
-    /* ★v2.13.0 配信中の視聴者数。チャットの取得を待たせないよう await せずに投げる（同時に1本まで）。
-       経路1 updated_metadata（YouTube の watch ページが更新に使う口）→ 失敗したら watch HTML の ytInitialData（予備）。 */
-    LIVE_VIEWERS_INTERVAL_MS: 30000,
-    LIVE_VIEWERS_TIMEOUT_MS: 10000,
     COMPLETE_TOLERANCE_MS: 60000, // 動画長との照合の許容差
     RETRY: 3,                // 1 リクエストあたりの再試行回数
     PING_INTERVAL_MS: 5000,   // A 側の watchdog を維持する心拍
@@ -417,91 +413,14 @@
        終了は「配信中ではない」と書いてあるときだけ。 */
     if (lv.by === 'none') return { ok: false, why: 'NO_PLAYER_RESPONSE' };
     if (!lv.live) return { ended: true, by: lv.by };
-    const initial = findInitialData(html);
-    /* ★v2.13.0: 経路1（updated_metadata）が取れていないときの予備。2分ごとの確認で拾う。 */
-    try {
-      const v = viewersFromInitial(initial);
-      if (v && !(job.viewersBy === 'updated_metadata' && Date.now() - job.viewersAt < CFG.LIVE_VIEWERS_INTERVAL_MS * 3)) setViewers(job, v, 'watch');
-    } catch (e) { }
     let lcr = null;
     try {
-      lcr = initial.contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer;
+      lcr = findInitialData(html).contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer;
     } catch (e) { lcr = null; }
     if (!lcr) return { ok: false, why: 'NO_LIVE_CHAT_RENDERER' };
     const cont = pickReloadContinuation(lcr);
     if (!cont) return { ok: false, why: 'NO_CONTINUATION' };
     return { ok: true, cont: cont, cfg: cfgFromPage() || cfgFromHtml(html) };
-  }
-
-  /* ★v2.13.0: 視聴者数。🔴 入れ物名を決め打ちしない。videoViewCountRenderer という子を深さ制限つきで探す。
-     数は originalViewCount（数字の文字列）を優先し、無ければ viewCount の文字から数字だけを取る。 */
-  function findViewCountRenderer(node, depth) {
-    if (!node || typeof node !== 'object' || depth < 0) return null;
-    if (node.videoViewCountRenderer) return node.videoViewCountRenderer;
-    const ks = Array.isArray(node) ? node : Object.keys(node).map(function (k) { return node[k]; });
-    for (let i = 0; i < ks.length; i++) {
-      const r = findViewCountRenderer(ks[i], depth - 1);
-      if (r) return r;
-    }
-    return null;
-  }
-
-  function pickViewers(node, depth) {
-    const vr = findViewCountRenderer(node, depth);
-    if (!vr) return null;
-    const text = textOf(vr.viewCount) || textOf(vr.extraShortViewCount) || '';
-    let n = null;
-    if (vr.originalViewCount !== undefined && /^\d+$/.test(String(vr.originalViewCount))) n = parseInt(vr.originalViewCount, 10);
-    if (n === null) {
-      const digits = text.replace(/[^0-9]/g, '');
-      if (digits) n = parseInt(digits, 10);
-    }
-    if (n === null) return null;
-    return { n: n, text: String(text).slice(0, 60), isLive: vr.isLive };
-  }
-
-  function viewersFromInitial(initial) {
-    let root = null;
-    try { root = initial.contents.twoColumnWatchNextResults.results; } catch (e) { root = null; }
-    return root ? pickViewers(root, 8) : null;
-  }
-
-  async function fetchViewers(cfg, videoId) {
-    const url = '/youtubei/v1/updated_metadata?key=' + encodeURIComponent(cfg.key);
-    const headers = { 'content-type': 'application/json' };
-    const auth = await buildAuthHeaders();
-    if (auth) for (const k of Object.keys(auth)) headers[k] = auth[k];
-    const r = await fetchTimed(url, {
-      method: 'POST', credentials: 'include', headers: headers,
-      body: JSON.stringify({ context: cfg.ctx, videoId: videoId })
-    }, CFG.LIVE_VIEWERS_TIMEOUT_MS, 'json');
-    if (!r.res.ok) throw new Error('HTTP ' + r.res.status);
-    const v = pickViewers(r.body && r.body.actions, 8);
-    if (!v) throw new Error('NO_VIEW_COUNT');
-    return v;
-  }
-
-  function setViewers(job, v, by) {
-    job.viewers = v.n;
-    job.viewersText = v.text;
-    job.viewersAt = Date.now();
-    job.viewersBy = by;
-    job.viewersOk = (job.viewersOk || 0) + 1;
-  }
-
-  /* 🔴 await しない。チャットのポーリングを遅らせないため。 */
-  function kickViewers(job, cfg) {
-    if (job.viewersBusy || job.cancelled) return;
-    const now = Date.now();
-    if (job.viewersTriedAt && now - job.viewersTriedAt < CFG.LIVE_VIEWERS_INTERVAL_MS) return;
-    job.viewersTriedAt = now;
-    job.viewersBusy = true;
-    fetchViewers(cfg, job.videoId).then(function (v) {
-      setViewers(job, v, 'updated_metadata');
-    }, function (e) {
-      job.viewersFails = (job.viewersFails || 0) + 1;
-      job.viewersError = String(e && e.message ? e.message : e).slice(0, 80);
-    }).then(function () { job.viewersBusy = false; });
   }
 
   /* 配信開始の実時刻(ms)。ライブのコメント時刻をここからの経過に直すために使う。 */
@@ -720,9 +639,6 @@
     job.lastCheckAt = Date.now();   // ★v2.11.0 再測: 最初の watch を1回目の確認とみなす
 
     const initial = findInitialData(html);
-    if (job.live) {
-      try { const v = viewersFromInitial(initial); if (v) setViewers(job, v, 'watch'); } catch (e) { }   // ★v2.13.0
-    }
     let lcr = null;
     try {
       lcr = initial.contents.twoColumnWatchNextResults.conversationBar.liveChatRenderer;
@@ -978,7 +894,6 @@
         streak = 0;   // ★v2.11.0: 正常な応答が来たので連続回数を戻す
         job.lastOkAt = Date.now();
         if (added > 0) job.lastCommentAt = job.lastOkAt;
-        kickViewers(job, cfg);   // ★v2.13.0: 待たない
         /* ★v2.11.0 再測: 応答が正常でも、一定間隔で watch を見て配信が終わっていないか確かめる。
            🔴 取り直せなかった（回線・材料なし）ときは何もしない。終了は「配信中ではない」と読めたときだけ。 */
         if (job.lastOkAt - job.lastCheckAt >= CFG.LIVE_CHECK_INTERVAL_MS) {
@@ -1157,14 +1072,6 @@
           e.lastOkAgoMs = j.lastOkAt ? now - j.lastOkAt : null;
           e.lastCommentAgoMs = j.lastCommentAt ? now - j.lastCommentAt : null;
           e.recoverError = j.recoverError;
-          /* ★v2.13.0: 視聴者数（取れていなければ null） */
-          e.viewers = (typeof j.viewers === 'number') ? j.viewers : null;
-          e.viewersText = j.viewersText || null;
-          e.viewersAgoMs = j.viewersAt ? now - j.viewersAt : null;
-          e.viewersBy = j.viewersBy || null;
-          e.viewersError = j.viewersError || null;
-          e.viewersOk = j.viewersOk || 0;
-          e.viewersFails = j.viewersFails || 0;
         }
         if (queue.indexOf(j) >= 0) { e.pos = queue.indexOf(j) + 1; waiting.push(e); }
         else active.push(e);
