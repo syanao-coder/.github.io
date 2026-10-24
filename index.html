@@ -841,7 +841,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.12.2';
+        const APP_VERSION = '2.12.3';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1682,6 +1682,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.12.3', d: '2026-10-24', t: [
+                'v2.12.2 でライブのチャットが新しく流れなくなっていた不具合を直した（コメントの時刻とページの時計の起点の違いを取り違えていた）'] },
             { v: '2.12.2', d: '2026-10-23', t: [
                 'ライブのチャットが約10秒ごとに塊で出ていたのを、投稿された時刻どおりの間隔で出すようにした（チャット欄と流しの両方。そのぶん最大で約10秒遅れて出る）',
                 'コメント流しの縁取りを、ぼかしの無い縁取りに変えた（見た目はほぼ同じで描画が軽い）'] },
@@ -3688,6 +3690,11 @@
         const LIVE_SMOOTH_FEATURE = true;
         const LIVE_SMOOTH_MAX_LAG_MS = 30000;   // これより遅れたものはすぐ出し、K に入れない（初回の過去ぶん・復帰後の重複）
         const LIVE_SMOOTH_DECAY = 0.1;          // K は経過時間 × 0.1 ずつ縮む（急に縮めると塊が出る）
+        /* 🔴 ★v2.12.3: t（配信開始からの経過）と now（performance.now ＝ ページを開いてからの経過）は起点が違う。
+              差 now − t には任意の定数（負にもなる）が乗るので、絶対値で比べてはいけない。
+              v2.12.2 はこれを「遅れ」とみなして 0 で頭打ちにし、配信開始より後にページを開くと出す時刻が
+              数時間先になって、新しいコメントが一切出なくなった（2026-10-24 実機）。
+              いちばん小さい差（＝最も新しいコメント）を基準 base とし、base からの差を遅れとする。 */
         let liveSmoothOn = LIVE_SMOOTH_FEATURE;
         let flowRaf = null;      // 🔴 全枠で1本だけ。枠ごとに立てないこと
         let flowCanvasCtx = null;
@@ -4515,26 +4522,32 @@
         /* ★v2.12.2: 届いたライブのコメント（from 以降）に、出す時刻 due を付ける。
            🔴 最初にコメントの入ったチャンクは直近の過去ぶんなので全部すぐ出す（K に入れると数分遅れる）。 */
         function liveSmoothIngest(store, from, now) {
-            if (!store.liveDue) { store.liveDue = []; store.liveShown = 0; store.liveLagMs = null; store.liveLagAt = null; }
+            if (!store.liveDue) { store.liveDue = []; store.liveShown = 0; store.liveLagMs = null; store.liveLagAt = null; store.liveLagBase = null; }
             const due = store.liveDue, cs = store.comments;
             if (due.length !== from) return;   // 予定表の無いコメントがある → liveShownCount が全部出す側へ倒す
+            if (cs.length <= from) return;
+            let minRaw = Infinity;
+            for (let i = from; i < cs.length; i++) minRaw = Math.min(minRaw, now - cs[i].t);
+            store.liveLagBase = (store.liveLagBase === null) ? minRaw : Math.min(store.liveLagBase, minRaw);
+            const base = store.liveLagBase;
             const primed = store.liveLagAt !== null;
-            let maxLag = -Infinity;
             if (primed) {
+                let maxLag = -Infinity;
                 for (let i = from; i < cs.length; i++) {
-                    const lag = now - cs[i].t;
+                    const lag = now - cs[i].t - base;
                     if (lag <= LIVE_SMOOTH_MAX_LAG_MS && lag > maxLag) maxLag = lag;
                 }
                 const decayed = store.liveLagMs - (now - store.liveLagAt) * LIVE_SMOOTH_DECAY;
                 store.liveLagMs = Math.max(decayed, maxLag, 0);
-            } else if (cs.length > from) {
+            } else {
                 store.liveLagMs = 0;
             }
-            if (cs.length > from) store.liveLagAt = now;
+            store.liveLagAt = now;
             let prev = due.length ? due[due.length - 1] : -Infinity;
             for (let i = from; i < cs.length; i++) {
-                const lag = now - cs[i].t;
-                let at = (!primed || lag > LIVE_SMOOTH_MAX_LAG_MS) ? now : cs[i].t + store.liveLagMs;
+                const lag = now - cs[i].t - base;
+                let at = (!primed || lag > LIVE_SMOOTH_MAX_LAG_MS) ? now : cs[i].t + base + store.liveLagMs;
+                if (at > now + LIVE_SMOOTH_MAX_LAG_MS) at = now + LIVE_SMOOTH_MAX_LAG_MS;   // 🔴 保険: どう計算が狂っても30秒より先へは延ばさない
                 if (at < prev) at = prev;      // 順番を崩さない
                 due.push(at);
                 prev = at;
