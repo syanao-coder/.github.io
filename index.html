@@ -841,7 +841,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.13.0';
+        const APP_VERSION = '2.13.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1682,6 +1682,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.13.1', d: '2026-10-24', t: [
+                'ライブのチャットの取得が途切れたら、🔄 を押さなくても自動で取り直すようにした（続けて3回まで。今までのコメントは消さず、重なった分は出さない）'] },
             { v: '2.13.0', d: '2026-10-24', t: [
                 'ライブのチャット欄の見出しに、配信中の視聴者数（👤 ○人）を出すようにした（30秒ごとに更新。アドオン 2.13.0 が必要）'] },
             { v: '2.12.3', d: '2026-10-24', t: [
@@ -3709,6 +3711,13 @@
            180秒固定だと正常な取得を失敗と誤判定する。
            「最後に何か届いてからの無音時間」で見る（心拍は5秒間隔）。 */
         const CHAT_META_TIMEOUT_MS = 25000;    // 最初の応答まで
+        /* ★v2.13.1: ライブの取得が途切れたら（見張りの発火・ok:false・RECOVERY_FAILED）自動で取り直す。
+           🔴 store は捨てない（🔄 の reloadChat とは違う）。0 で従来どおり。 */
+        const LIVE_AUTO_RETRY_MAX = 3;          // 続けて取り直す上限
+        const LIVE_AUTO_RETRY_DELAY_MS = 3000;  // 取り直すまでの待ち
+        let liveAutoRetryMax = LIVE_AUTO_RETRY_MAX;
+        let liveAutoRetryDelayMs = LIVE_AUTO_RETRY_DELAY_MS;
+        const LIVE_RETRY_KEYS = 500;            // 重複を消すために覚える直近の件数
         const CHAT_STALL_TIMEOUT_MS = 45000;   // 応答が途切れてから（実測の最大チャンク間隔は3.5秒）
         const CHAT_MAX_NODES = 400;          // DOMに残す最大件数（超えたら古い方から捨てる）
         const CHAT_SEEK_TOLERANCE_MS = 2500; // 位置がこれ以上飛んだらシークとみなす
@@ -4152,7 +4161,8 @@
                 /* ★v2.11.0: 自動復帰した回数と、終わり方（endReason）を出す。
                    🔴 RECOVERY_FAILED / MAX_REQUESTS は「配信終了」と書かない（実際は配信が続いている）。
                    endReason が無い（旧アドオン）ときは従来どおり「配信終了」。 */
-                const rec = store.liveRecovers > 0 ? '・復帰' + store.liveRecovers + '回' : '';
+                const rec = (store.liveRecovers > 0 ? '・復帰' + store.liveRecovers + '回' : '')
+                    + (store.retryTotal > 0 ? '・再接続' + store.retryTotal + '回' : '');   /* ★v2.13.1 */
                 const why = store.endReason;
                 if (chatState[videoId] === 'streaming') {
                     /* ★v2.11.0 再測: 心拍で「復帰を試みている最中」が届いたら、そう出す */
@@ -4522,6 +4532,18 @@
                ensureChatStore が最初から live 付きの store を作れる。 */
             if (d.live === true) liveVideoIds[videoId] = true;
             const store = ensureChatStore(videoId);
+            /* ★v2.13.1: 取り直した結果、配信が終わっていた → B側はアーカイブを取りにいくので止めて ENDED で終える */
+            if (store.retryRid === d.requestId && store.live && d.live !== true) {
+                window.postMessage({ type: 'CHAT_STREAM_CANCEL', requestId: d.requestId }, '*');
+                clearChatWatchdog(d.requestId);
+                delete chatPending[d.requestId];
+                delete chatInflight[videoId];
+                store.endReason = 'ENDED';
+                store.livePhase = 'poll';
+                chatState[videoId] = 'ready';
+                refreshChatCardsFor(videoId);
+                return;
+            }
             store.videoMs = d.videoMs || 0;
             if (d.live === true) store.live = true;
             /* ★v2.8.1: B側がどのフィールドで配信中と判定したかを控える。
@@ -4595,6 +4617,11 @@
             if (d.emoji) {
                 for (const k of Object.keys(d.emoji)) store.emoji[k] = d.emoji[k];
             }
+            /* ★v2.13.1: 取り直した取得の最初は手元と重なる（直近の過去ぶん）。t|n|m で消す */
+            if (store.retryRid === d.requestId && store.retryKeys && Array.isArray(d.comments)) {
+                d.comments = d.comments.filter(function (c) { return !store.retryKeys.has(liveCommentKey(c)); });
+                store.retryStreak = 0;
+            }
             if (Array.isArray(d.comments) && d.comments.length) {
                 for (let i = 0; i < d.comments.length; i++) store.comments.push(d.comments[i]);
                 if (typeof d.lastT === 'number' && d.lastT > store.lastT) store.lastT = d.lastT;
@@ -4640,6 +4667,11 @@
                 /* ★v2.11.0: ライブの終わり方と自動復帰の記録（旧アドオンでは undefined） */
                 if (d.endReason) store.endReason = d.endReason;
                 if (d.endBy) store.endBy = d.endBy;
+                /* ★v2.13.1: B側が復帰を諦めた（配信は続いているかもしれない）→ A側で取り直す */
+                if (store.live && d.endReason === 'RECOVERY_FAILED' && canLiveRetry(videoId)) {
+                    scheduleLiveRetry(videoId, d.requestId, 'RECOVERY_FAILED: ' + (d.recoverError || ''));
+                    return;
+                }
                 if (typeof d.liveRecovers === 'number') store.liveRecovers = d.liveRecovers;
                 if (d.liveExits) store.liveExits = d.liveExits;
                 if (d.recoverError) store.recoverError = d.recoverError;
@@ -4671,7 +4703,53 @@
             failChat(d.requestId, videoId, d.error);
         }
 
+        /* ★v2.13.1: ライブの自動の取り直し */
+        function liveCommentKey(c) { return c.t + '|' + c.n + '|' + c.m; }
+
+        function canLiveRetry(videoId) {
+            const store = chatStore[videoId];
+            if (!store || !store.live || liveAutoRetryMax <= 0) return false;
+            if (store.endReason === 'ENDED') return false;
+            return (store.retryStreak || 0) < liveAutoRetryMax;
+        }
+
+        function scheduleLiveRetry(videoId, oldRequestId, why) {
+            const store = chatStore[videoId];
+            /* 🔴 failChat は B側へ中止を送らない。見張りが発火してもジョブは生きているかもしれない */
+            window.postMessage({ type: 'CHAT_STREAM_CANCEL', requestId: oldRequestId }, '*');
+            clearChatWatchdog(oldRequestId);
+            delete chatPending[oldRequestId];
+            if (chatInflight[videoId] === oldRequestId) delete chatInflight[videoId];
+            store.retryStreak = (store.retryStreak || 0) + 1;
+            store.retryTotal = (store.retryTotal || 0) + 1;
+            store.retryWhy = String(why || '').slice(0, 120);
+            store.livePhase = 'recover';
+            delete store.endReason;
+            chatState[videoId] = 'streaming';   // チャット欄の追加と流しを止めない
+            updateChatHeadForVideo(videoId);
+            setTimeout(function () { startLiveRetry(videoId); }, liveAutoRetryDelayMs);
+        }
+
+        function startLiveRetry(videoId) {
+            const store = chatStore[videoId];
+            if (!store || chatStore[videoId] !== store) return;   // 破棄された
+            if (chatInflight[videoId]) return;                    // 🔄 などで既に取り直している
+            if (!collectChatRefs()[videoId]) return;              // どの枠も見ていない
+            const requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            chatInflight[videoId] = requestId;
+            chatPending[requestId] = videoId;
+            store.retryRid = requestId;
+            store.nextSeq = 0;
+            const from = Math.max(0, store.comments.length - LIVE_RETRY_KEYS);
+            store.retryKeys = new Set();
+            for (let i = from; i < store.comments.length; i++) store.retryKeys.add(liveCommentKey(store.comments[i]));
+            armChatWatchdog(requestId, CHAT_META_TIMEOUT_MS);
+            window.postMessage({ type: 'CHAT_STREAM_REQUEST', videoId: videoIdOfChatKey(videoId),
+                                 mode: chatModeOfKey(videoId), requestId: requestId }, '*');
+        }
+
         function failChat(requestId, videoId, error) {
+            if (canLiveRetry(videoId)) { scheduleLiveRetry(videoId, requestId, error); return; }   /* ★v2.13.1 */
             delete chatPending[requestId];
             delete chatInflight[videoId];
             clearChatWatchdog(requestId);
@@ -4714,6 +4792,7 @@
                     store.lastCommentAgoMs = e.lastCommentAgoMs;
                     store.recoverError = e.recoverError;
                     store.livePingAt = Date.now();
+                    if (store.retryRid === e.requestId) store.retryStreak = 0;   /* ★v2.13.1: 取り直しが通った */
                     /* ★v2.13.0: 視聴者数（旧アドオンでは undefined） */
                     const wasV = liveViewersLabel(store);
                     store.viewers = e.viewers;
