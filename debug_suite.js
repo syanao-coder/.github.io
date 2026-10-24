@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.22.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.22.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.12.2';
+    var EXPECT_APP_VERSION = '2.12.3';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.12.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.12.2', ids: ['D-V1', 'D-V2', 'D-A5', 'D-A6', 'D-W4'] };
+    var VERSION_FOCUS = { v: '2.12.3', ids: ['D-V1', 'D-V2', 'D-A5', 'D-A6', 'D-W4'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 44);
+        expect('配列の件数', hist ? hist.length : 0, 45);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7667,19 +7667,34 @@
             push(s, [100000, 101000, 102000], 200000);
             expect('🔴 初回（過去ぶん）は遅れが大きくても全部すぐ出る', liveShownCount(s, 200000), 3);
             push(s, [200000, 203000, 206000, 209500], 210000);
-            expect('🔴 2回目: 遅れ K ＝ 一番古い標本（210000 − 200000）', s.liveLagMs, 10000);
+            expect('🔴 2回目: 遅れ K ＝ 一番古い標本 − 一番新しい標本（10000 − 500）', s.liveLagMs, 9500);
             expect('2回目の出す時刻（t + K）', s.liveDue.slice(3).join(','), '210000,213000,216000,219500');
             expect('🔴 届いた瞬間は一番古い1件だけ（3 + 1）', liveShownCount(s, 210000), 4);
             expect('6秒後は3件（3 + 3）', liveShownCount(s, 216000), 6);
             expect('K 後に全部（3 + 4）', liveShownCount(s, 219500), 7);
             push(s, [170000], 220000);
-            expect('🔴 遅れが MAX_LAG（' + LIVE_SMOOTH_MAX_LAG_MS + 'ms）を超える標本はすぐ出し、K に入れない（経過ぶん縮むだけ: 10000 − 10000 × 0.1）',
-                s.liveDue[7] + ' / K ' + s.liveLagMs, '220000 / K 9000');
+            expect('🔴 遅れが MAX_LAG（' + LIVE_SMOOTH_MAX_LAG_MS + 'ms）を超える標本はすぐ出し、K に入れない（経過ぶん縮むだけ: 9500 − 10000 × 0.1）',
+                s.liveDue[7] + ' / K ' + s.liveLagMs, '220000 / K 8500');
             push(s, [239000], 240000);
-            expect('🔴 K は経過 × ' + LIVE_SMOOTH_DECAY + ' だけ縮む（9000 − 20000 × 0.1 ＝ 7000 ＞ 標本 1000）', s.liveLagMs, 7000);
+            expect('🔴 K は経過 × ' + LIVE_SMOOTH_DECAY + ' だけ縮む（8500 − 20000 × 0.1 ＝ 6500 ＞ 標本 500）', s.liveLagMs, 6500);
             var mono = true;
             for (var i = 1; i < s.liveDue.length; i++) if (s.liveDue[i] < s.liveDue[i - 1]) mono = false;
             expect('出す時刻は単調（順番を崩さない）', mono ? 'ok' : s.liveDue.join(','), 'ok');
+            /* ★v1.22.1: 🔴 t（配信開始からの経過）と now（ページを開いてからの経過）は起点が違う。
+               v1.22.0 は t を now と同じ起点で作っていたので、v2.12.2 の「新しいコメントが一切出ない」を見逃した（2026-10-24 実機）。
+               起点のずれ（配信開始の2時間後に開いた／配信開始より前から開いていた）を変えても、出る数が同じであること。 */
+            [7200000, -5000000].forEach(function (off) {
+                var o = { comments: [], live: true };
+                var T = function (x) { return x + off; };
+                push(o, [T(100000), T(101000), T(102000)], 200000);
+                push(o, [T(200000), T(203000), T(206000), T(209500)], 210000);
+                var got = [liveShownCount(o, 210000), liveShownCount(o, 216000), liveShownCount(o, 219500)].join(' / ');
+                expect('🔴 起点のずれ ' + (off > 0 ? '+' : '') + (off / 3600000).toFixed(1) + '時間でも、届いた瞬間・6秒後・K 後に 4 / 6 / 7 件', got, '4 / 6 / 7');
+            });
+            var big = { comments: [], live: true };
+            push(big, [0, 1000], 50);
+            push(big, [2000, 2500], 100);
+            expect('🔴 保険: どう計算が狂っても出す時刻は届いてから30秒以内', Math.max.apply(null, big.liveDue) - 100 <= LIVE_SMOOTH_MAX_LAG_MS ? 'ok' : big.liveDue.join(','), 'ok');
             var m = { comments: [{ t: 0 }, { t: 1 }, { t: 2 }], live: true, liveDue: [0], liveShown: 0 };
             expect('🔴 予定表の長さが違えば全部出す（取りこぼすより出す側）', liveShownCount(m, 0), 3);
             liveSmoothOn = false;
@@ -7708,14 +7723,16 @@
             if (!req.ok) return;
             var rid = req.value.requestId;
             handleChatMeta({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            /* 🔴 ★v1.22.1: 実機と同じく、t は配信開始からの経過（ページを開く2時間前に始まった配信）にする */
+            var OFF = 7200000;
             var n0 = performance.now();
-            handleChatChunk({ requestId: rid, videoId: FAKE, seq: 0, comments: [{ t: n0 - 60000, n: 'u', m: '過去1' }, { t: n0 - 50000, n: 'u', m: '過去2' }], emoji: {}, lastT: 0 });
+            handleChatChunk({ requestId: rid, videoId: FAKE, seq: 0, comments: [{ t: n0 + OFF - 60000, n: 'u', m: '過去1' }, { t: n0 + OFF - 50000, n: 'u', m: '過去2' }], emoji: {}, lastT: 0 });
             await wait(100);
             pumpChatProgress();
             pc('🔴 偽の枠のチャット欄に初回の2件が出た（土俵）', function () { var c = chatMsgCount(cid); return c === 2 ? '2件' : false; });
             var A = performance.now();
             handleChatChunk({ requestId: rid, videoId: FAKE, seq: 1, comments: [
-                { t: A - 3000, n: 'u', m: 'a' }, { t: A - 2000, n: 'u', m: 'b' }, { t: A - 1000, n: 'u', m: 'c' }, { t: A, n: 'u', m: 'd' }], emoji: {}, lastT: 0 });
+                { t: A + OFF - 3000, n: 'u', m: 'a' }, { t: A + OFF - 2000, n: 'u', m: 'b' }, { t: A + OFF - 1000, n: 'u', m: 'c' }, { t: A + OFF, n: 'u', m: 'd' }], emoji: {}, lastT: 0 });
             pumpChatProgress();
             var c0 = chatMsgCount(cid);
             await wait(1500 - (performance.now() - A)); pumpChatProgress();
@@ -7732,7 +7749,7 @@
             liveSmoothOn = false;
             var B = performance.now();
             handleChatChunk({ requestId: rid, videoId: FAKE, seq: 2, comments: [
-                { t: B - 3000, n: 'u', m: 'e' }, { t: B - 2000, n: 'u', m: 'f' }, { t: B - 1000, n: 'u', m: 'g' }, { t: B, n: 'u', m: 'h' }], emoji: {}, lastT: 0 });
+                { t: B + OFF - 3000, n: 'u', m: 'e' }, { t: B + OFF - 2000, n: 'u', m: 'f' }, { t: B + OFF - 1000, n: 'u', m: 'g' }, { t: B + OFF, n: 'u', m: 'h' }], emoji: {}, lastT: 0 });
             pumpChatProgress();
             pc('🔴 平滑化オフでは届いた瞬間に全部出る（測り方が差を拾える証拠）', function () { var c = chatMsgCount(cid); return c === 10 ? '10件' : false; });
         } finally {
@@ -7781,7 +7798,7 @@
 
     /* --- D-W4: 実機（ライブ）。従来（前半）と平滑化（後半）で、塊で出る割合を比べる --- */
     async function testW4() {
-        log('  [目的] ライブ枠のチャット欄で、届いた塊が投稿の時刻どおりに散って出ること。前半30秒は従来（平滑化オフ）、後半30秒は平滑化して比べる（約1分かかる）。');
+        log('  [目的] ライブ枠のチャット欄で、届いた塊が投稿の時刻どおりに散って出ること。前半30秒は従来（平滑化オフ）、後半30秒は平滑化して比べる（約75秒かかる）。');
         var has = (typeof liveSmoothOn !== 'undefined' && typeof LIVE_SMOOTH_MAX_LAG_MS !== 'undefined');
         expect('🔴 A側の平滑化（liveSmoothOn）がある', has ? 'あり' : '無い', 'あり');
         if (!has) return;
@@ -7835,7 +7852,12 @@
             log('  後半（平滑化）30秒…');
             await wait(30000);
             var t2 = performance.now();
+            /* ★v1.22.1: 後半に届いた分が遅れて出るのを待つ（v2.12.2 は1件も出なかったのに PC 不成立で「判定不能」になった） */
+            log('  後半に届いた分が出るのを15秒待つ…');
+            await wait(15000);
             var off = stats('off', t0, t1), on = stats('on', t1, t2);
+            var arrivedOn = chunks.filter(function (c) { return c.at >= t1 && c.at < t2; }).reduce(function (a, c) { return a + c.n; }, 0);
+            var shownOn = shown.filter(function (x) { return x.phase === 'on' && x.at >= t1; }).length;
             var st = chatStore[vid];
             function fmtW4(x) { return 'チャンク ' + x.chunks + '回（' + x.sizes + '）・表示 ' + x.shown + '件・1秒以内 ' + (x.share === null ? '-' : Math.round(x.share * 100) + '%') + '・1秒の最大 ' + x.maxSec + '件'; }
             note('前半（従来）', fmtW4(off));
@@ -7844,9 +7866,11 @@
             pc('🔴 前半（従来）で、届いてから1秒以内に出た割合が 80% 以上（塊で届いている証拠・5件以上）', function () {
                 return (off.shown >= 5 && off.share >= 0.8) ? Math.round(off.share * 100) + '%（' + off.shown + '件）' : false;
             });
-            pc('後半にチャンクが3回以上届き、うち2回以上が3件以上', function () {
-                return (on.chunks >= 3 && on.big >= 2) ? on.chunks + '回 / 3件以上 ' + on.big + '回' : false;
+            pc('後半にチャンクが2回以上・合わせて6件以上届いた', function () {
+                return (on.chunks >= 2 && arrivedOn >= 6) ? on.chunks + '回 / ' + arrivedOn + '件' : false;
             });
+            note('後半に届いた件数 / 後半＋15秒で出た件数', arrivedOn + ' / ' + shownOn);
+            expect('🔴 後半に届いたコメントが、15秒待つまでに8割以上出た（出なくなっていない）', arrivedOn > 0 && shownOn >= arrivedOn * 0.8 ? 'ok' : (shownOn + ' / ' + arrivedOn), 'ok');
             expect('🔴 後半（平滑化）で、届いてから1秒以内に出た割合が 50% 以下', on.share !== null && on.share <= 0.5 ? 'ok' : (on.share === null ? '表示なし' : Math.round(on.share * 100) + '%'), 'ok');
             expect('遅れ K が MAX_LAG（' + LIVE_SMOOTH_MAX_LAG_MS + 'ms）未満', st && st.liveLagMs > 0 && st.liveLagMs < LIVE_SMOOTH_MAX_LAG_MS ? 'ok' : (st ? String(st.liveLagMs) : '-'), 'ok');
         } finally {
@@ -7922,7 +7946,7 @@
         /* ★v1.22.0: v2.12.2。D-A5 は枠数を変える・D-W4 はライブ素材が要る・D-A6 は「すべて実行」の本数を変えないため manual。 */
         { id: 'D-A5', name: '★ライブのコメントを投稿の時刻どおりに散らす（予定表とチャット欄）', run: testA5, manual: true },
         { id: 'D-A6', name: '★流しの縁取りがぼかし無し（設定オフでは none）', run: testA6, manual: true },
-        { id: 'D-W4', name: '★ライブの平滑化（実機）: 従来と比べて塊で出る割合が下がる（約1分）', run: testW4, manual: true },
+        { id: 'D-W4', name: '★ライブの平滑化（実機）: 届いた分が出て、従来と比べて塊で出る割合が下がる（約75秒）', run: testW4, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
