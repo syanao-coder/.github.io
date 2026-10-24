@@ -841,7 +841,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.13.1';
+        const APP_VERSION = '2.13.2';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1682,6 +1682,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.13.2', d: '2026-10-24', t: [
+                'ライブのチャットで 🔄（取り直し）を押すと、チャット欄は流れるのにコメント流しが止まったままになる不具合を直した'] },
             { v: '2.13.1', d: '2026-10-24', t: [
                 'ライブのチャットの取得が途切れたら、🔄 を押さなくても自動で取り直すようにした（続けて3回まで。今までのコメントは消さず、重なった分は出さない）'] },
             { v: '2.13.0', d: '2026-10-24', t: [
@@ -3667,6 +3669,11 @@
               逆にチャット欄だけを開くと、流しのぶんだけカーソルが進んでいて一覧が飛ぶ。 */
         let flowVisible = {};    // cardId → bool（流すか）
         let flowCursor = {};     // cardId → 次に流すコメントの添字
+        /* ★v2.13.2: flowCursor がどの store の添字かを覚える。🔄（reloadChat）で store が作り直されると、
+           前の store の添字（例: 2942）が残り、新しい store がそこまで伸びるまで1件も流れなかった（2026-10-24 実機）。
+           🔴 store そのものを持つと破棄（8-13節）しても配列が残るので、番号（sid）だけを持つ。 */
+        let flowStoreSid = {};
+        let chatStoreSeq = 0;
         let flowLastMs = {};     // cardId → 前回tickの再生位置（シーク検知用）
         let flowLanes = {};      // cardId → レーンごとの表示中コメント配列
         let flowVideoId = {};    // cardId → いま流している videoId（差し替え検知用）
@@ -4517,7 +4524,8 @@
                     comments: [], emoji: {}, source: 'innertube',
                     complete: false, truncated: false, gap: false,
                     videoMs: 0, lastT: 0, nextSeq: 0,
-                    live: isLiveVideo(videoId)   /* ★v2.8.0 */
+                    live: isLiveVideo(videoId),   /* ★v2.8.0 */
+                    sid: ++chatStoreSeq           /* ★v2.13.2 */
                 };
             }
             return s;
@@ -5630,6 +5638,16 @@
                 const store = chatStore[videoId];
                 if (!store) return;
                 const comments = store.comments;
+                /* ★v2.13.2: store が作り直された（🔄 など）なら、読む位置を引き直す */
+                if (!store.sid) store.sid = ++chatStoreSeq;   // キャッシュから戻した store には無い
+                if (flowStoreSid[cardId] !== store.sid) {
+                    if (flowStoreSid[cardId] !== undefined) {
+                        flowClearCard(cardId);
+                        flowCursor[cardId] = null;
+                        flowLastMs[cardId] = null;
+                    }
+                    flowStoreSid[cardId] = store.sid;
+                }
 
                 /* ★v2.8.0: ライブ枠は「到着順にそのまま流す」。
                    再生位置と突き合わせない（ラグで揃わないので突き合わせる意味が無い）。
@@ -5712,6 +5730,8 @@
                 const ms = getChatPlayheadMs(cardId);
                 flowVideoId[cardId] = videoId || null;
                 flowCursor[cardId] = (store && ms !== null) ? chatIndexFor(store.comments, ms) : 0;
+                /* ★v2.13.2: ライブは再生位置と突き合わせない。開いた時点より後を流す（pumpFlowProgress が引く） */
+                if (videoId && isLiveVideo(videoId)) flowCursor[cardId] = null;
                 flowLastMs[cardId] = null;      // 次のtickで現在位置から出し直す
             }
             const btn = document.getElementById('flowToggleBtn_' + cardId);
@@ -5723,6 +5743,7 @@
             flowClearCard(cardId);
             delete flowVisible[cardId];
             delete flowCursor[cardId];
+            delete flowStoreSid[cardId];   /* ★v2.13.2 */
             delete flowLastMs[cardId];
             delete flowLanes[cardId];
             delete flowVideoId[cardId];
