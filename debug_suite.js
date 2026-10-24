@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.23.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.23.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.13.0';
+    var EXPECT_APP_VERSION = '2.13.1';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.13.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.13.0', ids: ['D-V1', 'D-V2', 'D-L10', 'D-W5'] };
+    var VERSION_FOCUS = { v: '2.13.1', ids: ['D-V1', 'D-V2', 'D-L11', 'D-W6'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 46);
+        expect('配列の件数', hist ? hist.length : 0, 47);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -7191,6 +7191,9 @@
         var origPost = window.postMessage;
         var sent = [];
         var cid = null;
+        /* ★v1.23.1: D-L8 は「途切れたときの見出し」を見るので、v2.13.1 の自動の取り直しを切る（D-L11 が取り直しを見る） */
+        var retryB = (typeof liveAutoRetryMax !== 'undefined') ? liveAutoRetryMax : null;
+        if (retryB !== null) liveAutoRetryMax = 0;
         try {
             await closeAllMenus();
             var got = await setCardCount(started + 1);
@@ -7285,6 +7288,7 @@
             note('取得が落ちたとき（見張りの発火）の見出し', hf);
             expect('🔴 ライブの取得が落ちたら「途切れました」（配信終了と書かない）', /途切れました/.test(hf) && !/配信終了/.test(hf) ? 'ok' : hf, 'ok');
         } finally {
+            if (retryB !== null) liveAutoRetryMax = retryB;
             window.postMessage = origPost;
             try { if (typeof cancelChatRequest === 'function') cancelChatRequest(FAKE); } catch (e) { }
             try { delete liveVideoIds[FAKE]; delete chatStore[FAKE]; delete chatState[FAKE]; } catch (e) { }
@@ -7998,6 +8002,175 @@
         expect('🔴 見出しに「👤」が出る', /👤/.test(h) ? 'ok' : h, 'ok');
     }
 
+    /* ======================================================================
+       ★v1.23.1 : v2.13.1 の判定（ライブの取得が途切れたら自動で取り直す）
+       ==================================================================== */
+    function liveDupCount(cs) {
+        var seen = {}, d = 0;
+        (cs || []).forEach(function (c) { var k = c.t + '|' + c.n + '|' + c.m; if (seen[k]) d++; else seen[k] = 1; });
+        return d;
+    }
+
+    /* --- D-L11: A側だけ。途切れ → 古い要求の中止・再接続中・取り直し・重複を消す・上限・配信終了 --- */
+    async function testL11() {
+        log('  [目的] ライブの取得が途切れたら（見張りの発火・RECOVERY_FAILED）、今までのコメントを残したまま自動で取り直し、重なった分を出さないこと。上限で止まり、配信が終わっていたらアーカイブを混ぜずに「配信終了」で終えること。');
+        var has = (typeof scheduleLiveRetry === 'function' && typeof liveAutoRetryMax !== 'undefined');
+        expect('🔴 A側の自動の取り直し（scheduleLiveRetry / liveAutoRetryMax）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var maxB = liveAutoRetryMax, delayB = liveAutoRetryDelayMs;
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var FAKE = 'dbgL11aaaaa';
+        var OFF = 7200000;
+        var origPost = window.postMessage;
+        var sent = [];
+        var cid = null;
+        function reqs() { return sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST'; }); }
+        function cancels() { return sent.filter(function (m) { return m.type === 'CHAT_STREAM_CANCEL'; }).map(function (m) { return m.requestId; }); }
+        /* 🔴 まだ見ていない要求だけを待つ（すでに出た古い要求を拾わない） */
+        var seenRids = {};
+        async function nextReq() {
+            var r = await waitFor(function () { var q = reqs().filter(function (m) { return !seenRids[m.requestId]; }); return q.length ? q[0].requestId : null; }, 3000, 20);
+            if (r.ok) seenRids[r.value] = true;
+            return r.ok ? r.value : null;
+        }
+        function cm(t, m) { return { t: t, n: 'u', m: m }; }
+        async function freshLive() {
+            sent.length = 0;
+            reloadChat(cid);
+            var rid = await nextReq();
+            if (!rid) return null;
+            var n0 = performance.now();
+            handleChatMeta({ requestId: rid, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            handleChatChunk({ requestId: rid, videoId: FAKE, seq: 0, comments: [cm(n0 + OFF - 3000, 'a'), cm(n0 + OFF - 2000, 'b'), cm(n0 + OFF - 1000, 'c')], emoji: {}, lastT: 0 });
+            await wait(50);
+            return rid;
+        }
+        try {
+            await closeAllMenus();
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            window.postMessage = function (msg) {
+                if (msg && (msg.type === 'CHAT_STREAM_REQUEST' || msg.type === 'CHAT_STREAM_CANCEL')) { sent.push(msg); return; }
+                return origPost.apply(window, arguments);
+            };
+            cardVideoKeys[cid] = FAKE;
+            if (typeof setChatMode === 'function') setChatMode(cid, 'all');
+            await openChatPane(cid);
+
+            /* positive control: 取り直しを切ると従来どおり即「途切れました」 */
+            liveAutoRetryMax = 0;
+            var r0 = await freshLive();
+            pc('🔴 偽のライブの見出しが「配信中」（土俵）', function () { var h = chatHeadText(cid); return (r0 && /🔴 配信中/.test(h)) ? h : false; });
+            failChat(r0, FAKE, '試験: 見張りの発火');
+            await wait(30);
+            pc('🔴 取り直しを切ると、見張りの発火で即「途切れました」（従来どおり＝差を拾える証拠）', function () { var h = chatHeadText(cid); return /途切れました/.test(h) ? h : false; });
+
+            /* 1. 見張りの発火 → 取り直し */
+            liveAutoRetryMax = 3; liveAutoRetryDelayMs = 50;
+            var rA = await freshLive();
+            var st = chatStore[FAKE];
+            var rowsA = chatMsgCount(cid);
+            sent.length = 0;
+            failChat(rA, FAKE, '試験: 見張りの発火');
+            await wait(10);
+            var h1 = chatHeadText(cid);
+            expect('🔴 古い要求へ中止を送る（B側のジョブが生きているかもしれない）', cancels().indexOf(rA) >= 0 ? 'ok' : JSON.stringify(cancels()), 'ok');
+            expect('見出しが「再接続中」', /再接続中/.test(h1) ? 'ok' : h1, 'ok');
+            expect('🔴 今までのコメントを残す（store を捨てない）', chatStore[FAKE] === st ? st.comments.length : '捨てた', 3);
+            expect('チャット欄の行も残る', chatMsgCount(cid), rowsA);
+            var rB = await nextReq();
+            expect('🔴 新しい要求が出る', rB ? 'ok' : '出ない', 'ok');
+            if (!rB) return;
+            handleChatMeta({ requestId: rB, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            var last = st.comments.slice(-2);
+            var nB = performance.now();
+            handleChatChunk({ requestId: rB, videoId: FAKE, seq: 0, comments: [cm(last[0].t, last[0].m), cm(last[1].t, last[1].m), cm(nB + OFF, 'd')], emoji: {}, lastT: 0 });
+            expect('🔴 取り直しの最初の応答の重なり2件を消し、新しい1件だけ足す', st.comments.length + ' 件・重複 ' + liveDupCount(st.comments), '4 件・重複 0');
+            handleChatPing({ active: [{ requestId: rB, videoId: FAKE, total: 1, lastT: 0, live: true, livePolls: 1, liveRecovers: 0, liveExits: {}, livePhase: 'poll' }], waiting: [] });
+            await wait(30);
+            var h2 = chatHeadText(cid);
+            expect('🔴 心拍が戻ると「配信中・再接続1回」', /🔴 配信中・再接続1回/.test(h2) ? 'ok' : h2, 'ok');
+
+            /* 2. RECOVERY_FAILED でも取り直す */
+            sent.length = 0;
+            handleChatDone({ requestId: rB, videoId: FAKE, ok: true, live: true, liveBy: 'isLiveNow', total: 1, complete: null, truncated: false, reqs: 3, livePolls: 3, endReason: 'RECOVERY_FAILED', recoverError: 'HTTP 500' });
+            await wait(10);
+            var h3 = chatHeadText(cid);
+            expect('🔴 B側が復帰を諦めた（RECOVERY_FAILED）でも取り直す（「途切れました」にしない）', /再接続中/.test(h3) ? 'ok' : h3, 'ok');
+            var rC = await nextReq();
+            expect('RECOVERY_FAILED のあと新しい要求が出る', rC ? 'ok' : '出ない', 'ok');
+
+            /* 3. 続けて落ちると上限で止まる（RECOVERY_FAILED で1回 → C・D で2・3回 → E で上限） */
+            var rD = null, rE = null;
+            if (rC) { failChat(rC, FAKE, '試験'); rD = await nextReq(); }
+            if (rD) { failChat(rD, FAKE, '試験'); rE = await nextReq(); }
+            var before = reqs().length;
+            if (rE) failChat(rE, FAKE, '試験');
+            await wait(200);
+            var h4 = chatHeadText(cid);
+            note('続けての取り直し（C・D・E）と上限のあとの見出し', [rC, rD, rE].map(function (x) { return x ? 'あり' : 'なし'; }).join(' / ') + ' → ' + h4);
+            expect('🔴 続けて ' + 3 + ' 回落ちたら止めて「途切れました」（無限に取り直さない）', (rE && /途切れました/.test(h4) && reqs().length === before) ? 'ok' : h4 + ' / 要求 ' + (reqs().length - before), 'ok');
+
+            /* 4. 取り直したら配信が終わっていた → アーカイブを混ぜずに「配信終了」 */
+            var rF0 = await freshLive();
+            sent.length = 0;
+            failChat(rF0, FAKE, '試験');
+            var rF = await nextReq();
+            if (rF) handleChatMeta({ requestId: rF, videoId: FAKE, ok: true, live: false, liveBy: 'isLiveNow', videoMs: 3600000 });
+            await wait(30);
+            var h5 = chatHeadText(cid);
+            expect('🔴 取り直しの meta が live:false なら、その要求を中止して「配信終了」', (rF && cancels().indexOf(rF) >= 0 && /配信終了/.test(h5)) ? 'ok' : (h5 + ' / 中止 ' + JSON.stringify(cancels())), 'ok');
+        } finally {
+            liveAutoRetryMax = maxB; liveAutoRetryDelayMs = delayB;
+            window.postMessage = origPost;
+            try { if (typeof cancelChatRequest === 'function') cancelChatRequest(FAKE); } catch (e) { }
+            try { delete liveVideoIds[FAKE]; delete chatStore[FAKE]; delete chatState[FAKE]; } catch (e) { }
+            try { if (cid) delete cardVideoKeys[cid]; } catch (e) { }
+            try { if (cid) await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL・取り直しの設定', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり') + ' / 上限 ' + liveAutoRetryMax + '・待ち ' + liveAutoRetryDelayMs + 'ms');
+        }
+    }
+
+    /* --- D-W6: 実機（ライブ）。取得中の要求に見張りの発火を起こし、自動で取り直して戻る・重複が増えない --- */
+    async function testW6() {
+        log('  [目的] 実機のライブで取得が途切れたとき（見張りの発火を起こす）、アドオンへの取り直しが通り、心拍とコメントが戻ること。重なった分が増えないこと（最大60秒）。');
+        var has = (typeof scheduleLiveRetry === 'function');
+        expect('🔴 A側の自動の取り直し（scheduleLiveRetry）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var ids = (activeCardIds || []).filter(function (id) {
+            var v = chatLoadedVideoId[id];
+            return chatVisible[id] && v && isLiveVideo(v) && chatState[v] === 'streaming' && chatInflight[v];
+        });
+        pc('🔴 チャット欄を開いた配信中のライブ枠があり、取得中である', function () { return ids.length ? ids.join(',') : false; });
+        if (!ids.length) return;
+        var cid = ids[0], vid = chatLoadedVideoId[cid], st = chatStore[vid];
+        pc('心拍が15秒以内に届いている', function () { return (st.livePingAt && Date.now() - st.livePingAt < 15000) ? Math.round((Date.now() - st.livePingAt) / 1000) + '秒前' : false; });
+        var rid0 = chatInflight[vid];
+        var n0 = st.comments.length, dup0 = liveDupCount(st.comments), tot0 = st.retryTotal || 0;
+        var tFire = Date.now();
+        failChat(rid0, vid, '試験: 見張りの発火（D-W6）');
+        var r1 = await waitFor(function () { var r = chatInflight[vid]; return (r && r !== rid0) ? r : null; }, 15000, 200);
+        expect('🔴 15秒以内に新しい要求が出た', r1.ok ? 'ok' : '出ない', 'ok');
+        if (!r1.ok) return;
+        var r2 = await waitFor(function () { return (st.livePingAt > tFire && (st.retryStreak || 0) === 0) ? Math.round((st.livePingAt - tFire) / 1000) : null; }, 45000, 500);
+        expect('🔴 取り直しの心拍が戻った（45秒以内）', r2.ok ? 'ok' : '戻らない', 'ok');
+        note('取り直してから心拍が戻るまで', r2.ok ? r2.value + '秒' : '-');
+        await wait(10000);
+        var dup1 = liveDupCount(st.comments);
+        note('コメント（前 / 後）・重複（前 / 後）・再接続の回数', n0 + ' / ' + st.comments.length + ' ・ ' + dup0 + ' / ' + dup1 + ' ・ ' + (st.retryTotal || 0));
+        expect('🔴 重なった分が増えていない', dup1 - dup0, 0);
+        expect('再接続の回数が1つ増えた', (st.retryTotal || 0) - tot0, 1);
+        var h = chatHeadText(cid);
+        note('見出し', h);
+        expect('見出しが「配信中」に戻り「再接続」が付く', /🔴 配信中/.test(h) && /再接続\d+回/.test(h) ? 'ok' : h, 'ok');
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -8067,6 +8240,9 @@
         /* ★v1.23.0: v2.13.0。D-L10 は枠数を変える・D-W5 はライブとアドオン 2.13.0 が要るので manual。 */
         { id: 'D-L10', name: '★ライブの見出しに視聴者数（古い数・旧アドオン・終了後は出さない）', run: testL10, manual: true },
         { id: 'D-W5', name: '★配信中の視聴者数（実機）: 心拍で届き、見出しに出る（最大70秒）', run: testW5, manual: true },
+        /* ★v1.23.1: v2.13.1。D-L11 は枠数を変える・D-W6 はライブが要るので manual。 */
+        { id: 'D-L11', name: '★ライブの取得が途切れたら自動で取り直す（重複を消す・上限・配信終了）', run: testL11, manual: true },
+        { id: 'D-W6', name: '★ライブの自動の取り直し（実機）: 途切れを起こして戻る・重複が増えない（最大60秒）', run: testW6, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
