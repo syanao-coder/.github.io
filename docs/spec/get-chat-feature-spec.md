@@ -5,7 +5,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 
 # チャット / コメント流し機能 実装仕様書
 
-最終更新: 2026-08-15 / 現行リリース **v2.8.1**（実機検証済み）
+最終更新: 2026-10-24 / 現行リリース **v2.13.0**（実機検証済み）
 関連スキル: `/get-protocol-spec`（A↔B通信プロトコル、バージョン管理規約、既知の不具合）
 関連スキル: `/get-danmaku-spec`（ニコニコ風コメント流しと調整UI ─ 本スキル旧 8-10節・8-11節。★2026-08-15 分離）
 関連スキル: `/get-ui-spec`（A側UIの部品仕様 ─ トップバーのメニュー構造・再生可否の確定と枠内通知）
@@ -378,6 +378,35 @@ t = timestampUsec / 1000 − liveBroadcastDetails.startTimestamp   ＝ 配信開
 | `⚠長時間のため打ち切り・🔄で再取得` | `MAX_REQUESTS` |
 
 🔴 **v2.11.1 は実機未確認**（`/get-protocol-spec` 11節 持ち越し10）。検証台 `live_mock.js`（取得エンジンを本物のまま読み `fetch` を差し替え）で、変更前のエンジンは「終了後も応答が続く」で終わらず・「応答が固まる」で止まったまま・「`playerResponse` が無い」で誤って `ENDED` になることを再現し、変更後は3つとも直ることを確かめた（`instr_v2_11_1.md`）。
+
+#### 1-6-8. ライブのチャットの塊の平滑化（A側）★v2.12.2 / v2.12.3
+
+約10秒ごとに塊で届くコメントを、**投稿の時刻どおりの間隔**で一定の遅れ K を付けて出す。チャット欄・組み直し・流しは同じ予定表（`liveShownCount`）を使う。
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 予定表 | `store.liveDue[]`（`comments` と同じ添字）・`store.liveShown`・`store.liveLagMs`（K）・`store.liveLagBase`。`handleChatChunk` が `liveSmoothIngest(store, from, performance.now())` を呼ぶ |
+| 🔴 遅れの測り方 | `now − t` には**起点の差（任意の定数・負にもなる）**が乗る。これまでの `now − t` の最小を `liveLagBase`（＝最も新しいコメント）とし、`now − t − base` を遅れとする。`due = t + base + K` |
+| K | `max(前の K − 経過 × 0.1, このチャンクの遅れの最大, 0)`。遅れが `LIVE_SMOOTH_MAX_LAG_MS`（30秒）を超える標本はすぐ出し K に入れない |
+| 初回 | 最初にコメントの入ったチャンク（直近の過去ぶん）は全部すぐ出す |
+| 保険 | `due ≤ now + 30秒`。予定表と `comments` の長さが違えば全部出す（取りこぼすより出す側） |
+| 逃げ道 | `LIVE_SMOOTH_FEATURE = false`（`liveSmoothOn`）で従来どおり届いたら全部出す |
+| 見出し | 遅れは `title` に「投稿の時刻どおりに散らして表示（約N秒遅れ）」だけ |
+| 実測（v2.12.3） | 届いて1秒以内に出た割合 100% → 5%・1秒の最大 162 → 20件・K 約11秒 |
+
+🔴 **罠（v2.12.2 で実機を壊した）**: `t`（配信開始からの経過・1-6-3節）と `performance.now()` を同じ起点とみなした。配信開始の後にページを開くと差が負になり、0 で頭打ち → 出す時刻が数時間先 → **新しいコメントが一切出ない**。偽のデータで `t` を `performance.now()` 基準に作ると再現しない（`/get-debug-suite` 9-B-15節）。
+
+#### 1-6-9. 配信中の視聴者数 ★v2.13.0
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 経路1 | `POST /youtubei/v1/updated_metadata?key=…`・body `{ context, videoId }`・認証ヘッダは `postChat` と同じ。応答 `actions[].updateViewershipAction.viewCount.videoViewCountRenderer`（実機で確認 2026-10-24） |
+| 経路2（予備） | 最初の watch と2分ごとの `recoverLive` の `ytInitialData`（`contents.twoColumnWatchNextResults.results` の下・深さ 8）。実機未確認 |
+| 読み方 | 入れ物名を決め打ちせず `videoViewCountRenderer` を探す。数は `originalViewCount` 優先、無ければ `viewCount` の文字から数字だけ |
+| 間隔 | `LIVE_VIEWERS_INTERVAL_MS` 30秒・`LIVE_VIEWERS_TIMEOUT_MS` 10秒。🔴 **`await` しない**（同時に1本）。チャットのポーリングを待たせない |
+| A側 | 心拍で受けて `store.viewers` ほか。見出しは取得中のライブだけ `・👤 1,234人`（`toLocaleString`）。取ってから120秒を超えた数・旧アドオン・配信終了後は出さない。YouTube の文字は `title` |
+
+⚠️ 取得していない枠には出ない（1-6-6節の恒久制約と同じ）。
 
 ## 2. 確定した定数と見積もり
 
