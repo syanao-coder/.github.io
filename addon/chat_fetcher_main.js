@@ -1179,6 +1179,115 @@
   }
 
   /* ==============================================================
+     ★v2.16.0（アドオン 2.14.0）: 配信中のライブへのコメント投稿
+     スパイク C1（2026-10-25）で実測: 取得と同じ認証で send_message に送れる。
+     🔴 送るための params は /live_chat ページにだけある（watch にも get_live_chat の応答にも無い）。
+     🔴 文面は A側で利用者が毎回手で打ったものだけを送る。ここで文を作ったり補ったりしない。
+     🔴 送り直すのは HTTP 4xx（429 を除く＝送れていないことが確か）のときだけ・1回だけ。
+        打ち切り・回線エラー・5xx は届いている可能性があるので送り直さない（二重投稿を避ける）。
+     ============================================================== */
+  const POST_TIMEOUT_MS = 15000;
+  const postParams = new Map();   // videoId → { params, placeholder, at }
+
+  function plainText(t) {
+    if (!t) return '';
+    if (t.simpleText) return String(t.simpleText);
+    if (t.runs) return t.runs.map(function (r) { return r.text || ''; }).join('');
+    return '';
+  }
+
+  /* /live_chat から params・投稿できるか・できない理由・入力欄の案内文を読む */
+  async function loadPostParams(videoId) {
+    const r = await fetchTimed('/live_chat?is_popout=1&v=' + encodeURIComponent(videoId),
+      { credentials: 'include' }, POST_TIMEOUT_MS, 'text');
+    if (!r.res.ok) throw new Error('チャットのページを読めません（HTTP ' + r.res.status + '）');
+    const html = r.body;
+    const d = findInitialData(html);
+    const lcr = d && d.contents && d.contents.liveChatRenderer;
+    if (!lcr) return { canPost: false, reason: 'この配信のチャットが見つかりません（配信が終わった・チャットが無効など）', cfg: null };
+    const ap = lcr.actionPanel || null;
+    const input = ap && ap.liveChatMessageInputRenderer;
+    let params = null, placeholder = '';
+    try { params = input.sendButton.buttonRenderer.serviceEndpoint.sendLiveChatMessageEndpoint.params; } catch (e) { params = null; }
+    try { placeholder = plainText(input.inputField.liveChatTextInputFieldRenderer.placeholder); } catch (e) { placeholder = ''; }
+    const cfg = cfgFromPage() || cfgFromHtml(html);
+    if (!input || !params) {
+      let reason = '';
+      if (ap) { const inner = ap[Object.keys(ap)[0]] || {}; reason = plainText(inner.message) || plainText(inner.text); }
+      if (!reason) reason = ap ? 'この配信には今は投稿できません' : 'ログインしていないか、この配信には投稿できません';
+      return { canPost: false, reason: reason.slice(0, 200), cfg: cfg };
+    }
+    postParams.set(videoId, { params: params, placeholder: placeholder, at: Date.now() });
+    return { canPost: true, params: params, placeholder: placeholder, cfg: cfg };
+  }
+
+  async function sendOnce(cfg, params, text) {
+    const headers = { 'content-type': 'application/json' };
+    const auth = await buildAuthHeaders();
+    if (auth) for (const k of Object.keys(auth)) headers[k] = auth[k];
+    const body = JSON.stringify({
+      context: cfg.ctx, params: params,
+      richMessage: { textSegments: [{ text: text }] },
+      clientMessageId: 'sp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+    });
+    const r = await fetchTimed('/youtubei/v1/live_chat/send_message?key=' + encodeURIComponent(cfg.key) + '&prettyPrint=false',
+      { method: 'POST', credentials: 'include', headers: headers, body: body }, POST_TIMEOUT_MS, 'json');
+    let echo = false;
+    if (r.res.ok && r.body && r.body.actions) {
+      r.body.actions.forEach(function (a) {
+        const it = a && a.addChatItemAction && a.addChatItemAction.item;
+        const m = it && it.liveChatTextMessageRenderer;
+        if (m && plainText(m.message) === text) echo = true;
+      });
+    }
+    return { status: r.res.status, ok: r.res.ok, echo: echo };
+  }
+
+  async function chatPost(d) {
+    const out = { ev: 'post', requestId: d.requestId, videoId: d.videoId, ok: false, canPost: null, reason: null, placeholder: null, httpStatus: null, echo: false, error: null };
+    let sending = false;   // send_message を叩いたあとの例外は「届いたか分からない」
+    cancelIdleClose();
+    try {
+      const text = String(d.text == null ? '' : d.text).trim();
+      if (!d.videoId) throw new Error('videoId が指定されていません');
+      if (!d.dryRun && (!text || text.length > 200)) throw new Error('本文は1〜200字です');
+      let prep = null;
+      const known = postParams.get(d.videoId);
+      if (d.dryRun || !known) prep = await loadPostParams(d.videoId);
+      else prep = { canPost: true, params: known.params, placeholder: known.placeholder, cfg: cfgFromPage() };
+      out.canPost = prep.canPost;
+      out.reason = prep.reason || null;
+      out.placeholder = prep.placeholder || null;
+      if (!prep.canPost) { out.error = prep.reason; return out; }
+      if (d.dryRun) { out.ok = true; return out; }
+      let cfg = prep.cfg;
+      if (!cfg) { const again = await loadPostParams(d.videoId); cfg = again.cfg; }
+      if (!cfg) throw new Error('INNERTUBE_API_KEY / CONTEXT を取得できませんでした');
+      sending = true;
+      let s = await sendOnce(cfg, prep.params, text);
+      if (!s.ok && s.status >= 400 && s.status < 500 && s.status !== 429) {
+        /* params が古い可能性。取り直して1回だけ送り直す（4xx は送れていないことが確か） */
+        postParams.delete(d.videoId);
+        const fresh = await loadPostParams(d.videoId);
+        out.canPost = fresh.canPost; out.reason = fresh.reason || null;
+        if (!fresh.canPost) { out.httpStatus = s.status; out.error = fresh.reason; return out; }
+        s = await sendOnce(fresh.cfg || cfg, fresh.params, text);
+      }
+      out.httpStatus = s.status;
+      out.ok = s.ok;
+      out.echo = s.echo;
+      if (!s.ok) out.error = '送信できませんでした（HTTP ' + s.status + '）';
+    } catch (e) {
+      const m = String(e && e.message ? e.message : e).slice(0, 200);
+      out.error = sending ? '送信の応答がありません（' + m + '）。届いたかどうか分からないので、チャット欄で確かめてから送り直してください' : m;
+    } finally {
+      post(out);
+      if (!jobs.size) scheduleIdleClose();
+    }
+    return out;
+  }
+
+  /* ==============================================================
      ISOLATED からの指示を受ける
      ============================================================== */
   window.addEventListener('message', function (e) {
@@ -1187,6 +1296,7 @@
     if (!d || d[CMD] !== 1) return;
     if (d.cmd === 'CHAT_ENQUEUE') enqueue(d.requestId, d.videoId, d.mode);
     else if (d.cmd === 'CHAT_CANCEL') cancel(d.requestId);
+    else if (d.cmd === 'CHAT_POST') chatPost(d);   /* ★v2.16.0 */
     else if (d.cmd === 'CHAT_CONFIG' && d.config) {
       /* 段階 1-F の計測用。実行中に束ね方を差し替えられる。 */
       for (const k of Object.keys(d.config)) {
@@ -1228,7 +1338,9 @@
       return rows;
     },
     enqueue: enqueue,
-    cancel: cancel
+    cancel: cancel,
+    /* ★v2.16.0: 覚えている params の数（🔴 中身は返さない） */
+    postParamsCount: function () { return postParams.size; }
   };
 
   post({ ev: 'ready', version: ENGINE_VERSION });

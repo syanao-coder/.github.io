@@ -498,6 +498,25 @@
         .chat-note button:hover { background: #ff6b7a; }
         .chat-note .sub { font-size: 0.65rem; color: #5a5a68; margin-top: 8px; }
         .chat-toggle-btn { opacity: 0.45; }
+        /* ★v2.16.0: 配信中のライブへの投稿欄（チャット欄の下） */
+        .chat-post {
+            flex: 0 0 auto; display: none; flex-wrap: wrap; align-items: center; gap: 4px;
+            padding: 3px 4px; background: #14141c; border-top: 1px solid var(--border-color);
+        }
+        .chat-post input {
+            flex: 1 1 0; width: 0; min-width: 0; background: #0c0c10; color: #e0e0ea; border: 1px solid #33333f;
+            border-radius: 3px; padding: 2px 5px; font-size: calc(0.66rem * var(--ui-scale));
+        }
+        .chat-post input:disabled { opacity: 0.55; }
+        .chat-post button {
+            flex: 0 0 auto; background: #2a2a38; color: #00ebc7; border: none; border-radius: 3px;
+            padding: 2px 8px; font-size: calc(0.62rem * var(--ui-scale)); cursor: pointer;
+        }
+        .chat-post button:disabled { opacity: 0.35; cursor: default; }
+        .chat-post-msg { flex: 1 0 100%; font-size: calc(0.58rem * var(--ui-scale)); color: #8a8a9a; }
+        .chat-post-msg:empty { display: none; }
+        .chat-post-msg.ok { color: #2ed573; }
+        .chat-post-msg.ng { color: #ffb020; }
         .chat-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
         .chat-toggle-btn.active:hover { background-color: #55ffdd; }
         /* ★v2.7.0: コメント流し。
@@ -876,12 +895,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.15.1';
+        const APP_VERSION = '2.16.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.13.0';
+        const ADDON_REQUIRED_VERSION = '2.14.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1249,6 +1268,8 @@
                     handleChatDone(event.data);
                 } else if (newState === 'chatPing') {
                     handleChatPing(event.data);
+                } else if (newState === 'chatPost') {
+                    handleChatPost(event.data);   /* ★v2.16.0 */
                 }
             }
             /* ★v2.9.0: 枠の中の YouTube（アドオンの content_yt_embed.js）から直接届く */
@@ -1718,6 +1739,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.16.0', d: '2026-10-25', t: [
+                '配信中のライブにコメントを投稿できるようにした（チャット欄の下の入力欄に打って Enter）。日本語の変換中の Enter では送らない。🔴 アドオン 2.14.0 が要る'] },
             { v: '2.15.1', d: '2026-10-25', t: [
                 'コメント流しの「同時表示数の上限」の既定を40件から60件へ上げた（ライブの終わり際などで流れが詰まりにくくなる）。自分で変えた値はそのまま'] },
             { v: '2.15.0', d: '2026-10-25', t: [
@@ -3101,9 +3124,6 @@
             });
             return rows;
         }
-        function escapeHtmlAttr(s) {
-            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-        }
         function toggleSessionDetail(index) {
             const d = document.getElementById('sessDetail_' + index);
             const b = document.getElementById('sessPosBtn_' + index);
@@ -4400,6 +4420,14 @@
                         '<button class="chat-jump" id="chatJump_' + cardId + '" onclick="chatScrollToBottom(\'' + cardId + '\')">▼ 最新へ</button>' +
                         '<div class="chat-note" id="chatNote_' + cardId + '"></div>' +
                     '</div>' +
+                    /* ★v2.16.0: 配信中のライブへの投稿欄。取得中のライブのときだけ出す（updateChatPostUI）。
+                       🔴 文面は利用者が毎回手で打つ。value を外から入れない */
+                    '<div class="chat-post" id="chatPost_' + cardId + '">' +
+                        '<input type="text" id="chatPostInput_' + cardId + '" maxlength="200" autocomplete="off" placeholder="コメントを入力（Enter で送信）"' +
+                            ' onkeydown="chatPostKeydown(event, \'' + cardId + '\')">' +
+                        '<button id="chatPostBtn_' + cardId + '" onclick="submitChatPost(\'' + cardId + '\')" title="このライブのチャットに投稿する">送信</button>' +
+                        '<div class="chat-post-msg" id="chatPostMsg_' + cardId + '"></div>' +
+                    '</div>' +
                 '</div>';
         }
 
@@ -4545,6 +4573,135 @@
         }
 
         function updateChatHeadTitle(cardId) {
+            updateChatHeadTitleText(cardId);
+            updateChatPostUI(cardId);   /* ★v2.16.0: 見出しが変わる時（取得の状態が変わる時）に投稿欄も合わせる */
+        }
+
+        /* ★v2.16.0: 配信中のライブへのコメント投稿（入力欄はチャット欄の下・Enter で送る・確認の窓なし ─ 2026-10-25 利用者選択）。
+           🔴 文面は利用者が毎回手で打ったものだけを送る。定型文・候補・自動入力・前回の文の再利用は作らない（利用者指示 2026-10-25）。
+           🔴 日本語の変換中の Enter では送らない（確認の窓が無いので、これが一番の事故の元）。
+           準備（dryRun）で投稿できるか・できない理由・YouTube の案内文を先に聞き、動画ごとに覚える。 */
+        const CHAT_POST_FEATURE = true;      // 逃げ道: false で投稿欄を出さない
+        const CHAT_POST_MAX = 200;
+        let chatPostCooldownMs = 3000;       // 送れてから次を送れるまで（連投の防止）
+        let chatPostTimeoutMs = 20000;       // アドオンから結果が返らないとき戻すまで
+        let chatPostPrep = {};       // 動画ID → { state: 'pending' | 'ready' | 'blocked', reason, placeholder }
+        let chatPostReqs = {};       // requestId → { cardId, videoId, dryRun, timer }
+        let chatPostBusy = {};       // cardId → 送っている requestId
+        let chatPostCoolUntil = {};  // cardId → この時刻までは送らない
+        let chatPostMsgs = {};       // cardId → { text, kind }
+
+        function chatPostVideoId(cardId) {
+            const key = chatLoadedVideoId[cardId];
+            return key ? videoIdOfChatKey(key) : null;
+        }
+        function setChatPostMsg(cardId, text, kind) {
+            chatPostMsgs[cardId] = { text: text || '', kind: kind || '', videoId: chatPostVideoId(cardId) };
+            const m = document.getElementById('chatPostMsg_' + cardId);
+            if (m) { m.textContent = text || ''; m.className = 'chat-post-msg' + (kind ? ' ' + kind : ''); }
+        }
+        function sendChatPostRequest(cardId, videoId, text, dryRun) {
+            const requestId = 'post_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            const timer = setTimeout(function () { chatPostTimedOut(requestId); }, chatPostTimeoutMs);
+            chatPostReqs[requestId] = { cardId: cardId, videoId: videoId, dryRun: !!dryRun, timer: timer };
+            window.postMessage({ type: 'CHAT_POST_REQUEST', requestId: requestId, videoId: videoId,
+                                 text: dryRun ? '' : text, dryRun: !!dryRun }, '*');
+            return requestId;
+        }
+        function updateChatPostUI(cardId) {
+            const box = document.getElementById('chatPost_' + cardId);
+            if (!box) return;
+            const key = chatLoadedVideoId[cardId];
+            const store = key ? chatStore[key] : null;
+            const show = CHAT_POST_FEATURE && !!chatVisible[cardId] && !!store && !!store.live && chatState[key] === 'streaming';
+            box.style.display = show ? 'flex' : 'none';
+            if (!show) return;
+            const videoId = videoIdOfChatKey(key);
+            const prev = chatPostMsgs[cardId];
+            if (prev && prev.text && prev.videoId !== videoId) setChatPostMsg(cardId, '', '');   // 前の動画の知らせを残さない
+            let prep = chatPostPrep[videoId];
+            if (!prep) {
+                prep = chatPostPrep[videoId] = { state: 'pending' };
+                sendChatPostRequest(cardId, videoId, '', true);
+            }
+            const input = document.getElementById('chatPostInput_' + cardId);
+            const btn = document.getElementById('chatPostBtn_' + cardId);
+            const busy = !!chatPostBusy[cardId];
+            if (prep.state === 'ready') {
+                input.disabled = busy; btn.disabled = busy;
+                input.placeholder = (prep.placeholder || 'コメントを入力') + '（Enter で送信）';
+            } else if (prep.state === 'blocked') {
+                input.disabled = true; btn.disabled = true;
+                input.placeholder = '投稿できません';
+                const cur = chatPostMsgs[cardId];
+                if (!cur || cur.kind !== 'ng') setChatPostMsg(cardId, '⚠ ' + (prep.reason || '投稿できません'), 'ng');
+            } else {
+                input.disabled = true; btn.disabled = true;
+                input.placeholder = '投稿の準備中…';
+            }
+        }
+        function chatPostKeydown(ev, cardId) {
+            if (ev.key !== 'Enter') return;
+            if (ev.isComposing || ev.keyCode === 229) return;   // 🔴 変換中の Enter（確定）では送らない
+            ev.preventDefault();
+            submitChatPost(cardId);
+        }
+        function submitChatPost(cardId) {
+            const videoId = chatPostVideoId(cardId);
+            const prep = videoId ? chatPostPrep[videoId] : null;
+            if (!prep || prep.state !== 'ready' || chatPostBusy[cardId]) return false;
+            const input = document.getElementById('chatPostInput_' + cardId);
+            const text = input ? input.value.trim() : '';
+            if (!text) return false;
+            if (text.length > CHAT_POST_MAX) { setChatPostMsg(cardId, '⚠ ' + CHAT_POST_MAX + '字までです（今 ' + text.length + '字）', 'ng'); return false; }
+            if (Date.now() < (chatPostCoolUntil[cardId] || 0)) { setChatPostMsg(cardId, '⚠ 続けて送るには少し待ってください', 'ng'); return false; }
+            chatPostBusy[cardId] = sendChatPostRequest(cardId, videoId, text, false);
+            setChatPostMsg(cardId, '送信中…', '');
+            updateChatPostUI(cardId);
+            return true;
+        }
+        function handleChatPost(d) {
+            const q = chatPostReqs[d.requestId];
+            if (!q) return;
+            clearTimeout(q.timer);
+            delete chatPostReqs[d.requestId];
+            if (q.dryRun) {
+                chatPostPrep[q.videoId] = d.canPost
+                    ? { state: 'ready', placeholder: d.placeholder || '' }
+                    : { state: 'blocked', reason: d.reason || d.error || '投稿できません' };
+                activeCardIds.forEach(function (c) { if (chatPostVideoId(c) === q.videoId) { if (d.canPost) setChatPostMsg(c, '', ''); updateChatPostUI(c); } });
+                return;
+            }
+            if (chatPostBusy[q.cardId] === d.requestId) delete chatPostBusy[q.cardId];
+            const input = document.getElementById('chatPostInput_' + q.cardId);
+            if (d.ok) {
+                if (input) input.value = '';   // 🔴 送れたら空に戻す（前回の文を残さない）
+                chatPostCoolUntil[q.cardId] = Date.now() + chatPostCooldownMs;
+                setChatPostMsg(q.cardId, '✓ 送信しました', 'ok');
+            } else {
+                if (d.canPost === false) chatPostPrep[q.videoId] = { state: 'blocked', reason: d.reason || d.error || '投稿できません' };
+                chatPostCoolUntil[q.cardId] = Date.now() + chatPostCooldownMs;   // 届いたか分からない失敗（打ち切り）もあるので、すぐには送り直させない
+                setChatPostMsg(q.cardId, '⚠ ' + (d.error || '送信できませんでした'), 'ng');   // 打った文は残す（直して送り直せる）
+            }
+            updateChatPostUI(q.cardId);
+            if (d.ok && input && !input.disabled) input.focus();
+        }
+        function chatPostTimedOut(requestId) {
+            const q = chatPostReqs[requestId];
+            if (!q) return;
+            delete chatPostReqs[requestId];
+            if (q.dryRun) {
+                chatPostPrep[q.videoId] = { state: 'blocked', reason: 'アドオンから応答がありません（アドオン ' + ADDON_REQUIRED_VERSION + ' が要ります）' };
+                activeCardIds.forEach(function (c) { if (chatPostVideoId(c) === q.videoId) updateChatPostUI(c); });
+                return;
+            }
+            if (chatPostBusy[q.cardId] === requestId) delete chatPostBusy[q.cardId];
+            chatPostCoolUntil[q.cardId] = Date.now() + chatPostCooldownMs;
+            setChatPostMsg(q.cardId, '⚠ 応答がありません。届いたかどうか分からないので、チャット欄で確かめてから送り直してください', 'ng');
+            updateChatPostUI(q.cardId);
+        }
+
+        function updateChatHeadTitleText(cardId) {
             const el = document.getElementById('chatHeadTitle_' + cardId);
             if (!el) return;
             const videoId = chatLoadedVideoId[cardId];
