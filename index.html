@@ -599,8 +599,8 @@
                 </div>
                 <div class="control-row">
                     <label style="font-size:0.85rem; width:150px;" for="flowMaxOnscreen">同時表示数の上限:<span class="help-q" data-help="flowMaxOnscreen">?</span></label>
-                    <input type="range" id="flowMaxOnscreen" min="5" max="100" step="5" value="40" style="width:160px;" oninput="applyFlowSettingsFromUI()">
-                    <span id="flowMaxOnscreenVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">40件</span>
+                    <input type="range" id="flowMaxOnscreen" min="5" max="100" step="5" value="60" style="width:160px;" oninput="applyFlowSettingsFromUI()">
+                    <span id="flowMaxOnscreenVal" style="font-size:0.8rem; font-family:monospace; color:#00ffcc; width:52px;">60件</span>
                     <span style="font-size:0.72rem; color:#888;">下げると軽くなります</span>
                 </div>
                 <div class="control-row">
@@ -876,7 +876,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.15.0';
+        const APP_VERSION = '2.15.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1590,7 +1590,7 @@
             flowMaxOnscreen:
                 '1つの枠に同時に流すコメントの最大数です。\n'
                 + 'これを超えたぶんは流れずに捨てられます（先に来たものが優先）。\n'
-                + '既定は40件で、通常の動画ではここまで届きません。下げると軽くなります。',
+                + '既定は60件です。ライブで流れが詰まるときは上げ、重いときは下げてください。',
             flowDurationMs:
                 'コメントが右端から左端まで流れきるまでの時間です。\n'
                 + '長くするほどゆっくり流れますが、画面に残る数が増えるぶん重くなります。\n'
@@ -1718,6 +1718,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.15.1', d: '2026-10-25', t: [
+                'コメント流しの「同時表示数の上限」の既定を40件から60件へ上げた（ライブの終わり際などで流れが詰まりにくくなる）。自分で変えた値はそのまま'] },
             { v: '2.15.0', d: '2026-10-25', t: [
                 '保存したマイリストの名前をあとから直せるようにした（各行の ✏）',
                 'マイリストの名前に動画タイトルを引用できるようにした（📋 のプルダウン。保存するときは今の枠、✏ で直すときはその件の動画から選び、入れたあとに直せる）'] },
@@ -5656,7 +5658,7 @@
             durationMs: 4000,     // 画面を横断する時間（動画時間）。6000以上はカクつく
             maxLanes: 0,          // 0 = 枠に入るだけ。9枠でも要間引き0%だったので上限は設けない
             laneRatio: 1.3,       // レーン高 = round(文字px × 1.3)
-            maxOnscreen: 40,      // 1枠あたりの同時表示上限（実測最大27の1.5倍）
+            maxOnscreen: 60,      // 1枠あたりの同時表示上限（★v2.15.1: 40 → 60。ライブの塊で詰まるため）
             fontPx: 16,
             gapPx: 8,             // 同じレーンの前後の最小すき間
             emojiRatio: 1.2,      // 絵文字1個ぶんの幅を文字サイズの何倍とみなすか
@@ -5670,7 +5672,7 @@
         /* ★v2.7.1: 「既定値に戻す」で書き戻す値。UIから触れるものだけを持つ。
            laneRatio / gapPx / maxLanes / emojiRatio は利用者に触らせない。 */
         const FLOW_DEFAULTS = {
-            maxOnscreen: 40, durationMs: 4000, fontPx: 16,
+            maxOnscreen: 60, durationMs: 4000, fontPx: 16,
             color: '#ffffff', opacity: 1, areaRatio: 1, shadow: true
         };
         const FLOW_KEYS = {
