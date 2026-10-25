@@ -1,11 +1,11 @@
 ---
 name: get-ui-spec
-description: "A側UIの部品仕様（トップメニュー・枠内通知・設定の解説・更新履歴・ピン留め配置・レイアウトの高さ・一括コントローラー・音量・ローカル動画の拡大・境界線ドラッグ・上部メニューの出し入れ）。画面構成を触るときに読む。"
+description: "A側UIの部品仕様（トップメニュー・枠内通知・設定の解説・更新履歴・ピン留め配置・レイアウトの高さ・一括コントローラー・音量・ローカル動画の拡大・境界線ドラッグ・上部メニューの出し入れ・マイリストの同期と自動保存）。画面構成を触るときに読む。"
 ---
 
 # A側UI 部品仕様書（`controller.html`）
 
-最終更新: 2026-10-03 / 現行リリース **v2.8.12**
+最終更新: 2026-10-25 / 現行リリース **v2.14.1**（14節を追加）
 
 > **成立の経緯**: 1節は `/get-chat-feature-spec` 8-12節 →（v2.7.3）→ `/get-protocol-spec` 12節、
 > 2節は `/get-protocol-spec` 旧13節。**2026-08-07 に「A側UIの部品仕様」として本スキルへ分離した**
@@ -883,3 +883,49 @@ function moveCard(cardId, direction) {
 ### 13-5. debug_suite との取り決め
 
 `setTopbarSuspended(true)` で、畳んでいてもテストの間だけ出した状態にする（保存値は変えない）。`runOne` が **D-T 以外**の間だけ呼ぶ。
+
+## 14. マイリストの Google ドライブ同期と自動保存 ★v2.14.0 / v2.14.1
+
+利用者要望（2026-10-24）: 環境 A・B のどちらで保存・削除しても両方に反映する。選択: **Google ドライブ**・対象は **⭐マイリストだけ**（🕒 自動保存はその環境の中だけ）・同期は **保存・削除したとき＋📂 を開いたとき**と「🔄 同期」ボタン。
+
+### 14-1. 画面（📂 マイリストの左の段）
+
+| 部品 | 中身 |
+| :--- | :--- |
+| 自動保存のスイッチ `#autoSaveOn` | 「自動保存（一括再生時・ページを閉じる前）」。`sync_autosave_on`・🔴 **既定オフ**。オフなら `tryAutoSaveOnFirstPlay` も `beforeunload`（`autoSaveBeforeUnload`）も保存しない |
+| ☁ Google ドライブ同期 `#gdriveSection` | 「☁ Google でログイン」`gdriveLogin()`・「🔄 同期」`gdriveSync('button', true)`・「ログアウト」`gdriveLogout()`・状態の行 `#gdriveStatus`（「☁ を押すと同期を始めます」/「同期中…」/「☁ 同期済み 12:34（n件）」/「⚠ …」）。逃げ道 `GDRIVE_FEATURE = false` で欄ごと出さない |
+| 詳細（クライアント ID の上書き）`#gdriveDetails`（v2.14.1） | `<details>` の中の `#gdriveClientId`。空欄＝既定の ID。欄には上書きの値だけを出す。空にすると `sync_gdrive_client` を消す。ID を変えたらトークンを捨てる |
+| 見出し | 「📂 マイリスト・自動バックアップ履歴 (⭐100件・🕒10件まで)」 |
+
+### 14-2. Google との接続
+
+- Google Identity Services の**トークン方式**（`google.accounts.oauth2.initTokenClient`）。スコープは **`drive.appdata`** だけ（このアプリ専用の隠しフォルダ。ほかのファイルは見えない）。
+- クライアント ID: `GDRIVE_CLIENT_ID_BUILTIN`（利用者が作った ID を埋め込み ─ v2.14.1）。`sync_gdrive_client` に値があればそちらが勝つ。🔴 **ID は秘密の値ではない**（ログインのたびに Google へ送られ、ページから見える）。クライアント シークレットは使わない。
+- 🔴 **アクセストークンはメモリにだけ**持つ（約1時間・`localStorage` に書かない）。切れたら**クリックの中**（📂 を開く・保存・削除・🔄）で取り直す（Google 側でログイン済みなら窓が一瞬開いて閉じる）。クリックでない同期（同期中に来た次の1回）は窓を開かない。
+- 「同期を使う」状態は `sync_gdrive_on`。ログアウトで `false`（トークンは revoke・手元のマイリストは残る）。
+- ログインの部品（`accounts.google.com/gsi/client`）は**クリックから数秒以内に窓を開かないとポップアップを止められる**ので先に読む: 起動時は同期を使う環境だけ・初回は 📂 を開いたとき（`gdrivePreload`）。応答が120秒無ければ失敗にする（「同期中…」で固まらない）。
+- ファイル: 隠しフォルダの `mylist.json` 1つ。中身 `{ format:'sync-mylist', version:1, updatedAt, items:[⭐…], tombstones:{ id: 消した時刻 } }`。要求は 探す `GET drive/v3/files?spaces=appDataFolder&q=name='mylist.json'` → 読む `GET …/{id}?alt=media` → 作る `POST upload/drive/v3/files?uploadType=multipart`（`parents:['appDataFolder']`）／書く `PATCH upload/drive/v3/files/{id}?uploadType=media`。ファイル id は覚えて2回目から探さない。401 はトークンを捨てて「⚠ ログインし直してください」。
+
+### 14-3. 混ぜ方（`mergeMylist`）
+
+- ⭐ の各件に **`id`**（`newSessionId`）と **`updatedAt`**。id の無い既存の ⭐ は最初の同期で付く（`updatedAt` は `timestamp`）。
+- 消した ⭐ は**墓標**（`sync_session_tombstones` に `id: 消した時刻`）。🔴 墓標が無いともう一方の環境から復活する。180日（`TOMBSTONE_KEEP_MS`）で捨てる。
+- 件ごとに `updatedAt` の新しい方を採る。墓標の時刻がそれ以上（同じ時刻を含む）なら消えたまま。手元とドライブの墓標は合わせて持つ。🕒 は混ぜない。
+- 手順（`gdriveSync`）: 読む → 混ぜる → 手元へ反映（⭐100件・🕒10件 ─ `capSessionList`、従来どおり新しい順に混ぜて並べる）→ ドライブと違えば書く。🔴 違いの比較（`mylistSig`）は**並び順に依らない**（v2.14.0 の headless で、並びが違うだけで毎回書いていたのを直した）。同期中に次が来たら、終わってからもう1回だけ回す。
+- ⚠️ A・B がほぼ同時に書くと、あとの方が勝つ（件ごとに混ざらない瞬間がある）。次の同期で直る（個人の2環境なので許容）。
+- 全リセット（`clearAllSettings` = `localStorage.clear()`）でも、ログインし直せばドライブから戻る。
+
+### 14-4. Google Cloud 側（利用者のプロジェクト・2026-10-24 作成）
+
+Google Drive API を有効化・OAuth 同意画面は対象「外部」・公開ステータス「テスト」・テストユーザーに利用者のアドレス・クライアントは「ウェブ アプリケーション」で承認済みの JavaScript 生成元 `https://syanao-coder.github.io`。
+🔴 **テストユーザーに入っていないアカウントは `403: access_denied`**（「Google の審査プロセスを完了していません」─ v2.14.0 の初回で起きた）。直し方は「対象」→「テストユーザー」→「ユーザーを追加」。
+
+### 14-5. 実測
+
+| 版 | 結果 |
+| :--- | :--- |
+| v2.14.0（2026-10-24） | Floorp でログインの窓が開いた（止められなかった）・`D-W7` 合格（本物のドライブに試験の件を書いて読み直し、消すと墓標・3件 / 墓標1件）。既存の ⭐3件は引き継がれた |
+| v2.14.1（2026-10-25） | ID を貼らずにログイン。**2つの環境（どちらも Floorp）で: A で保存 → B に出る／B で消す → A から消える／B で保存 → A の 🔄 で出る**。自動保存はオフで 🕒 が増えず・オンで増える |
+
+⚠️ 未確認: 公開ステータス「テスト」での許可の持ち時間・同時書き込み（`/get-protocol-spec` 11節 持ち越し15）。
+
