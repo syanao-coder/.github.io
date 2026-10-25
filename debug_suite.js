@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.24.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.25.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.14.1';
+    var EXPECT_APP_VERSION = '2.15.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.13.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.14.1', ids: ['D-V1', 'D-V2', 'D-B5', 'D-B3', 'D-W7'] };
+    var VERSION_FOCUS = { v: '2.15.0', ids: ['D-V1', 'D-V2', 'D-B6', 'D-B1', 'D-B3'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 50);
+        expect('配列の件数', hist ? hist.length : 0, 51);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -8428,6 +8428,87 @@
         }
     }
 
+    /* --- D-B6: マイリストの名前の編集と動画タイトルの引用（v2.15.0） --- */
+    async function testB6() {
+        log('  [目的] 保存したマイリストの名前を ✏ で直せること（その件の動画タイトルを引用できる）。保存の欄でも今の枠の動画タイトルを引用できること。');
+        var has = (typeof startRenameSession === 'function' && typeof commitRenameSession === 'function' && typeof applyQuote === 'function');
+        expect('🔴 名前の編集（startRenameSession / commitRenameSession / applyQuote）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var bk = mylistBackup();
+        var origSync = window.gdriveSync, origState = window.getNewSessionState;
+        var syncs = [];
+        function list() { return JSON.parse(localStorage.getItem('sync_session_history')) || []; }
+        try {
+            window.gdriveSync = function (reason) { syncs.push(reason); return Promise.resolve({ skipped: true }); };
+            var T0 = Date.now() - 60000;
+            localStorage.setItem('sync_session_history', JSON.stringify([
+                { id: 'dbgB6a', name: 'dbgB6 <b>手動</b>', timestamp: T0, updatedAt: T0, isAutoSave: false, playerCount: 3,
+                  players: [{ cardId: 'x1', type: 'yt', title: '動画タイトルA', currentTime: 1 },
+                            { cardId: 'x2', type: 'yt', title: '動画タイトル<B>', currentTime: 2 },
+                            { cardId: 'x3', type: 'empty', title: '未ロード', currentTime: 0 }] },
+                { name: 'dbgB6 自動', timestamp: T0 - 1000, isAutoSave: true, playerCount: 1,
+                  players: [{ cardId: 'y1', type: 'local', title: 'ローカル動画', currentTime: 3 }] }]));
+            updateSessionListUI();
+            var listEl = document.getElementById('sessionHistoryList');
+            pc('偽の一覧が描かれる（土俵）', function () { return (listEl && /dbgB6/.test(listEl.textContent)) ? 'あり' : false; });
+            expect('🔴 名前の HTML を文字として出す（<b> を解釈しない）', (listEl.querySelector('b') === null && /dbgB6 <b>手動<\/b>/.test(listEl.textContent)) ? 'ok' : listEl.innerHTML.slice(0, 120), 'ok');
+            var e0 = document.getElementById('sessEditBtn_0'), e1 = document.getElementById('sessEditBtn_1');
+            expect('🔴 各行に ✏ がある', (e0 && e1) ? 'ok' : '無い', 'ok');
+            if (!e0) return;
+            e0.click();
+            var inp = document.getElementById('sessRenameInput'), sel = document.getElementById('sessRenameQuote');
+            expect('🔴 ✏ を押すと編集の欄に今の名前が入る', inp ? inp.value : '欄が無い', 'dbgB6 <b>手動</b>');
+            var opts = sel ? Array.prototype.slice.call(sel.options).filter(function (o) { return o.value; }).map(function (o) { return o.value; }) : [];
+            expect('🔴 引用の選択肢はその件の動画タイトル（空の枠は除く）', opts.join(','), '動画タイトルA,動画タイトル<B>');
+            sel.value = '動画タイトル<B>'; sel.dispatchEvent(new Event('change'));
+            expect('🔴 選ぶと欄に入る（選択肢は元へ戻る）', inp.value + ' / ' + sel.selectedIndex, '動画タイトル<B> / 0');
+            inp.value = '動画タイトル<B> の感想会'; inp.dispatchEvent(new Event('input'));
+            updateSessionListUI();   // 同期が終わって一覧が作り直された場合
+            var inp2 = document.getElementById('sessRenameInput');
+            expect('🔴 一覧を作り直しても書きかけが残る', inp2 ? inp2.value : '欄が消えた', '動画タイトル<B> の感想会');
+            inp2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            var a = list().filter(function (x) { return x.id === 'dbgB6a'; })[0] || {};
+            expect('🔴 Enter で保存され名前が変わる・id は同じ', a.name || '-', '動画タイトル<B> の感想会');
+            expect('🔴 updatedAt が進む（もう一方の環境へ届く）', a.updatedAt > T0 ? 'ok' : String(a.updatedAt), 'ok');
+            expect('⭐ は同期を呼ぶ', syncs.join(','), 'rename');
+            expect('保存のあと編集の欄は閉じる', document.getElementById('sessRenameInput') ? '残っている' : 'ok', 'ok');
+            /* 🕒 の件・空の名前・やめる */
+            syncs.length = 0;
+            var idx = list().findIndex(function (x) { return x.isAutoSave; });
+            startRenameSession(idx);
+            var inp3 = document.getElementById('sessRenameInput');
+            inp3.value = '   '; inp3.dispatchEvent(new Event('input'));
+            commitRenameSession();
+            var b = list().filter(function (x) { return x.isAutoSave; })[0] || {};
+            expect('🔴 空の名前では保存しない（欄は残り注意が出る）', b.name + ' / ' + (document.getElementById('sessRenameMsg') || {}).textContent, 'dbgB6 自動 / ⚠ 名前が空です');
+            var inp4 = document.getElementById('sessRenameInput');
+            inp4.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            expect('Esc でやめると欄が閉じ、名前は元のまま', (document.getElementById('sessRenameInput') ? '残っている' : 'ok') + ' / ' + (list().filter(function (x) { return x.isAutoSave; })[0] || {}).name, 'ok / dbgB6 自動');
+            startRenameSession(idx);
+            var inp5 = document.getElementById('sessRenameInput');
+            inp5.value = '🕒 の新しい名前'; commitRenameSession();
+            expect('🕒 も直せる・同期は呼ばない（🕒 は同期しない）', ((list().filter(function (x) { return x.isAutoSave; })[0] || {}).name) + ' / ' + syncs.length, '🕒 の新しい名前 / 0');
+            /* 保存の欄: 今の枠のタイトルを引用 */
+            window.getNewSessionState = function () { return { players: [
+                { type: 'yt', title: '今の枠の動画1' }, { type: 'empty', title: '未ロード' }, { type: 'local', title: '今のローカル' }, { type: 'yt', title: '今の枠の動画1' }] }; };
+            pc('偽の「今の枠」のタイトルを渡せる（土俵）', function () { return currentFrameTitles().length ? currentFrameTitles().length + '件' : false; });
+            refreshSessionNameQuote();
+            var qs = document.getElementById('sessionNameQuote'), ni = document.getElementById('sessionNameInput');
+            var qo = qs ? Array.prototype.slice.call(qs.options).filter(function (o) { return o.value; }).map(function (o) { return o.textContent; }) : [];
+            expect('🔴 保存の欄の引用: 今の枠のタイトル（空の枠は除き、同じものは1つ）', qo.join(','), '枠1: 今の枠の動画1,枠3: 今のローカル');
+            var niB = ni ? ni.value : '';
+            if (qs && ni) { ni.value = '書きかけ'; qs.value = '今のローカル'; qs.dispatchEvent(new Event('change')); }
+            expect('🔴 選ぶと名前の欄が置き換わる（そのあと直せる）', ni ? ni.value : '-', '今のローカル');
+            if (ni) ni.value = niB;
+        } finally {
+            window.gdriveSync = origSync; window.getNewSessionState = origState;
+            try { cancelRenameSession(); } catch (e) { }
+            mylistRestore(bk);
+            try { updateSessionListUI(); refreshSessionNameQuote(); } catch (e) { }
+            note('後始末', 'マイリスト・同期・今の枠の読み取りを元へ戻した');
+        }
+    }
+
     /* --- D-B5: クライアント ID の既定値（v2.14.1） --- */
     async function testB5() {
         log('  [目的] クライアント ID を貼らなくても既定の ID で同期できること。上書き（詳細の欄）があればそちらが勝ち、空にすると既定へ戻ること。');
@@ -8540,6 +8621,8 @@
         { id: 'D-W7', name: '★マイリストの Google ドライブ同期（実機・☁ ログイン済み）', run: testW7, manual: true },
         /* ★v1.24.1: v2.14.1。localStorage を一時的に書き換えるので manual。 */
         { id: 'D-B5', name: '★クライアント ID を貼らずに同期できる（既定の ID・上書き）', run: testB5, manual: true },
+        /* ★v1.25.0: v2.15.0。マイリストの localStorage を一時的に書き換えるので manual。 */
+        { id: 'D-B6', name: '★マイリストの名前の編集と動画タイトルの引用（✏・📋）', run: testB6, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */

@@ -202,6 +202,14 @@
         .sess-pos-btn:hover { border-color: #ff9f43; color: #ff9f43; }
         .sess-detail { display: none; margin: 4px 0 2px; padding: 4px 6px; background: rgba(255,255,255,0.04); border-radius: 3px; }
         .sess-detail.open { display: block; }
+        /* ★v2.15.0: 名前の編集と引用 */
+        .sess-quote { max-width: 160px; background: #222; color: #ddd; border: 1px solid #555; border-radius: 3px; font-size: 0.75rem; }
+        .sess-rename { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+        .sess-rename input[type=text] { flex: 1 1 160px; min-width: 120px; font-size: 0.78rem; }
+        .sess-rename button { font-size: 0.72rem; padding: 2px 8px; }
+        .sess-rename .sess-rename-msg { color: #ffb020; font-size: 0.7rem; }
+        .sess-edit-btn { background: transparent; color: #ccc; border: none; padding: 4px; font-size: 0.75rem; cursor: pointer; }
+        .sess-edit-btn:hover { color: #ff9f43; }
         .sess-detail-row { display: flex; gap: 6px; align-items: baseline; font-size: 0.72rem; color: #ccc; padding: 1px 0; }
         .sess-detail-row .sd-no { color: #ff9f43; flex-shrink: 0; }
         .sess-detail-row .sd-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -671,6 +679,8 @@
                 <h3>💾 現在の状態をマイリストに保存</h3>
                 <div class="control-row">
                     <input type="text" id="sessionNameInput" placeholder="セッション名を入力 (空欄時は自動命名)" style="width:200px;">
+                    <!-- ★v2.15.0: 今の枠の動画タイトルを名前の欄へ引用（入れたあとに直せる） -->
+                    <select id="sessionNameQuote" class="sess-quote" onchange="applyQuote(this, 'sessionNameInput')" title="今の枠の動画タイトルを名前の欄へ入れる（入れたあとに直せる）"><option value="">📋 タイトルを引用</option></select>
                     <button class="primary" onclick="saveSessionManual()" style="background:#ff9f43; color:#000;">保存する</button>
                 </div>
                 <div class="control-row" style="margin-top:15px; border-top:1px solid #333; padding-top:10px;">
@@ -866,7 +876,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.14.1';
+        const APP_VERSION = '2.15.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1708,6 +1718,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.15.0', d: '2026-10-25', t: [
+                '保存したマイリストの名前をあとから直せるようにした（各行の ✏）',
+                'マイリストの名前に動画タイトルを引用できるようにした（📋 のプルダウン。保存するときは今の枠、✏ で直すときはその件の動画から選び、入れたあとに直せる）'] },
             { v: '2.14.1', d: '2026-10-25', t: [
                 'Google ドライブ同期でクライアント ID を貼らなくてよくなった（どの環境でも「☁ Google でログイン」を押すだけ）。ID の上書きは「詳細」の中に残した'] },
             { v: '2.14.0', d: '2026-10-24', t: [
@@ -1939,6 +1952,7 @@
             if (willOpen) {
                 container.classList.add('open'); btn.classList.add('active');
                 updateSessionListUI();
+                refreshSessionNameQuote();      /* ★v2.15.0 */
                 gdriveInitUI();                 /* ★v2.14.0 */
                 gdriveSync('open', true);        // クリックの中なので、切れていれば Google の窓で取り直せる
             }
@@ -3015,9 +3029,15 @@
             if (!listEl) return;
             const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
             if (list.length === 0) {
+                sessionEditing = null;
                 listEl.innerHTML = '<div style="color:#666; text-align:center; padding:10px; font-size:0.8rem;">保存されたセッション履歴はありません。</div>';
                 return;
             }
+            /* ★v2.15.0: 作り直しても編集中の欄を保つ（同期が終わると一覧を作り直すため）。カーソルの位置も戻す */
+            const ae = document.activeElement;
+            const hadFocus = !!(ae && ae.id === 'sessRenameInput');
+            const caret = hadFocus ? ae.selectionStart : null;
+            let editFound = false;
             let html = '';
             list.forEach((session, index) => {
                 const color = session.isAutoSave ? '#888' : '#ff9f43';
@@ -3027,7 +3047,9 @@
                     if (p.type === 'yt') badges += '<span style="background:#ff0000; color:#fff; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">YT</span>';
                     else if (p.type === 'local') badges += '<span style="background:#00ffcc; color:#000; font-size:0.6rem; padding:1px 3px; border-radius:2px; margin-right:2px; font-weight:bold;">Local</span>';
                 });
-                const safeName = escapeJsString(session.name);
+                const safeName = escapeHtmlAttr(session.name);   // ★v2.15.0: 引用したタイトルの < & をそのまま HTML に入れない
+                const editing = !!(sessionEditing && sessionEditing.key === sessionKey(session));
+                if (editing) editFound = true;
                 /* ★v2.11.2: 枠ごとの再生位置（保存は以前から行っていた。表示だけを足す）。
                    内部タイマーの時刻（⏱ globalTime）は出さない（利用者要望）。
                    🔴 ボタンは行の読み込み（onclick）の内側にあるので stopPropagation する。 */
@@ -3042,10 +3064,17 @@
                     '<div style="font-size:0.7rem; color:#888; display:flex; align-items:center; margin-top:2px;">' + badges +
                     '<button class="sess-pos-btn" id="sessPosBtn_' + index + '" title="' + escapeHtmlAttr(hoverText) + '" ' +
                     'onclick="event.stopPropagation(); toggleSessionDetail(' + index + ')">▸ 再生位置</button></div>' +
-                    '</div><button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>' +
+                    '</div><button class="sess-edit-btn" id="sessEditBtn_' + index + '" onclick="startRenameSession(' + index + ')" title="名前を編集">✏</button>' +
+                    '<button onclick="deleteSessionByIndex(' + index + ')" style="background:transparent; color:#ff4757; border:none; padding:4px; font-size:0.75rem; cursor:pointer;" title="この履歴を消去">✕</button></div>' +
+                    (editing ? sessionRenameEditorHtml(session) : '') +
                     '<div class="sess-detail" id="sessDetail_' + index + '">' + detail + '</div></div>';
             });
+            if (sessionEditing && !editFound) sessionEditing = null;   // 編集中の件が消えた（削除・同期）
             listEl.innerHTML = html;
+            if (hadFocus && editFound) {
+                const inp = document.getElementById('sessRenameInput');
+                if (inp) { inp.focus(); try { inp.setSelectionRange(caret, caret); } catch (e) { } }
+            }
         }
         /* ★v2.11.2: 履歴の1件から、枠ごとの「番号・種別・タイトル（チャンネル名）・再生位置」を作る。
            html は詳細の行、text はマウスを乗せたときの文字。 */
@@ -3096,6 +3125,97 @@
             }
             updateSessionListUI();
             if (gone && !gone.isAutoSave) gdriveSync('delete', true);
+        }
+
+        /* ★v2.15.0: マイリストの名前の編集と、動画タイトルの引用 */
+        let sessionEditing = null;   // { key, draft } 編集中の件。添字ではなく id で覚える（同期で並びが変わるため）
+        function sessionKey(s) { return s ? (s.id || ('ts' + s.timestamp)) : ''; }
+        /* 引用できるタイトル（YT・ローカルの枠だけ・同じものは1つ） */
+        function quoteTitles(players) {
+            const seen = {}, out = [];
+            (players || []).forEach(function (p, i) {
+                if (!p || (p.type !== 'yt' && p.type !== 'local')) return;
+                const t = String(p.title || '').trim();
+                if (!t || t === '未ロード' || seen[t]) return;
+                seen[t] = true;
+                out.push({ no: i + 1, title: t });
+            });
+            return out;
+        }
+        function quoteOptionsHtml(titles) {
+            let h = '<option value="">📋 タイトルを引用</option>';
+            titles.forEach(function (x) {
+                const label = '枠' + x.no + ': ' + (x.title.length > 50 ? x.title.slice(0, 50) + '…' : x.title);
+                h += '<option value="' + escapeHtmlAttr(x.title) + '">' + escapeHtmlAttr(label) + '</option>';
+            });
+            if (!titles.length) h += '<option value="" disabled>（引用できる動画がありません）</option>';
+            return h;
+        }
+        function currentFrameTitles() {
+            try { return quoteTitles(getNewSessionState('', false).players); } catch (e) { return []; }
+        }
+        function refreshSessionNameQuote() {
+            const sel = document.getElementById('sessionNameQuote');
+            if (sel) sel.innerHTML = quoteOptionsHtml(currentFrameTitles());
+        }
+        /* 選んだタイトルで欄の文字を置き換え、そのまま直せるようにカーソルを移す */
+        function applyQuote(sel, inputId) {
+            const v = sel.value;
+            sel.selectedIndex = 0;
+            if (!v) return;
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            input.value = v;
+            input.dispatchEvent(new Event('input'));
+            input.focus();
+            try { input.setSelectionRange(v.length, v.length); } catch (e) { }
+        }
+        function sessionRenameEditorHtml(session) {
+            return '<div class="sess-rename" id="sessRename">' +
+                '<input type="text" id="sessRenameInput" value="' + escapeHtmlAttr(sessionEditing.draft) + '" ' +
+                'oninput="if (sessionEditing) sessionEditing.draft = this.value" onkeydown="renameSessionKeydown(event)">' +
+                '<select id="sessRenameQuote" class="sess-quote" onchange="applyQuote(this, \'sessRenameInput\')" title="この件の動画タイトルを入れる（入れたあとに直せる）">' +
+                quoteOptionsHtml(quoteTitles(session.players)) + '</select>' +
+                '<button onclick="commitRenameSession()">保存</button><button onclick="cancelRenameSession()">やめる</button>' +
+                '<span class="sess-rename-msg" id="sessRenameMsg"></span></div>';
+        }
+        function startRenameSession(index) {
+            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            const s = list[index];
+            if (!s) return;
+            sessionEditing = { key: sessionKey(s), draft: s.name || '' };
+            updateSessionListUI();
+            const inp = document.getElementById('sessRenameInput');
+            if (inp) { inp.focus(); inp.select(); }
+        }
+        function cancelRenameSession() {
+            sessionEditing = null;
+            updateSessionListUI();
+        }
+        function commitRenameSession() {
+            if (!sessionEditing) return false;
+            const inp = document.getElementById('sessRenameInput');
+            const name = String(inp ? inp.value : sessionEditing.draft).trim();
+            if (!name) {
+                const msg = document.getElementById('sessRenameMsg');
+                if (msg) msg.textContent = '⚠ 名前が空です';
+                return false;
+            }
+            const list = JSON.parse(localStorage.getItem('sync_session_history')) || [];
+            const key = sessionEditing.key;
+            sessionEditing = null;
+            const s = list.find(function (x) { return sessionKey(x) === key; });
+            if (!s || s.name === name) { updateSessionListUI(); return !!s; }
+            s.name = name;
+            if (!s.isAutoSave) { if (!s.id) s.id = newSessionId(); s.updatedAt = Date.now(); }   // 新しい方が勝つ混ぜ方で、もう一方の環境にも届く
+            localStorage.setItem('sync_session_history', JSON.stringify(list));
+            updateSessionListUI();
+            if (!s.isAutoSave) gdriveSync('rename', true);
+            return true;
+        }
+        function renameSessionKeydown(ev) {
+            if (ev.key === 'Enter') { ev.preventDefault(); commitRenameSession(); }
+            else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cancelRenameSession(); }
         }
 
         /* ==============================================================
