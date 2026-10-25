@@ -688,14 +688,16 @@
                 <!-- ★v2.14.0: Google ドライブ同期（⭐マイリストだけ） -->
                 <div id="gdriveSection" style="margin-top:10px; border-top:1px solid #333; padding-top:10px;">
                     <label style="font-size:0.9rem;">☁ Google ドライブ同期（⭐マイリストだけ）:</label>
-                    <div class="gd-row">
-                        <input type="text" id="gdriveClientId" placeholder="クライアント ID（…apps.googleusercontent.com）" onchange="setGdriveClientId(this.value)">
-                    </div>
+                    <!-- ★v2.14.1: ID は既定で埋め込み。上書きしたいときだけ使う -->
+                    <details id="gdriveDetails" class="gd-row" style="font-size:0.8rem; color:#aaa;">
+                        <summary>詳細（クライアント ID の上書き）</summary>
+                        <input type="text" id="gdriveClientId" placeholder="空欄なら既定の ID を使う（…apps.googleusercontent.com）" onchange="setGdriveClientId(this.value)">
+                    </details>
                     <div class="gd-row">
                         <button id="gdriveLoginBtn" onclick="gdriveLogin()">☁ Google でログイン</button>
                         <button id="gdriveSyncBtn" onclick="gdriveSync('button', true)">🔄 同期</button>
                         <button id="gdriveLogoutBtn" onclick="gdriveLogout()">ログアウト</button>
-                        <span id="gdriveStatus">未設定</span>
+                        <span id="gdriveStatus">☁ を押すと同期を始めます</span>
                     </div>
                 </div>
             </div>
@@ -864,7 +866,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.14.0';
+        const APP_VERSION = '2.14.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1081,7 +1083,7 @@
             renderAppHistory();
             setupHelpTips();
             loadSavedSettings();
-            try { gdrivePreload(); } catch (e) { }   /* ★v2.14.0: ID を貼った環境だけ Google のログイン部品を先に読む */
+            try { if (gdriveLinked()) gdrivePreload(); } catch (e) { }   /* ★v2.14.1: 同期を使う環境だけ Google のログイン部品を先に読む（初回は 📂 を開いた時に読む） */
             /* 設定を読み込んだ直後にアドオンへ伝える。
                アドオン側は storage.local に持つが、版数を上げた直後や
                別PCへ持ち込んだ直後でも確実に一致させるため毎回送る。 */
@@ -1706,6 +1708,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.14.1', d: '2026-10-25', t: [
+                'Google ドライブ同期でクライアント ID を貼らなくてよくなった（どの環境でも「☁ Google でログイン」を押すだけ）。ID の上書きは「詳細」の中に残した'] },
             { v: '2.14.0', d: '2026-10-24', t: [
                 'マイリスト（⭐）を Google ドライブで同期できるようにした。別のパソコン・ブラウザで保存・削除してもどちらにも反映される（📂 マイリストの「☁ Google ドライブ同期」）',
                 'マイリストの自動保存（一括再生時・ページを閉じる前）を既定でオフにした。📂 マイリストのスイッチでオンにできる'] },
@@ -3102,6 +3106,9 @@
         const GDRIVE_FEATURE = true;
         const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
         const GDRIVE_FILE = 'mylist.json';
+        /* ★v2.14.1: 既定のクライアント ID（秘密の値ではない。ログインのたびに Google へ送られ、ページからも見える）。
+           sync_gdrive_client に値があればそちらを優先する（ID を作り直したときの逃げ道） */
+        const GDRIVE_CLIENT_ID_BUILTIN = '1023829407185-e78hafqp622m0n699m36dekbfff6bvvn.apps.googleusercontent.com';
         const MYLIST_MANUAL_MAX = 100;
         const MYLIST_AUTO_MAX = 10;
         const TOMBSTONE_KEEP_MS = 180 * 24 * 3600 * 1000;
@@ -3160,12 +3167,15 @@
         }
 
         function gdriveClientId() {
-            try { return (localStorage.getItem('sync_gdrive_client') || '').trim(); } catch (e) { return ''; }
+            let v = '';
+            try { v = (localStorage.getItem('sync_gdrive_client') || '').trim(); } catch (e) { }
+            return v || GDRIVE_CLIENT_ID_BUILTIN;
         }
         function setGdriveClientId(v) {
-            try { localStorage.setItem('sync_gdrive_client', String(v || '').trim()); } catch (e) { }
-            gdriveTokenClient = null;
-            gdriveStatus(gdriveClientId() ? 'ログインしてください' : '未設定', '');
+            const t = String(v || '').trim();
+            try { if (t) localStorage.setItem('sync_gdrive_client', t); else localStorage.removeItem('sync_gdrive_client'); } catch (e) { }
+            gdriveTokenClient = null; gdriveToken = null;   // 別の ID のトークンは使わない
+            gdriveStatus(t ? 'ID を上書きしました。ログインしてください' : '既定の ID に戻しました。ログインしてください', '');
             gdrivePreload();
         }
         function gdriveLinked() {
@@ -3181,12 +3191,12 @@
             const sec = document.getElementById('gdriveSection');
             if (sec) sec.style.display = GDRIVE_FEATURE ? '' : 'none';
             const cid = document.getElementById('gdriveClientId');
-            if (cid) cid.value = gdriveClientId();
+            if (cid) { let o = ''; try { o = localStorage.getItem('sync_gdrive_client') || ''; } catch (e) { } cid.value = o; }   // 上書きだけを出す（空欄＝既定の ID）
             const as = document.getElementById('autoSaveOn');
             if (as) as.checked = isAutoSaveOn();
-            if (!gdriveClientId()) gdriveStatus('未設定（クライアント ID を貼る）', '');
-            else if (!gdriveLinked()) gdriveStatus('ログインしてください', '');
+            if (!gdriveLinked()) gdriveStatus('☁ を押すと同期を始めます', '');
             else gdriveStatus('☁ 同期を使う（📂 を開くと同期）', '');
+            gdrivePreload();
         }
         /* ログインの窓はクリックから数秒以内に開かないと止められるので、部品は先に読んでおく */
         function gdrivePreload() {
