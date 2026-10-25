@@ -5,7 +5,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 
 # チャット / コメント流し機能 実装仕様書
 
-最終更新: 2026-10-24 / 現行リリース **v2.13.0**（実機検証済み）
+最終更新: 2026-10-25 / 現行リリース **v2.14.1**（実機検証済み）
 関連スキル: `/get-protocol-spec`（A↔B通信プロトコル、バージョン管理規約、既知の不具合）
 関連スキル: `/get-danmaku-spec`（ニコニコ風コメント流しと調整UI ─ 本スキル旧 8-10節・8-11節。★2026-08-15 分離）
 関連スキル: `/get-ui-spec`（A側UIの部品仕様 ─ トップバーのメニュー構造・再生可否の確定と枠内通知）
@@ -407,6 +407,25 @@ t = timestampUsec / 1000 − liveBroadcastDetails.startTimestamp   ＝ 配信開
 | A側 | 心拍で受けて `store.viewers` ほか。見出しは取得中のライブだけ `・👤 1,234人`（`toLocaleString`）。取ってから120秒を超えた数・旧アドオン・配信終了後は出さない。YouTube の文字は `title` |
 
 ⚠️ 取得していない枠には出ない（1-6-6節の恒久制約と同じ）。
+
+#### 1-6-10. 途切れたら A側が自動で取り直す ★v2.13.1 ／ 🔄 のあとの流し ★v2.13.2
+
+v2.13.0 の R6 で取得が約3分で止まった（心拍が途絶え `STALLED`・原因不明 ─ `/get-protocol-spec` 11節 持ち越し13）。原因によらず A側が取り直す。
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 入口 | `failChat` の3経路（見張り45秒の発火・`meta` の `ok:false`・`done` の `ok:false`）と、`done` の `RECOVERY_FAILED`（B側が約5分の復帰を諦めた）。ライブで `endReason` が `ENDED` でなく、続けての回数が `liveAutoRetryMax`（3）未満なら `scheduleLiveRetry` |
+| 🔴 古い要求の中止 | `failChat` は従来 `CHAT_STREAM_CANCEL` を**送らなかった**（見張りが発火しても B側のジョブは生きている可能性）。取り直す前に古い `requestId` へ中止を送り、見張りを外す |
+| 待つ間 | `chatState` は `streaming` のまま（`loading` にするとチャット欄の追加 `pumpChatProgress` が止まる）・`livePhase = 'recover'`（見出し「🔴 再接続中」）。`liveAutoRetryDelayMs`（3000）後に `startLiveRetry` |
+| 取り直し | 新しい `requestId` で `CHAT_STREAM_REQUEST`（ライブはキャッシュしないので照会なし。`requestChatArchive` は使わない）・`CHAT_META_TIMEOUT_MS` の見張り。🔴 **`store` は捨てない**（🔄 の `reloadChat` は捨てる）。`store.nextSeq = 0`（新しい取得は `seq` が0から） |
+| 🔴 重複 | 新しい取得の最初の応答は**直近の過去ぶん**で手元と重なる。A側のコメントは `{t, n, m, p}` だけで id が無いが、`t` は同じ配信開始から作るので同じ値になる → 直近500件（`LIVE_RETRY_KEYS`）の `t\|n\|m` を `store.retryKeys` に入れ、取り直しの `chunk` から重なりを捨てる |
+| 回数 | コメントを足せた・心拍が来たら続けての回数を0へ。通算は見出しに「・再接続N回」。上限に達したら従来どおり `STALLED`（「⚠途切れました・🔄で再取得」） |
+| 配信終了 | 取り直しの `meta` が `live !== true` なら、B側はアーカイブとして取りに行くので**すぐ中止して `ENDED`**（アーカイブを混ぜない） |
+| 枠を閉じた | 待つ間に `store` が消えた（`releaseUnusedChatData`）・どの枠も参照していない（`collectChatRefs`）なら取り直さない |
+| 逃げ道 | `liveAutoRetryMax = 0` で従来どおり（`D-L8` は測る間これを0にする） |
+| 実測（2026-10-24・`XRjTrCScZ7E`） | `failChat` を直接呼んで途切れを作り、新しい要求 15秒以内・**7秒で心拍が戻る**・コメント 137 → 253・**重複 0 → 0**・見出し `(253 / 🔴 配信中・再接続1回・👤 7,268人)`。🔴 **自然な途切れからの復帰は未確認**（20分の観測で途切れなかった） |
+
+🔴 **v2.13.2: 🔄 のあと流しが止まる**（利用者報告 2026-10-24。チャット欄は流れる・流しの入れ直しでも直らない）。`reloadChat` で store を作り直すと、流しの読む位置 `flowCursor[cardId]` が**古い store の件数のまま**残り、新しい store の件数を超えて何も出さなかった。store に通し番号 `sid`（`chatStoreSeq`）を持たせ、`pumpFlowProgress` で `flowStoreSid[cardId]` と違えば読む位置を引き直す。🔴 **store そのものを覚えない**（古い store を握ると解放できない ─ 8-13節）。ライブで流しを入れ直したときの読む位置は `null`（開いた時点）。
 
 ## 2. 確定した定数と見積もり
 
