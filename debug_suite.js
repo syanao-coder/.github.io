@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.24.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.24.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.14.0';
+    var EXPECT_APP_VERSION = '2.14.1';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.13.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.14.0', ids: ['D-V1', 'D-V2', 'D-B2', 'D-B3', 'D-B4', 'D-W7'] };
+    var VERSION_FOCUS = { v: '2.14.1', ids: ['D-V1', 'D-V2', 'D-B5', 'D-B3', 'D-W7'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1916,7 +1916,7 @@
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 49);
+        expect('配列の件数', hist ? hist.length : 0, 50);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -8428,6 +8428,37 @@
         }
     }
 
+    /* --- D-B5: クライアント ID の既定値（v2.14.1） --- */
+    async function testB5() {
+        log('  [目的] クライアント ID を貼らなくても既定の ID で同期できること。上書き（詳細の欄）があればそちらが勝ち、空にすると既定へ戻ること。');
+        var has = (typeof GDRIVE_CLIENT_ID_BUILTIN === 'string');
+        expect('🔴 既定のクライアント ID（GDRIVE_CLIENT_ID_BUILTIN）がある', has && /\.apps\.googleusercontent\.com$/.test(GDRIVE_CLIENT_ID_BUILTIN) ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var bk = mylistBackup();
+        var tokB = gdriveToken, tcB = gdriveTokenClient;
+        try {
+            localStorage.removeItem('sync_gdrive_client');
+            localStorage.setItem('sync_gdrive_on', 'false');
+            expect('🔴 上書きが無ければ既定の ID を使う', gdriveClientId() === GDRIVE_CLIENT_ID_BUILTIN ? 'ok' : gdriveClientId(), 'ok');
+            localStorage.setItem('sync_gdrive_client', 'dbgB5.apps.googleusercontent.com');
+            pc('上書きの値を読める（土俵）', function () { return gdriveClientId() === 'dbgB5.apps.googleusercontent.com' ? 'ok' : false; });
+            setGdriveClientId('');
+            expect('🔴 上書きを空にすると消えて既定の ID に戻る', (localStorage.getItem('sync_gdrive_client') === null && gdriveClientId() === GDRIVE_CLIENT_ID_BUILTIN) ? 'ok' : String(localStorage.getItem('sync_gdrive_client')), 'ok');
+            gdriveInitUI();
+            var det = document.getElementById('gdriveDetails'), cid = document.getElementById('gdriveClientId');
+            expect('ID の欄は「詳細」の中にしまってある', (det && det.tagName === 'DETAILS' && cid && det.contains(cid)) ? 'ok' : '無い', 'ok');
+            expect('上書きが無ければ欄は空（既定の ID を見せない）', cid ? cid.value : '-', '');
+            var st = (document.getElementById('gdriveStatus') || {}).textContent || '';
+            expect('🔴 状態に「未設定」が出ない（ログインだけで始められる）', /未設定/.test(st) ? st : 'ok', 'ok');
+            note('状態の行', st);
+        } finally {
+            mylistRestore(bk);
+            gdriveToken = tokB; gdriveTokenClient = tcB;
+            try { gdriveInitUI(); } catch (e) { }
+            note('後始末', 'localStorage・ログインの状態を元へ戻した');
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -8507,6 +8538,8 @@
         { id: 'D-B3', name: '★マイリストの Google ドライブ同期（偽のドライブ）', run: testB3, manual: true },
         { id: 'D-B4', name: '★マイリストの自動保存は既定でオフ（スイッチでオン）', run: testB4, manual: true },
         { id: 'D-W7', name: '★マイリストの Google ドライブ同期（実機・☁ ログイン済み）', run: testW7, manual: true },
+        /* ★v1.24.1: v2.14.1。localStorage を一時的に書き換えるので manual。 */
+        { id: 'D-B5', name: '★クライアント ID を貼らずに同期できる（既定の ID・上書き）', run: testB5, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
