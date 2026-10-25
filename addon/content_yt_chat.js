@@ -37,7 +37,7 @@
        中継は「郵便受け」に見えて選別を持っている。v2.6.4 で ready がここに
        書かれていたために background へ何も届かず、原因の特定に1ラウンドかかった。
 
-       現在エンジンが post する ev: config / ready / meta / chunk / done / ping / idle
+       現在エンジンが post する ev: config / ready / meta / chunk / done / ping / idle / post（★v2.16.0）
          config … 取得タブ内で完結する情報。中継しない
          ready  … background.js が版数照合に使い、そこで消費する
          idle   … background.js が取得タブの後始末に使い、そこで消費する
@@ -52,7 +52,7 @@
   chrome.runtime.onMessage.addListener(function (message) {
     if (!message || !message.type) return;
 
-    const PASS_CMD = ['CHAT_ENQUEUE', 'CHAT_CANCEL', 'CHAT_CONFIG'];
+    const PASS_CMD = ['CHAT_ENQUEUE', 'CHAT_CANCEL', 'CHAT_CONFIG', 'CHAT_POST'];   /* ★v2.16.0: CHAT_POST */
     if (PASS_CMD.indexOf(message.type) < 0) {
       /* ★v2.6.5: チャット関連の命令だけ警告する。
          他機能の runtime message もここへ流れてくるので、
@@ -70,7 +70,9 @@
       requestId: message.requestId,
       videoId: message.videoId,
       mode: message.mode,   /* ★v2.10.0 */
-      config: message.config
+      config: message.config,
+      text: message.text,       /* ★v2.16.0: 投稿の本文（利用者が手で打ったもの） */
+      dryRun: message.dryRun    /* ★v2.16.0: true なら準備だけ（送らない） */
     }, location.origin);
   });
 })();

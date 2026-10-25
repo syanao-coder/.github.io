@@ -80,6 +80,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
+  // --- コントローラー ➔ ライブへのコメント投稿 ★v2.16.0（アドオン 2.14.0） ---
+  if (message.type === "POST_CHAT_MESSAGE") {
+    startChatPost(message).catch((err) => {
+      sendChatStreamEvent({
+        ev: "post",
+        requestId: message.requestId,
+        videoId: message.videoId,
+        ok: false,
+        error: String(err && err.message ? err.message : err)
+      });
+    });
+  }
+
   // --- コントローラー ➔ 取得の中止 ★v2.6.0 ---
   if (message.type === "CANCEL_CHAT_STREAM") {
     cancelChatStream(message.requestId);
@@ -630,6 +643,25 @@ async function startChatStream(videoId, requestId, mode) {
   });
 }
 
+/* ★v2.16.0: 投稿は取得タブ（MAIN world）から送る。取得と同じく注入を確かめてから渡す。
+   🔴 本文はそのまま渡すだけ（ここで作ったり補ったりしない）。 */
+async function startChatPost(m) {
+  if (!m.videoId) throw new Error("videoId が指定されていません");
+  const tabId = await ensureChatTab();
+  try {
+    await ensureInjected(tabId);
+  } catch (e) {
+    throw new Error("取得スクリプトの注入に失敗しました: " + (e && e.message ? e.message : e));
+  }
+  await chrome.tabs.sendMessage(tabId, {
+    type: "CHAT_POST",
+    requestId: m.requestId,
+    videoId: m.videoId,
+    text: m.text,
+    dryRun: !!m.dryRun
+  });
+}
+
 async function cancelChatStream(requestId) {
   try {
     const st = await chrome.storage.local.get(CHAT_TAB_KEY);
@@ -689,7 +721,13 @@ function sendChatStreamEvent(p) {
       reqs: p.reqs,
       elapsed: p.elapsed,
       active: p.active,
-      waiting: p.waiting
+      waiting: p.waiting,
+      /* ★v2.16.0: 投稿の結果。🔴 content_controller.js と対で書くこと。 */
+      canPost: p.canPost,
+      reason: p.reason,
+      placeholder: p.placeholder,
+      httpStatus: p.httpStatus,
+      echo: p.echo
     };
     for (const tab of tabs) chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
   });

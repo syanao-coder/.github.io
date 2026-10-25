@@ -62,6 +62,17 @@ if (document.getElementById('playersGrid')) {
       }).catch(() => {});
     }
 
+    // コントローラー ➔ アドオン（ライブへのコメント投稿）★v2.16.0（アドオン 2.14.0）
+    if (event.data && event.data.type === 'CHAT_POST_REQUEST') {
+      chrome.runtime.sendMessage({
+        type: "POST_CHAT_MESSAGE",
+        videoId: event.data.videoId,
+        requestId: event.data.requestId,
+        text: event.data.text,
+        dryRun: !!event.data.dryRun
+      }).catch(() => {});
+    }
+
     // コントローラー ➔ アドオン（取得用タブの扱い方）★v2.6.1
     if (event.data && event.data.type === 'CHAT_TAB_POLICY') {
       chrome.runtime.sendMessage({
@@ -113,7 +124,8 @@ if (document.getElementById('playersGrid')) {
     //    A側に届かない既知の不具合パターンに嵌る（relativeSeekReport の diff 欠落と同じ構造）。
     if (message.type === "EXTERNAL_CHAT_STREAM") {
       const CHAT_STREAM_STATE = {
-        meta: 'chatMeta', chunk: 'chatChunk', done: 'chatDone', ping: 'chatPing'
+        meta: 'chatMeta', chunk: 'chatChunk', done: 'chatDone', ping: 'chatPing',
+        post: 'chatPost'   /* ★v2.16.0 */
       };
       const state = CHAT_STREAM_STATE[message.ev];
       if (state) {
@@ -147,7 +159,13 @@ if (document.getElementById('playersGrid')) {
           reqs: message.reqs,
           elapsed: message.elapsed,
           active: message.active,
-          waiting: message.waiting
+          waiting: message.waiting,
+          /* ★v2.16.0: 投稿の結果。background.js と対で明示転送する。 */
+          canPost: message.canPost,
+          reason: message.reason,
+          placeholder: message.placeholder,
+          httpStatus: message.httpStatus,
+          echo: message.echo
         }, '*');
       } else {
         /* ★v2.6.5: 未知の ev は黙って捨てず、必ず痕跡を残す。
