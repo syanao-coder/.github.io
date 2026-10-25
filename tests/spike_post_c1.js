@@ -4,12 +4,14 @@
    画面の右上に小さなパネルが出る。
      ▶ C1 調べる … 投稿の準備が整っているかを読むだけ（🔴 送らない）
      ▶ C2 送る   … 本文を確認の窓で「OK」したときだけ1回送る（🔴 YouTube のチャットに残る）
+   🔴 配信は他の人のもの。本文は決まった文（定型）を使わず、毎回その配信の内容を聞いて、違和感のない文を手で打つ
+      （利用者指示 2026-10-25）。このコードは本文を自動で入れない。「テスト」のような文は送らない。
    🔴 Cookie の値・ハッシュ・params の中身・チャンネル名・応答の本文は出力に載せない。
    🔴 innerHTML は使わない（YouTube は文字列での HTML の書き込みを禁じている）。
    ============================================================ */
 (function () {
     'use strict';
-    var SNIP_VERSION = 'post-c1-1.0.0';
+    var SNIP_VERSION = 'post-c1-1.0.1';
     var ORIGIN = 'https://www.youtube.com';
     var AUTH_COOKIE_NAMES = ['SAPISID', '__Secure-3PAPISID', '__Secure-1PAPISID'];
     var MAX_LEN = 200;
@@ -209,10 +211,13 @@
         text = String(text || '').trim();
         r.pcs.push({ name: '先に ▶ C1 調べる が合格している（params がある）', ok: !!p, value: p ? '動画 ' + p.vid : 'まだ / 不合格' });
         r.pcs.push({ name: '本文がある（' + MAX_LEN + '字まで）', ok: !!text && text.length <= MAX_LEN, value: text.length + '字' });
+        /* 🔴 試験らしい文は配信の流れにそぐわないので送らない（利用者指示 2026-10-25） */
+        var testy = /(テスト|てすと|ﾃｽﾄ|test|動作確認|送信確認)/i.test(text);
+        r.pcs.push({ name: '本文が試験らしい文ではない（「テスト」「test」「動作確認」などを含まない）', ok: !testy, value: testy ? '含む（配信の内容に合った文に打ち直してください）' : 'ok' });
         var wait = COOLDOWN_MS - (Date.now() - S.lastSendAt);
         r.pcs.push({ name: '前回の送信から15秒たった（二重送信の防止）', ok: wait <= 0, value: wait > 0 ? 'あと ' + Math.ceil(wait / 1000) + '秒' : 'ok' });
         if (!r.pcs.every(function (x) { return x.ok; })) { r.verdict = '判定不能'; return r; }
-        var yes = window.confirm('次の本文を、動画 ' + p.vid + ' のライブチャットに投稿します。\n取り消せません（あとで YouTube のチャットの ⋮ → 削除 で消せます）。\n\n「' + text + '」\n\n投稿しますか？');
+        var yes = window.confirm('次の本文を、動画 ' + p.vid + ' のライブチャットに投稿します。\n配信は他の人のものです。今の配信の流れに合った、自分で考えた文ですか？\n取り消せません（あとで YouTube のチャットの ⋮ → 削除 で消せます）。\n\n「' + text + '」\n\n投稿しますか？');
         r.pcs.push({ name: '確認の窓で「OK」を選んだ', ok: yes, value: yes ? 'OK' : '取りやめ' });
         if (!yes) { r.verdict = '判定不能'; return r; }
 
@@ -304,7 +309,7 @@
     var m0 = location.href.match(/[?&]v=([A-Za-z0-9_-]{11})/); if (m0) inVid.value = m0[1];
     var bProbe = mk('button', '▶ C1 調べる（送らない）', 'margin:2px 0;padding:2px 6px;cursor:pointer;');
     var inText = mk('input', '', 'width:100%;box-sizing:border-box;margin:6px 0 2px;padding:3px;color:#000;');
-    inText.placeholder = '投稿する本文（200字まで）'; inText.maxLength = MAX_LEN;
+    inText.placeholder = '配信の内容に合わせて自分で打つ（200字まで）'; inText.maxLength = MAX_LEN;
     var bSend = mk('button', '▶ C2 送る（確認あり・1回）', 'margin:2px 0;padding:2px 6px;cursor:pointer;');
     var bCopy = mk('button', '📋 コピー', 'margin:2px;padding:2px 6px;cursor:pointer;');
     var bClose = mk('button', '×', 'margin:2px;padding:2px 6px;cursor:pointer;');
