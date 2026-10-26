@@ -5,7 +5,7 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 # A↔B 通信プロトコル詳細仕様書（実装検証済み）
 
-最終検証日: 2026-10-25 / 現行リリース **v2.15.0**（実機検証済み / 名前の変更がもう一方の環境にも届いた）/ アドオン **2.13.0**
+最終検証日: 2026-10-26 / 現行リリース **v2.16.0**（実機検証済み / ライブへの投稿がチャットに出た）/ アドオン **2.14.0**
 
 > **構成は A（controller.html）と B（Firefoxアドオン）の2層のみ。**
 > C側（ヘルパー）は v2.6.2 で撤去した。C に関する記述はすべて撤去記録である。
@@ -67,6 +67,8 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 | 版数 | 内容 |
 | :--- | :--- |
+| **v2.16.0** | **配信中のライブにコメントを投稿する**（チャット欄の下の入力欄・Enter で送る・確認の窓なし・🔴 変換中の Enter では送らない・送れたら空・失敗は文を残す・成功と失敗の直後3秒は送らない ─ `/get-chat-feature-spec` 1-7節・`/get-ui-spec` 15節）。🔴 **A↔B にメッセージを1組追加＝マイナー**: `CHAT_POST_REQUEST`（A→B）/ `state:'chatPost'`（B→A・エンジンの `ev:'post'`）。取得タブが `/live_chat` から `params` を読み `send_message` へ送る（4xx だけ1回送り直す）。🔴 **アドオン 2.14.0**（`v2.14.0.zip`）。`APP_HISTORY` **53件**・`debug_suite.js` **v1.26.0**（`D-L12` / `D-W8` ─ どちらも投稿しない）。同版で `index.html` の `escapeHtmlAttr` の重複を解消。実機合格（準備 0.4秒・利用者が手で打った1回がチャットに出た）。記録 `report_v2_16_0.md`。先立つスパイク C1（2026-10-25・版数なし・`spike_post_c1.md`）で送れること・`params` が `/live_chat` ページにだけあることを確かめた |
+| **v2.15.1** | **コメント流しの同時表示数の上限の既定を 40 → 60**（`FLOW.maxOnscreen` / `FLOW_DEFAULTS` ─ `/get-danmaku-spec` 1-1節）。11節の保留（2026-10-24）を利用者指示（2026-10-25）で実施。保存済みの値はそのまま。A側のみ・プロトコル変更なし・パッチ。`APP_HISTORY` **52件**・`debug_suite.js` **v1.25.1**（`D-M7` の既定値）。目視のみ（利用者 2026-10-26 OK） |
 | **v2.15.0** | **マイリストの名前をあとから編集（各行の ✏）・名前の欄に動画タイトルを引用（📋 のプルダウン ─ 保存時は今の枠、✏ ではその件の動画）**（`/get-ui-spec` 14-6節）。⭐ は名前を変えると `updatedAt` を進めて同期（もう一方の環境へ届く）。一覧の名前の表示を `escapeHtmlAttr` へ（引用したタイトルの `<` `&` で崩れないように）。A側のみ・**プロトコル変更なし**・🔴 **機能追加＝マイナー**（0-2節）。`APP_HISTORY` **51件**・`debug_suite.js` **v1.25.0**（`D-B6`）。実機合格（もう一方の環境でも名前が変わった）。記録 `report_v2_15_0.md` |
 | **v2.14.1** | **クライアント ID を貼らずに Google ドライブ同期**（利用者の ID を `GDRIVE_CLIENT_ID_BUILTIN` に埋め込み・`sync_gdrive_client` は上書き用で「詳細」の中へ。ID は秘密の値ではない）。A側のみ・**プロトコル変更なし**・`APP_HISTORY` **50件**・`debug_suite.js` **v1.24.1**（`D-B5`）。実機合格（ID を貼っていない環境 B でもログイン・同期できた）。同じ測定で **v2.14.0 の R3（2つの環境での同期）・R4（自動保存のスイッチ）も合格**。記録 `report_v2_14_1.md`・`/get-ui-spec` 14節 |
 | **v2.14.0** | **マイリスト（⭐）の Google ドライブ同期**（`drive.appdata` の隠しフォルダに `mylist.json`・件ごとに `id` / `updatedAt`・消した件は墓標・新しい方が勝つ ─ `/get-ui-spec` 14節）＋**マイリストの自動保存を既定でオフ**（`sync_autosave_on`）。上限を ⭐100件・🕒10件へ（全体50件をやめた）。A側だけ・A↔B のプロトコル変更なし・アドオン 2.13.0 のまま。🔴 **機能追加＝マイナー**（0-2節）。`APP_HISTORY` **49件**・`debug_suite.js` **v1.24.0**（`D-B2`〜`D-B4` / `D-W7`）。実機合格（本物のドライブで書く・読む・消す）。⚠️ 初回のログインは `403: access_denied`（OAuth 同意画面のテストユーザー未登録）。記録 `report_v2_14_0.md` |
@@ -252,6 +254,19 @@ ISOLATED の content script が受けて中継する構造が**必須**である
 ⚠️ **content script（ISOLATED）から fetch してはいけない。** Firefox では拡張機能の principal で
 飛ぶため `Origin: moz-extension://` となり HTTP 403 になる。取得は必ず MAIN world で行う。
 
+### A → B（ライブへのコメント投稿）★v2.16.0
+
+```
+controller.html
+  └─ window.postMessage({ type:'CHAT_POST_REQUEST', requestId, videoId, text, dryRun })
+       └─ content_controller.js → runtime 'POST_CHAT_MESSAGE'
+            └─ background.js startChatPost（取得と同じタブ・注入を確かめる）→ tabs.sendMessage 'CHAT_POST'
+                 └─ content_yt_chat.js（PASS_CMD）→ MAIN chat_fetcher_main.js chatPost
+                      └─ 結果は ev:'post' → 取得と同じ中継 → state:'chatPost'
+```
+
+詳細は `/get-chat-feature-spec` 1-7節。`background.js` で失敗した（タブ・注入）ときも `ev:'post', ok:false` を返す。
+
 ### B → A（配信サイト・YouTube・チャットの報告）
 
 ```
@@ -309,6 +324,7 @@ content_video.js / content_youtube_scrape.js / background.js
 | **chatChunk** | requestId, videoId, seq, comments[], emoji{}, lastT, **view**（★v2.10.0）, **liveRecovers**（★v2.11.0） | 逐次配送されるコメント塊。`view` は B側が実際に選んだ表示（`top` / `all` / `unknown`） | ✅ | ✅ |
 | **chatDone** | requestId, videoId, total, complete, truncated, reqs, elapsed, **view**（★v2.10.0）, **endReason / endBy / liveRecovers / liveExits / recoverError**（★v2.11.0・ライブのみ。`endReason` = `ENDED` / `RECOVERY_FAILED` / `MAX_REQUESTS`）, **+最終チャンク** | 取得完了 | ✅ | ✅ |
 | **chatPing** | active[], waiting[] | 5秒ごとの心拍。順番待ちの位置も含む。★v2.11.1: ライブの `active` に `live` / `livePolls` / `liveRecovers` / `liveExits` / `liveChecks` / `lastCheck` / `livePhase`（`poll` / `recover`）/ `lastOkAgoMs` / `lastCommentAgoMs` / `recoverError`（中継は `active` を丸ごと転送するので中継の変更は不要）。★v2.13.0: `viewers`（数 / 取れていなければ `null`）/ `viewersText`（YouTube の文字）/ `viewersAgoMs` / `viewersBy`（`updated_metadata` / `watch`）/ `viewersError` / `viewersOk` / `viewersFails` | ✅ | ✅ |
+| **chatPost** ★v2.16.0 | requestId, videoId, ok, error, **canPost, reason, placeholder, httpStatus, echo** | ライブへの投稿の結果（エンジンの `ev:'post'`）。`dryRun` の要求には準備の結果（投稿できるか・理由・入力欄の案内文）だけを返す。🔴 5項目は `background.js` と `content_controller.js` の両方で列挙して転送（7-4節）。経路は `/get-chat-feature-spec` 1-7-2節 | ✅ | ✅ |
 | relativeSeekReport | diff または time | 手動シークの差分 | ❌ 未実装 | ✅ |
 | youtubeScrapeReport | items[] | 検索結果の一括取得 | ❌ 未実装 | △ |
 
@@ -1129,8 +1145,6 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 
 | 版数 | 内容 | 主な対象 | ライブ素材 |
 | :--- | :--- | :--- | :--: |
-| **要望（2026-10-08）** | ③ **配信中の動画へのコメント投稿**（InnerTube の送信・ログイン必須。誤投稿・連投の防止が要るので調査を先に）。①平滑化は v2.12.2〜v2.12.3、②視聴者数は v2.13.0 で完了 | アドオン | 必要 |
-| 保留（2026-10-24） | 流しの同時表示数の既定（40）を上げる。v2.12.3 の FREE「配信の終わり間近に流しが固まった → 同時表示数を上げたら解決」。利用者は v2.13.1 に入れない方を選んだ | A側 | ─ |
 | **未定** | リアルタイム同時視聴対応 + **COLD再生の同期**（点呼メッセージ追加＝プロトコル変更） | 全般 | ─ |
 
 ⚪ **v2.11.0 の注記（ライブの出口3つ）は v2.11.0 / v2.11.1 で解消した。** 経緯と実測は `/get-chat-feature-spec` 1-6-7節。
@@ -1184,6 +1198,7 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 | 13 | 🔴 **v2.13.0 の R6 で、ライブの取得が開始約3分で止まった**（2026-10-24・`xNpukUTVbBE`・polls 17・心拍 1,851秒前・`STALLED`）。利用者は他のタブを見ていて画面がオフになった（スリープ・ロックなし）。v2.12.3 の R6 は30分以上止まらなかった。取得タブの停止・中継の切断・エンジンの例外を A側から区別できない（`chatError` も未記録）。v2.13.1 の自動の取り直しで症状は覆うが、原因は残る。⚠️ v2.13.2 の測定（20分・`XRjTrCScZ7E`）では自然な途切れが起きず、**自動の取り直しが自然な途切れから戻すかは未確認**（見出しに「・再接続N回」が付けば効いた証拠） |
 | 14 | **視聴者数の予備経路（watch HTML）が実機で未確認**（v2.13.0 は経路1 `updated_metadata` で取れた）。視聴者数が非公開の配信・メンバー限定配信での動きも未確認 |
 | 15 | **Google ドライブ同期の未確認点**（v2.14.0〜v2.14.1）: OAuth 同意画面の公開ステータス「テスト」での許可の持ち時間（数日後に窓なしで取り直せるか）・2つの環境の同時書き込み（あとが勝つ設計）。`D-W7` は R1 の再読み込みでトークンが消えるとログインし直すまで判定不能（v2.14.1 の R2 で起きた）→ 次に 🎯 に入れるときは PC 不成立の文言に「📂 を開いてから」を添える |
+| 16 | **ライブへの投稿の未確認点**（v2.16.0）: 投稿できない配信（メンバー限定・登録者限定・低速モード）の実機の文言と送信時のエラーの形／4xx で `params` を取り直して送り直す経路・打ち切りの経路（headless の偽物のみ）／`params` の有効期限／9枠で複数のライブに投稿したとき／ブランドアカウント（`X-Goog-PageId` なし）。出会ったときに記録する |
 
 ### 保留（版数を切らない）
 - `relativeSeekReport` の `diff` 欠落（B側が未実装のため現時点で実害なし）
