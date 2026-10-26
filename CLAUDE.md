@@ -22,7 +22,7 @@ YouTube の動画・ライブを最大9枠並べて**同時に再生・シーク
 
 | 側 | 実体 | 置き場所 |
 | :--- | :--- | :--- |
-| **A側** | `index.html`（開発上は controller.html と呼ぶ） | GitHub Pages `https://syanao-coder.github.io/` |
+| **A側** | `index.html`（開発上は controller.html と呼ぶ） | GitHub Pages `https://syanao-coder.github.io/.github.io/` |
 | **B側** | Firefox / Floorp アドオン（MV3） | `about:debugging` で一時読み込み |
 | 開発基盤 | `debug_suite.js`（A側に同梱。`localStorage` の `sync_debug` で有効化） | A側と同じ |
 | テスト用紙 | `test_*.html`（統合テスト用紙 v3.0.0） | 🔴 **ローカル専用。Pages に置かない** |
@@ -143,7 +143,7 @@ YouTube の動画・ライブを最大9枠並べて**同時に再生・シーク
 | **positive control・ビューポート基準（鉄則 #41）・PC も固定値で書かない（鉄則 #42）** | 直近の失敗の大半がここ |
 | **報告書の「測れなかった値」** | 6版以上連続で事故を防いだ |
 | **罠と規約の新設は1サイクル4件まで**（2026-10-02 に2件から拡大） | 鉄則が増えすぎると読まれない |
-| 🔴 **デバッグ用URLは `https://syanao-coder.github.io/?debug=1` に固定する**（2026-10-02 利用者要望） | 特別な理由がなければ変えない。キャッシュ回避は `&v=N` ではなく **Ctrl+Shift+R** で行う |
+| 🔴 **デバッグ用URLは `https://syanao-coder.github.io/.github.io/?debug=1` に固定する**（2026-10-02 利用者要望・2026-10-26 利用者訂正: リポジトリ名が `.github.io` なので配信は `/.github.io/` の下） | 特別な理由がなければ変えない。キャッシュ回避は `&v=N` ではなく **Ctrl+Shift+R** で行う |
 | 🔴 **ブラウザ名・版数とスクリーンショットは必須のときだけ求める**（2026-10-02 利用者要望） | 版数は `debug_suite.js` が UA を自動で記録する。Floorp/Firefox の別とスクショは、結果に効くときだけ聞く（`get-dev-workflow` 3-1-2節） |
 | **版数の切り方**（パッチ＝プロトコル変更なし / マイナー＝メッセージ追加） | 機能の大きさでは切らない |
 
