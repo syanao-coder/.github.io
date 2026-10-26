@@ -41,7 +41,7 @@ var STEPS = [
   ans: [ { id: 'T1', type: 'check', label: 'アドオン 2.15.0 を読み込んだ' } ] },
 { ttl: 'T2. 開く',
   rows: [
-    ['<code>https://syanao-coder.github.io/?debug=1</code> を開き、<b>Ctrl+Shift+R</b> で読み込み直す', ''],
+    ['<code>https://syanao-coder.github.io/.github.io/?debug=1</code> を開き、<b>Ctrl+Shift+R</b> で読み込み直す', ''],
     ['上部の版数バッジが緑で <code>v2.17.0 / アドオン v2.15.0</code> になっていることを確かめる', '橙ならアドオンが古い・v2.16.0 のままなら反映待ち']
   ],
   ans: [ { id: 'T2', type: 'check', label: 'バッジが緑の v2.17.0 / アドオン v2.15.0 になった' } ] },
@@ -91,7 +91,7 @@ var STEPS = [
     ['一覧に出た <code>sync-login-test</code> の <b>新しいブラウザーでプロファイルを起動</b> を押す', '🔴 「既定のプロファイルに設定」は押さない'],
     ['開いた新しい Floorp のアドレス欄に <code>about:debugging#/runtime/this-firefox</code> を入れて開く', 'ここからは新しい Floorp で操作する'],
     ['<b>一時的なアドオンを読み込む…</b> を押し、<code>v2.15.0.zip</code> を選ぶ・版数が <b>2.15.0</b> であることを確かめる', ''],
-    ['<code>https://syanao-coder.github.io/?debug=1</code> を開く', '版数バッジが緑の v2.17.0 / アドオン v2.15.0']
+    ['<code>https://syanao-coder.github.io/.github.io/?debug=1</code> を開く', '版数バッジが緑の v2.17.0 / アドオン v2.15.0']
   ],
   ans: [ { id: 'T3', type: 'check', label: '新しいプロファイルでアドオン 2.15.0 とコントローラーを開いた' } ] },
 { ttl: 'R4. ログインしていない状態（新しいプロファイル・ライブ1枠）',
@@ -207,7 +207,7 @@ code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem;
 (function () {
     'use strict';
 
-    var FORM_ENGINE_VERSION = '3.0.0';
+    var FORM_ENGINE_VERSION = '3.0.1';
     var LS_KEY = 'test_form_draft';
     var EXTRA_CHOICES = ['該当なし', '測れなかった（理由は自由記入へ）', '未実施'];
     var RUNAT_MAX_H = 24;          /* 照合③のしきい値（時間） */
@@ -484,8 +484,12 @@ code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem;
         try {
             var o = JSON.parse(raw);
             if (!o || o.def !== FORM_META.defVersion) return false;
+            /* ★3.0.1: 入れ物ごと差し替えない。回答欄の入力処理は描いたときの入れ物を持っているので、
+               差し替えると下書きを読んだあとの入力が答えに届かず、赤枠のまま・出力も空になる（2026-10-26 v2.17.0 の用紙で発生） */
             Object.keys(o.answers || {}).forEach(function (k) {
-                if (answers[k]) answers[k] = o.answers[k];
+                var src = o.answers[k], dst = answers[k];
+                if (!dst || !src) return;
+                dst.choice = src.choice || ''; dst.text = src.text || ''; dst.done = !!src.done;
             });
             return true;
         } catch (e) { return false; }
@@ -649,6 +653,12 @@ code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem;
             chk(L, '下書きの保存と読み出しが往復する', ok, true);
         })();
 
+        /* ★3.0.1: 下書きを読んだあとも、回答欄の入力が答えに届く（入れ物が描いたときと同じ） */
+        (function () {
+            var moved = ITEMS.filter(function (it) { return boxesAtRender[it.id] !== answers[it.id]; }).map(function (it) { return it.id; });
+            chk(L, '下書きを読んだあとも入力が答えに届く（差し替えた回答欄）', moved.length ? moved.join(',') : 'なし', 'なし');
+        })();
+
         /* 🔴 照合そのものの positive control（鉄則 #22） */
         (function () {
             var fake = '| D-Z9 にせもの | ⚪ | 1/1 | |\n- debug_suite: `0.0.0` / APP_VERSION: `0.0.0`\n'
@@ -746,6 +756,8 @@ code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem;
     }
 
     render();
+    var boxesAtRender = {};
+    ITEMS.forEach(function (it) { boxesAtRender[it.id] = answers[it.id]; });
     var had = load();
     applyToDom();
     setStatus(had ? '前回の下書きを読み込みました。' : '新しい用紙です。');
@@ -755,7 +767,7 @@ code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem;
     document.getElementById('btnClear').addEventListener('click', function () {
         if (!window.confirm('この回の下書きを消します。よろしいですか。')) return;
         try { localStorage.removeItem(draftKey()); } catch (e) { }
-        ITEMS.forEach(function (it) { answers[it.id] = { choice: '', text: '', done: false }; });
+        ITEMS.forEach(function (it) { var a = answers[it.id]; a.choice = ''; a.text = ''; a.done = false; });   /* ★3.0.1: 入れ物は差し替えない */
         applyToDom();
         setStatus('下書きを消しました。');
     });

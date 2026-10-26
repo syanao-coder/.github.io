@@ -37,7 +37,7 @@ A↔B通信プロトコル・採番規約・**ロードマップの正本（11�
 | 🔴 **A側の配信ファイル名** | **`index.html`**（リポジトリ直下）。開発上の呼び名は `controller.html` のまま。⚠️ **別名や別フォルダに置くと Pages が読まない** |
 | 🔴 **アドオン提出用 zip** | アドオンの版を上げたら直下に **`vX.Y.Z.zip`** を作り、古い zip は削除（利用者の依頼 2026-10-02 / `CLAUDE.md` 4-3節）。現在は `v2.14.0.zip` |
 | 🔴 **GitHub の進行** | commit・push・PR・**マージ（＝ Pages への反映）**まで指示を待たずに行う（2026-10-02 利用者指示）。tag は push できないので付けない |
-| 🔴 **デバッグ用URL** | `https://syanao-coder.github.io/?debug=1` に固定。キャッシュ回避は Ctrl+Shift+R |
+| 🔴 **デバッグ用URL** | `https://syanao-coder.github.io/.github.io/?debug=1` に固定。キャッシュ回避は Ctrl+Shift+R |
 | 開発基盤 | `debug_suite.js` **v1.26.0**（v2.15.0 は `/get-debug-suite` 9-B-17節・v2.15.1〜v2.16.0 は 9-B-18節）/ **統合テスト用紙 v3.0.0**（`tests/test_v2_16_0.html`）/ 同名関数の検査 `tests/check_dup_functions.js`（鉄則 #51 ─ `debug_suite.js` と `index.html` の両方）。スパイクの計測コード `tests/spike_flow_s1.js`・`tests/spike_audio_a1.js`・`tests/spike_post_c1.js`（いずれも完了）。🔴 **報告書は利用者へ提示しない**（`docs/reports/` は Claude Code 自身の記録 ─ 2026-10-02 利用者指示） |
 | 🔴 テストの標準 | **利用者に頼むのは「ボタンを押すこと」と「出力を貼ること」だけ。** 判定はすべてコードが行う（`/get-dev-workflow` 3-1-2節）。⚠️ 用紙の出力をチャットへ貼るとコードブロックが落ちることがある（2026-10-02）。**欠けていたら「⬇ .md で保存」のファイルを添付してもらう** |
 | 🔴 **次にやること** | **次の版を利用者と決めて①へ。** 候補は 11節（未定のリアルタイム同時視聴）と持ち越し（13 自然な途切れからの復帰の確認・16 投稿の未確認点ほか）。正本は `/get-protocol-spec` 11節 |

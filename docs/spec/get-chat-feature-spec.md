@@ -1267,7 +1267,7 @@ v2.7.0 の流しの検証を `VID_MID`（**0.15件/秒**）で組んだところ
 | ブラウザ | **Firefox 153**（MV3、`host_permissions` はオプトイン）/ Floorp |
 | `world:'MAIN'` 対応 | Firefox 128以降。153で動作確認済み |
 | ローカルサーバー | Simple Web Server で `http://127.0.0.1:8080` |
-| 本番環境 | **GitHub Pages** `https://syanao-coder.github.io/` |
+| 本番環境 | **GitHub Pages** `https://syanao-coder.github.io/.github.io/` |
 | 拡張機能ID | `sync-player-controller-firefox@syanao-coder.github.io` |
 
 ⚠️ **PCが複数ある。** ユーザー名が `fiore` / `user` と異なるため、
