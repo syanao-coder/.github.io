@@ -5,7 +5,7 @@ description: "A側UIの部品仕様（トップメニュー・枠内通知・設
 
 # A側UI 部品仕様書（`controller.html`）
 
-最終更新: 2026-10-26 / 現行リリース **v2.16.0**（15節 ライブの投稿欄を追加）
+最終更新: 2026-10-26 / 現行リリース **v2.17.0**（15節 ライブの投稿欄・ログインのボタン）
 
 > **成立の経緯**: 1節は `/get-chat-feature-spec` 8-12節 →（v2.7.3）→ `/get-protocol-spec` 12節、
 > 2節は `/get-protocol-spec` 旧13節。**2026-08-07 に「A側UIの部品仕様」として本スキルへ分離した**
@@ -953,6 +953,7 @@ Google Drive API を有効化・OAuth 同意画面は対象「外部」・公開
 | 入力欄 `#chatPostInput_` | `maxlength=200`・`autocomplete=off`。🔴 `flex: 1 1 0; width: 0; min-width: 0`（`flex: 1 1 auto` では細いチャット欄で送るボタンが2行目へ落ちた ─ headless 2枠で確認）。案内は準備の結果で「準備中…」/ YouTube の案内文＋「（Enter で送信）」/「投稿できません」 |
 | 送るボタン `#chatPostBtn_` | 「送信」。止まっている間は薄く |
 | 知らせ `#chatPostMsg_` | 2行目いっぱい（`flex: 1 0 100%`）・空なら出さない。`ok` 緑・`ng` 橙 |
+| ログイン `#chatPostLogin_` ★v2.17.0 | 「🔑 YouTube にログイン」。3行目いっぱい（`flex: 1 0 100%`）・茶色の地に黄の文字。ログインしていないと分かったときだけ `block`（`/get-chat-feature-spec` 1-7-6節） |
 
 - ⚠️ 下端の「▲ 操作メニュー」のつまみ（`.controller-tab`・画面の下の中央）は、枠の並び方によっては送るボタンに重なる（headless の2枠で重なった）。利用者の配置（2026-10-26）では重ならなかった。Enter で送れるので実害は小さい。
 - 🔴 文面を入れる仕組みを作らない（`/get-chat-feature-spec` 1-7-1節）。
