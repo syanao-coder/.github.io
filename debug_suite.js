@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.26.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.27.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.16.0';
+    var EXPECT_APP_VERSION = '2.17.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.14.0';
+    var EXPECT_ADDON_REQUIRED = '2.15.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.16.0', ids: ['D-V1', 'D-V2', 'D-L12', 'D-W8'] };
+    var VERSION_FOCUS = { v: '2.17.0', ids: ['D-V1', 'D-V2', 'D-L13', 'D-L12'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1910,13 +1910,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 53);
+        expect('配列の件数', hist ? hist.length : 0, 54);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -8709,9 +8709,12 @@
             await startStream(V_ARC, false);
             expect('🔴 アーカイブには投稿欄を出さない・準備も出さない', (shown() ? '出る' : '出ない') + ' / 準備 ' + posts(V_ARC).length + '回', '出ない / 準備 0回');
 
-            /* 10. 準備済みのライブに戻る → 準備を出し直さず使える。チャット欄を閉じると消える */
-            await startStream(V_OK, true);
-            expect('準備済みの動画では準備を出し直さず、すぐ使える', posts(V_OK, true).length + '回 / ' + (input.disabled ? '止まっている' : '使える'), '1回 / 使える');
+            /* 10. 準備済みのライブを 🔄 で取り直す → ★v1.27.0（v2.17.0）から準備も1回やり直す（ログインのあと・制限が外れたあとに確かめ直せるように）。チャット欄を閉じると消える */
+            await startStream(V_OK, true);   /* startStream は reloadChat（🔄 と同じ）を呼ぶ */
+            expect('🔄 で取り直すと準備を1回やり直す（v2.17.0〜）', posts(V_OK, true).length + '回 / ' + (input.disabled ? '止まっている' : '使える'), '2回 / 止まっている');
+            handleChatPost({ requestId: (posts(V_OK, true)[1] || {}).requestId, videoId: V_OK, ok: true, canPost: true, placeholder: 'チャット...' });
+            await wait(20);
+            expect('やり直しの結果で使える', input.disabled ? '止まっている' : '使える', '使える');
             toggleChatVisibility(cid);
             await wait(50);
             expect('チャット欄を閉じると投稿欄も出ない', shown() ? '出る' : '出ない', '出ない');
@@ -8784,6 +8787,208 @@
             var box = document.getElementById('chatPost_' + cid);
             expect('投稿欄が出ている・入力欄が使える', (box && getComputedStyle(box).display !== 'none' && box.getClientRects().length > 0 ? '出る' : '出ない') + ' / ' + (input && !input.disabled ? '使える' : '止まっている'), '出る / 使える');
             note('入力欄の案内', input ? input.placeholder : '-');
+        } finally {
+            window.postMessage = origPost;
+            expect('🔴 送信の要求は1件も出していない（投稿していない）', blocked, 0);
+        }
+    }
+
+    /* ======================================================================
+       ★v1.27.0 : v2.17.0 の判定（ログインしていないときの「🔑 YouTube にログイン」）
+       🔴 どちらの判定も投稿しない・ログイン画面も開かない（鉄則 #54）
+       ==================================================================== */
+
+    /* --- D-L13: A側だけ。偽のライブで needLogin → ボタン → 開く先 → 戻るとやり直す・🔄 でやり直す --- */
+    async function testL13() {
+        log('  [目的] 準備の結果が「ログインしていない」のときだけ投稿欄に「🔑 YouTube にログイン」が出て、押すと Google のログイン画面を開き、このタブへ戻ると準備をやり直すこと。ログイン待ちでない「投稿できない」ではボタンを出さず、戻ってもやり直さないこと。🔄 で準備をやり直すこと。🔴 要求は捕まえて捨て、window.open も差し替える（開かない）。');
+        var has = (typeof openChatPostLogin === 'function' && typeof recheckChatPostLogin === 'function' && typeof CHAT_POST_LOGIN_URL === 'string');
+        expect('🔴 A側のログインの案内（openChatPostLogin / recheckChatPostLogin / CHAT_POST_LOGIN_URL）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var V_A = 'dbgL13aaaaa', V_B = 'dbgL13bbbbb';
+        var FAKES = [V_A, V_B];
+        var OFF = 7200000;
+        var origPost = window.postMessage, origOpen = window.open;
+        var sent = [], opened = [], leaked = 0;
+        var cid = null;
+        function l13Posts(vid, dry) { return sent.filter(function (m) { return m.type === 'CHAT_POST_REQUEST' && (!vid || m.videoId === vid) && (dry === undefined || !!m.dryRun === dry); }); }
+        function l13LastPost(vid, dry) { var a = l13Posts(vid, dry); return a.length ? a[a.length - 1] : {}; }
+        function l13El(p) { return document.getElementById(p + cid); }
+        function l13Vis(e) { return !!e && getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0; }
+        function l13Msg() { var m = l13El('chatPostMsg_'); return m ? m.textContent : ''; }
+        function l13OnLeak(e) { if (e.data && e.data.type === 'CHAT_POST_REQUEST' && FAKES.indexOf(e.data.videoId) >= 0) leaked++; }
+        var seenRids = {};
+        async function l13Start(vid) {
+            sent.forEach(function (m) { if (m.type === 'CHAT_STREAM_REQUEST') seenRids[m.requestId] = true; });
+            cardVideoKeys[cid] = vid;
+            reloadChat(cid);
+            var r = await waitFor(function () {
+                var q = sent.filter(function (m) { return m.type === 'CHAT_STREAM_REQUEST' && m.videoId === vid && !seenRids[m.requestId]; });
+                return q.length ? q[0].requestId : null;
+            }, 3000, 20);
+            if (!r.ok) return null;
+            seenRids[r.value] = true;
+            handleChatMeta({ requestId: r.value, videoId: vid, ok: true, live: true, liveBy: 'isLiveNow', videoMs: 0 });
+            handleChatChunk({ requestId: r.value, videoId: vid, seq: 0, comments: [{ t: performance.now() + OFF - 1000, n: 'u', m: 'a' }], emoji: {}, lastT: 0 });
+            await wait(50);
+            return r.value;
+        }
+        async function l13Back() { window.dispatchEvent(new Event('focus')); await wait(30); }
+        try {
+            await closeAllMenus();
+            FAKES.forEach(function (v) { delete chatPostPrep[v]; });
+            var got = await setCardCount(started + 1);
+            pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
+            cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            window.postMessage = function (m) {
+                if (m && m.type === 'CHAT_POST_REQUEST' && FAKES.indexOf(m.videoId) < 0) return origPost.apply(window, arguments);
+                if (m && (m.type === 'CHAT_STREAM_REQUEST' || m.type === 'CHAT_STREAM_CANCEL' || m.type === 'CHAT_POST_REQUEST')) { sent.push(m); return; }
+                return origPost.apply(window, arguments);
+            };
+            window.open = function (u) { opened.push(String(u)); return null; };   /* 🔴 ログイン画面は開かない */
+            window.addEventListener('message', l13OnLeak);
+            cardVideoKeys[cid] = V_A;
+            if (typeof setChatMode === 'function') setChatMode(cid, 'all');
+            await openChatPane(cid);
+
+            /* 1. ログインしていない → ボタン */
+            var r1 = await l13Start(V_A);
+            pc('🔴 偽のライブの見出しが「配信中」（土俵）', function () { var h = chatHeadText(cid); return (r1 && /🔴 配信中/.test(h)) ? h : false; });
+            var login = l13El('chatPostLogin_'), input = l13El('chatPostInput_');
+            pc('ログインのボタンと入力欄がある', function () { return (login && input) ? 'あり' : false; });
+            if (!login || !input) return;
+            expect('準備中はボタンを出さない', l13Vis(login) ? '出る' : '出ない', '出ない');
+            handleChatPost({ requestId: l13LastPost(V_A, true).requestId, videoId: V_A, ok: false, canPost: false, needLogin: true, reason: 'YouTube にログインしていません', error: 'YouTube にログインしていません' });
+            await wait(20);
+            expect('🔴 ログインしていなければボタンが出て、入力欄は止まる・理由が出る',
+                (l13Vis(login) ? '出る' : '出ない') + ' / ' + (input.disabled ? '止まる' : '使える') + ' / ' + (/ログインしていません/.test(l13Msg()) ? '理由あり' : l13Msg()),
+                '出る / 止まる / 理由あり');
+
+            /* 2. 押す → Google のログイン画面（開かずに捕まえる） */
+            login.click();
+            var u = opened[0] || '';
+            var cont = (u.match(/[?&]continue=([^&]+)/) || [])[1] || '';
+            try { cont = decodeURIComponent(cont); } catch (e) { }
+            expect('🔴 押すと新しいタブで Google のログイン画面（service=youtube・続きは www.youtube.com）を1回開く',
+                opened.length + '回 / ' + (/^https:\/\/accounts\.google\.com\/ServiceLogin\?/.test(u) ? 'Google' : u) + ' / ' + (/[?&]service=youtube(&|$)/.test(u) ? 'youtube' : '-') + ' / ' + (/^https:\/\/www\.youtube\.com\//.test(cont) ? '続き youtube' : cont),
+                '1回 / Google / youtube / 続き youtube');
+            expect('戻るよう知らせる', /このタブへ戻って/.test(l13Msg()) ? 'ok' : l13Msg(), 'ok');
+
+            /* 3. このタブへ戻る → 準備をやり直す → ログインできていれば使える */
+            var d0 = l13Posts(V_A, true).length;
+            await l13Back();
+            expect('🔴 このタブへ戻ると準備を1回やり直す', l13Posts(V_A, true).length - d0, 1);
+            expect('やり直している間はボタンを出さない', l13Vis(login) ? '出る' : '出ない', '出ない');
+            handleChatPost({ requestId: l13LastPost(V_A, true).requestId, videoId: V_A, ok: true, canPost: true, needLogin: false, placeholder: 'チャット...' });
+            await wait(20);
+            expect('🔴 ログインできていればボタンが消え、入力欄が使える・知らせを消す',
+                (l13Vis(login) ? '出る' : '出ない') + ' / ' + (input.disabled ? '止まる' : '使える') + ' / ' + JSON.stringify(l13Msg()), '出ない / 使える / ""');
+            d0 = l13Posts(V_A, true).length;
+            await l13Back();
+            expect('使える状態では、戻ってもやり直さない', l13Posts(V_A, true).length - d0, 0);
+
+            /* 4. ログイン待ちでない「投稿できない」 */
+            await l13Start(V_B);
+            handleChatPost({ requestId: l13LastPost(V_B, true).requestId, videoId: V_B, ok: false, canPost: false, needLogin: false, reason: 'メンバー限定モードがオンです' });
+            await wait(20);
+            expect('🔴 ログインしていて投稿できない配信ではボタンを出さない（理由は出す）',
+                (l13Vis(login) ? '出る' : '出ない') + ' / ' + (/メンバー限定モード/.test(l13Msg()) ? '理由あり' : l13Msg()), '出ない / 理由あり');
+            d0 = l13Posts(V_B, true).length;
+            await l13Back();
+            expect('ログイン待ちでなければ、戻ってもやり直さない', l13Posts(V_B, true).length - d0, 0);
+
+            /* 5. 🔄 で準備をやり直す（v2.16.0 は覚えたまま止まっていた） */
+            d0 = l13Posts(V_B, true).length;
+            await l13Start(V_B);   /* startStream は reloadChat（🔄 と同じ）を呼ぶ */
+            expect('🔴 🔄 で準備をやり直す', l13Posts(V_B, true).length - d0, 1);
+            handleChatPost({ requestId: l13LastPost(V_B, true).requestId, videoId: V_B, ok: true, canPost: true, needLogin: false, placeholder: 'チャット...' });
+            await wait(20);
+            expect('やり直しで使えるようになる・前の理由を消す', (input.disabled ? '止まる' : '使える') + ' / ' + JSON.stringify(l13Msg()), '使える / ""');
+
+            /* 6. 送信の失敗で「ログインしていない」→ ボタン（前の段の結果に左右されないよう、使える状態から始める） */
+            chatPostPrep[V_B] = { state: 'ready', placeholder: 'チャット...' };
+            chatPostCoolUntil[cid] = 0;
+            updateChatPostUI(cid);
+            input.value = 'あいう';
+            submitChatPost(cid);
+            var s1 = l13LastPost(V_B, false);
+            pc('送信の要求を捕まえた（土俵）', function () { return s1.requestId ? 'ok' : false; });
+            handleChatPost({ requestId: s1.requestId, videoId: V_B, ok: false, httpStatus: 401, needLogin: true, error: '送信できませんでした（HTTP 401）' });
+            await wait(20);
+            expect('🔴 送信の失敗でログインしていないと分かったらボタンを出し、打った文は残す',
+                (l13Vis(login) ? '出る' : '出ない') + ' / ' + (input.disabled ? '止まる' : '使える') + ' / ' + JSON.stringify(input.value), '出る / 止まる / "あいう"');
+
+            await wait(30);
+            expect('🔴 捕まえた要求がアドオン側へ1件も漏れていない（投稿していない）', leaked, 0);
+            note('捕まえた投稿の要求（準備 / 送信）・開こうとした URL', l13Posts(null, true).length + ' / ' + l13Posts(null, false).length + ' ・ ' + (opened[0] || '-'));
+            note('戻ったときのやり直しは focus で試した（visibilitychange は合成できないので未試験）', '-');
+        } finally {
+            window.postMessage = origPost;
+            window.open = origOpen;
+            window.removeEventListener('message', l13OnLeak);
+            try {
+                Object.keys(chatPostReqs).forEach(function (k) { if (FAKES.indexOf(chatPostReqs[k].videoId) >= 0) { clearTimeout(chatPostReqs[k].timer); delete chatPostReqs[k]; } });
+                FAKES.forEach(function (v) { delete chatPostPrep[v]; });
+                if (cid) { delete chatPostBusy[cid]; delete chatPostCoolUntil[cid]; delete chatPostMsgs[cid]; }
+            } catch (e) { }
+            FAKES.forEach(function (v) {
+                try { if (typeof cancelChatRequest === 'function') cancelChatRequest(v); } catch (e) { }
+                try { delete liveVideoIds[v]; delete chatStore[v]; delete chatState[v]; } catch (e) { }
+            });
+            try { if (cid) delete cardVideoKeys[cid]; } catch (e) { }
+            try { if (cid) await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-W9: 実機（ログインしていないブラウザ・ライブ・アドオン 2.15.0）。準備だけをやり直し、needLogin とボタン。🔴 送らない・押さない --- */
+    async function testW9() {
+        log('  [目的] YouTube にログインしていないブラウザで、アドオン 2.15.0 が「ログインしていない」を15秒以内に返し、投稿欄に「🔑 YouTube にログイン」が出ること。🔴 準備（dryRun）だけ。送信の要求は止める。ボタンは押さない。');
+        var has = (typeof recheckChatPostLogin === 'function' && typeof chatPostPrep !== 'undefined');
+        expect('🔴 A側のログインの案内（recheckChatPostLogin / chatPostPrep）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var ids = (activeCardIds || []).filter(function (id) {
+            var v = chatLoadedVideoId[id];
+            return chatVisible[id] && v && isLiveVideo(v) && chatState[v] === 'streaming';
+        });
+        pc('🔴 チャット欄を開いた配信中のライブ枠がある', function () { return ids.length ? ids.join(',') : false; });
+        if (!ids.length) return;
+        var cid = ids[0], key = chatLoadedVideoId[cid], vid = videoIdOfChatKey(key);
+        var st0 = chatStore[key];
+        pc('心拍が15秒以内に届いている（アドオンが動いている）', function () {
+            return (st0 && st0.livePingAt && Date.now() - st0.livePingAt < 15000) ? Math.round((Date.now() - st0.livePingAt) / 1000) + '秒前' : false;
+        });
+        var origPost = window.postMessage;
+        var dry = 0, blocked = 0;
+        window.postMessage = function (m) {
+            if (m && m.type === 'CHAT_POST_REQUEST') {
+                if (!m.dryRun) { blocked++; return; }
+                dry++;
+            }
+            return origPost.apply(window, arguments);
+        };
+        try {
+            delete chatPostPrep[vid];
+            updateChatPostUI(cid);
+            expect('準備（dryRun）を1回送った', dry, 1);
+            var t0 = Date.now();
+            var r = await waitFor(function () { var p = chatPostPrep[vid]; return (p && p.state !== 'pending') ? p.state : null; }, 15000, 200);
+            var p = chatPostPrep[vid] || {};
+            note('準備の結果・ログイン待ちか・かかった時間', (p.state || '-') + ' / ' + (p.needLogin ? 'ログイン待ち' : '-') + ' / ' + Math.round((Date.now() - t0) / 100) / 10 + '秒');
+            note('理由', p.reason || '-');
+            expect('🔴 15秒以内に準備の結果が返る', r.ok ? 'ok' : '返らない', 'ok');
+            if (!r.ok) return;
+            expect('🔴 ログインしていないと判定（needLogin）', (p.state === 'blocked' && p.needLogin) ? 'ok' : (p.state + ' / needLogin=' + !!p.needLogin), 'ok');
+            await wait(100);
+            var login = document.getElementById('chatPostLogin_' + cid);
+            var input = document.getElementById('chatPostInput_' + cid);
+            expect('「🔑 YouTube にログイン」が出て、入力欄は止まる',
+                ((login && getComputedStyle(login).display !== 'none' && login.getClientRects().length) ? '出る' : '出ない') + ' / ' + (input && input.disabled ? '止まる' : '使える'), '出る / 止まる');
         } finally {
             window.postMessage = origPost;
             expect('🔴 送信の要求は1件も出していない（投稿していない）', blocked, 0);
@@ -8876,6 +9081,9 @@
         /* ★v1.26.0: v2.16.0。D-L12 は枠数を変える・D-W8 はライブとアドオン 2.14.0 が要るので manual。🔴 どちらも投稿しない */
         { id: 'D-L12', name: '★ライブへの投稿欄（準備・変換中の Enter・連投の防止・失敗・投稿できない配信）', run: testL12, manual: true },
         { id: 'D-W8', name: '★ライブへの投稿の準備（実機・dryRun だけ・投稿しない）', run: testW8, manual: true },
+        /* ★v1.27.0: v2.17.0。D-L13 は枠数を変える・D-W9 はログインしていないブラウザとライブが要るので manual。🔴 どちらも投稿しない・ログイン画面を開かない */
+        { id: 'D-L13', name: '★ログインしていないときの「🔑 YouTube にログイン」（開く先・戻るとやり直す・🔄）', run: testL13, manual: true },
+        { id: 'D-W9', name: '★ログインしていないと判定してボタンを出す（実機・ログアウトしたブラウザ・dryRun だけ）', run: testW9, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */

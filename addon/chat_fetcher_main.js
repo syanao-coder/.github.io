@@ -1196,8 +1196,15 @@
     return '';
   }
 
+  /* ★v2.17.0: YouTube にログインしているか（投稿の認証ヘッダと同じ Cookie で見る） */
+  function hasAuthCookie() {
+    try { return !!pickAuthCookie(document.cookie); } catch (e) { return false; }
+  }
+
   /* /live_chat から params・投稿できるか・できない理由・入力欄の案内文を読む */
   async function loadPostParams(videoId) {
+    /* ★v2.17.0: ログインしていなければ読まずに返す（A側が「ログイン」ボタンを出す） */
+    if (!hasAuthCookie()) return { canPost: false, needLogin: true, reason: 'YouTube にログインしていません', cfg: null };
     const r = await fetchTimed('/live_chat?is_popout=1&v=' + encodeURIComponent(videoId),
       { credentials: 'include' }, POST_TIMEOUT_MS, 'text');
     if (!r.res.ok) throw new Error('チャットのページを読めません（HTTP ' + r.res.status + '）');
@@ -1210,14 +1217,15 @@
     let params = null, placeholder = '';
     try { params = input.sendButton.buttonRenderer.serviceEndpoint.sendLiveChatMessageEndpoint.params; } catch (e) { params = null; }
     try { placeholder = plainText(input.inputField.liveChatTextInputFieldRenderer.placeholder); } catch (e) { placeholder = ''; }
-    const cfg = cfgFromPage() || cfgFromHtml(html);
+    /* ★v2.17.0: 今読んだページの ytcfg を先に使う（取得タブを開いたあとにログインした場合、タブの ytcfg はログイン前のまま） */
+    const cfg = cfgFromHtml(html) || cfgFromPage();
     if (!input || !params) {
       let reason = '';
       if (ap) { const inner = ap[Object.keys(ap)[0]] || {}; reason = plainText(inner.message) || plainText(inner.text); }
       if (!reason) reason = ap ? 'この配信には今は投稿できません' : 'ログインしていないか、この配信には投稿できません';
       return { canPost: false, reason: reason.slice(0, 200), cfg: cfg };
     }
-    postParams.set(videoId, { params: params, placeholder: placeholder, at: Date.now() });
+    postParams.set(videoId, { params: params, placeholder: placeholder, cfg: cfg, at: Date.now() });
     return { canPost: true, params: params, placeholder: placeholder, cfg: cfg };
   }
 
@@ -1244,7 +1252,7 @@
   }
 
   async function chatPost(d) {
-    const out = { ev: 'post', requestId: d.requestId, videoId: d.videoId, ok: false, canPost: null, reason: null, placeholder: null, httpStatus: null, echo: false, error: null };
+    const out = { ev: 'post', requestId: d.requestId, videoId: d.videoId, ok: false, canPost: null, reason: null, placeholder: null, httpStatus: null, echo: false, error: null, needLogin: false };
     let sending = false;   // send_message を叩いたあとの例外は「届いたか分からない」
     cancelIdleClose();
     try {
@@ -1254,7 +1262,7 @@
       let prep = null;
       const known = postParams.get(d.videoId);
       if (d.dryRun || !known) prep = await loadPostParams(d.videoId);
-      else prep = { canPost: true, params: known.params, placeholder: known.placeholder, cfg: cfgFromPage() };
+      else prep = { canPost: true, params: known.params, placeholder: known.placeholder, cfg: known.cfg || cfgFromPage() };
       out.canPost = prep.canPost;
       out.reason = prep.reason || null;
       out.placeholder = prep.placeholder || null;
@@ -1281,6 +1289,8 @@
       const m = String(e && e.message ? e.message : e).slice(0, 200);
       out.error = sending ? '送信の応答がありません（' + m + '）。届いたかどうか分からないので、チャット欄で確かめてから送り直してください' : m;
     } finally {
+      /* ★v2.17.0: 送れなかった・投稿できないとき、ログインしていなければ A側にそう伝える */
+      if (!out.ok || out.canPost === false) out.needLogin = !hasAuthCookie();
       post(out);
       if (!jobs.size) scheduleIdleClose();
     }
