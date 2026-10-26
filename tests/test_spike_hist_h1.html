@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>スパイク H1 用紙 ─ YouTube の視聴履歴</title>
+<!--
+  統合テスト用紙（エンジン v3.0.0）
+  🔴 ローカル専用。controller.html とは別のポートに置くこと
+     （同一オリジンだと本体の「全設定・保存URLをリセット」で下書きが巻き添えで消える）。
+  使い方: FORM_META と STEPS を差し替えるだけ。骨組み（CSS・描画・自己診断・
+  コピー・下書き保存・3つの照合）は毎回そのまま。
+-->
+<script>
+/* ============================================================
+   ここから下が「この回の中身」。骨組みは触らない。
+   ============================================================ */
+var FORM_META = {
+    defVersion: '2026-10-26.spikehist1',
+    work: 'スパイク H1 ─ YouTube の視聴履歴を読めるか（版数を切らない）',
+    base: 'index.html v2.17.0（変更なし）/ アドオン 2.15.0（変更なし）/ 計測コード hist-h1-1.0.0（YouTube のページのコンソールに貼る）',
+    expectApp: '(YouTube のページ)',
+    expectSuite: 'hist-h1-1.0.0',
+    note: '🔴 本番もアドオンも変えていません。計測は読むだけです。結果に履歴の動画のタイトル・ID・チャンネル名は入りません（件数・形・あなたが入れた2本の位置だけ）。'
+};
+
+var STEPS = [
+
+{ sec: '1. 準備', html:
+    'YouTube の視聴履歴を、このツールから読めるかを確かめます（読むだけ）。<br>'
+    + '<b>Q1 履歴を読む</b>: 履歴を2ページぶん読み、形と件数を調べる ／ <b>Q2 位置を調べる</b>: あなたが入れた2本の動画が、履歴の何番目にあるかを調べる。<br>'
+    + '🔴 結果には、履歴の動画のタイトル・ID・チャンネル名・Cookie は入りません。<br>'
+    + "<button type=\"button\" onclick=\"var t=document.getElementById('histSnip');t.style.display='block';t.select();try{document.execCommand('copy');this.textContent='✅ コピーしました';}catch(e){this.textContent='⚠ 下の枠を全選択してコピー';}\">📋 計測コードをコピー</button>" + "<textarea id=\"histSnip\" readonly style=\"display:none;height:120px;margin-top:6px;white-space:pre;\">" + "/* ============================================================\n   スパイク H1: YouTube の視聴履歴を読めるか（版数を切らない・本番コードもアドオンも変えない）\n   🔴 https://www.youtube.com/ のどのページでもよい。コンソールの実行先は「Top」のまま貼る。\n   画面の右上に小さなパネルが出る。\n     ▶ Q1 履歴を読む   … 視聴履歴（FEhistory）を2ページぶん読み、形と件数を調べる（🔴 読むだけ）\n     ▶ Q2 位置を調べる … 入れた2本の動画が履歴の何番目にあるかを調べる（🔴 読むだけ）\n   🔴 履歴は個人の情報。出力には動画のタイトル・ID・チャンネル名を載せない（件数・形・入れた2本の位置だけ）。\n   🔴 Cookie の値・ハッシュも載せない。innerHTML は使わない（YouTube は文字列での HTML の書き込みを禁じている）。\n   ============================================================ */\n(function () {\n    'use strict';\n    var SNIP_VERSION = 'hist-h1-1.0.0';\n    var ORIGIN = 'https://www.youtube.com';\n    var AUTH_COOKIE_NAMES = ['SAPISID', '__Secure-3PAPISID', '__Secure-1PAPISID'];\n\n    if (location.origin !== ORIGIN || window.top !== window) {\n        console.warn('[スパイク H1] ここは ' + location.href + ' です。https://www.youtube.com/ のページで、コンソールの実行先を「Top」にして貼ってください。');\n        return;\n    }\n    if (window.__histSpike &amp;&amp; window.__histSpike.panel) { try { window.__histSpike.panel.remove(); } catch (e) { } }\n    var S = window.__histSpike = { reports: [], running: false, pages: null };\n\n    /* ---------- 共通 ---------- */\n    function videoIdOf(s) {\n        s = String(s || '').trim();\n        var m = s.match(/(?:v=|youtu\\.be\\/|\\/live\\/|\\/embed\\/|\\/shorts\\/)([A-Za-z0-9_-]{11})/);\n        if (m) return m[1];\n        return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;\n    }\n    function sliceBalancedJson(text, from) {\n        var start = text.indexOf('{', from);\n        if (start &lt; 0) return null;\n        var depth = 0, inStr = false, esc = false;\n        for (var i = start; i &lt; text.length; i++) {\n            var c = text[i];\n            if (inStr) { if (esc) esc = false; else if (c === '\\\\') esc = true; else if (c === '\"') inStr = false; continue; }\n            if (c === '\"') inStr = true;\n            else if (c === '{') depth++;\n            else if (c === '}') { depth--; if (depth === 0) return text.slice(start, i + 1); }\n        }\n        return null;\n    }\n    function initialData(html) {\n        var marker = 'ytInitialData', idx = html.indexOf(marker);\n        while (idx &gt;= 0) {\n            var json = sliceBalancedJson(html, idx);\n            if (json) { try { var d = JSON.parse(json); if (d &amp;&amp; (d.contents || d.continuationContents || d.onResponseReceivedActions)) return d; } catch (e) { } }\n            idx = html.indexOf(marker, idx + marker.length);\n        }\n        return null;\n    }\n    function cfg() {\n        var y = window.ytcfg &amp;&amp; window.ytcfg.get ? window.ytcfg : null;\n        var g = function (k) { try { return y ? y.get(k) : undefined; } catch (e) { return undefined; } };\n        return {\n            key: g('INNERTUBE_API_KEY'), ctx: g('INNERTUBE_CONTEXT'),\n            clientName: g('INNERTUBE_CONTEXT_CLIENT_NAME'), clientVersion: g('INNERTUBE_CONTEXT_CLIENT_VERSION'),\n            sessionIndex: g('SESSION_INDEX'), delegated: g('DELEGATED_SESSION_ID'), loggedIn: g('LOGGED_IN')\n        };\n    }\n    function pickAuthCookie() {\n        var parts = String(document.cookie || '').split(';');\n        for (var n = 0; n &lt; AUTH_COOKIE_NAMES.length; n++) {\n            for (var i = 0; i &lt; parts.length; i++) {\n                var p = parts[i], j = p.indexOf('=');\n                if (j &lt; 0 || p.slice(0, j).trim() !== AUTH_COOKIE_NAMES[n]) continue;\n                var v = p.slice(j + 1).trim();\n                if (v) return { name: AUTH_COOKIE_NAMES[n], value: v };\n            }\n        }\n        return null;\n    }\n    async function sha1Hex(text) {\n        var d = new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(text)));\n        var s = '';\n        for (var i = 0; i &lt; d.length; i++) s += (d[i] &lt; 16 ? '0' : '') + d[i].toString(16);\n        return s;\n    }\n    /* 取得エンジン（chat_fetcher_main.js の buildAuthHeaders）と同じ作り方。値は出力に載せない */\n    async function headers(c) {\n        var h = { 'content-type': 'application/json' };\n        var hit = pickAuthCookie();\n        var info = { cookie: hit ? hit.name : '(なし)', authUser: '0', pageId: false, client: false };\n        if (hit) {\n            var sec = Math.floor(Date.now() / 1000);\n            h['Authorization'] = 'SAPISIDHASH ' + sec + '_' + (await sha1Hex(sec + ' ' + hit.value + ' ' + ORIGIN));\n            h['X-Origin'] = ORIGIN;\n            info.authUser = (c.sessionIndex !== undefined &amp;&amp; c.sessionIndex !== null) ? String(c.sessionIndex) : '0';\n            h['X-Goog-AuthUser'] = info.authUser;\n            if (c.delegated) { h['X-Goog-PageId'] = String(c.delegated); info.pageId = true; }\n        }\n        if (c.clientName &amp;&amp; c.clientVersion) { h['X-Youtube-Client-Name'] = String(c.clientName); h['X-Youtube-Client-Version'] = String(c.clientVersion); info.client = true; }\n        return { h: h, info: info };\n    }\n    function keysOf(o) { return (o &amp;&amp; typeof o === 'object') ? Object.keys(o).join(',') : '(なし)'; }\n    function textOf(t) {\n        if (!t) return '';\n        if (typeof t === 'string') return t;\n        if (t.content) return String(t.content);\n        if (t.simpleText) return t.simpleText;\n        if (t.runs) return t.runs.map(function (r) { return r.text || ''; }).join('');\n        return '';\n    }\n    function has(o, key) {   /* o の中のどこかに key があるか（深さ12まで） */\n        var stack = [[o, 0]];\n        while (stack.length) {\n            var top = stack.pop(), v = top[0], d = top[1];\n            if (!v || typeof v !== 'object' || d &gt; 12) continue;\n            if (Object.prototype.hasOwnProperty.call(v, key)) return true;\n            for (var k in v) if (v[k] &amp;&amp; typeof v[k] === 'object') stack.push([v[k], d + 1]);\n        }\n        return false;\n    }\n    function dig(o, path) { var v = o; for (var i = 0; i &lt; path.length; i++) { if (!v) return undefined; v = v[path[i]]; } return v; }\n\n    /* 応答の中から動画の項目を拾う。🔴 タイトルや ID は返り値に入れるが、出力には載せない */\n    var ITEM_KEYS = ['videoRenderer', 'lockupViewModel', 'shortsLockupViewModel', 'reelItemRenderer', 'compactVideoRenderer', 'gridVideoRenderer'];\n    function extract(root) {\n        var out = { items: [], renderers: {}, sections: 0, headers: [], cont: null };\n        var stack = [root];\n        while (stack.length) {\n            var v = stack.pop();\n            if (!v || typeof v !== 'object') continue;\n            if (Array.isArray(v)) { for (var a = v.length - 1; a &gt;= 0; a--) stack.push(v[a]); continue; }\n            var hit = null;\n            for (var i = 0; i &lt; ITEM_KEYS.length; i++) if (v[ITEM_KEYS[i]]) { hit = ITEM_KEYS[i]; break; }\n            if (hit) {\n                var o = v[hit], it = { kind: hit, id: null, title: '', thumb: false, channel: false, duration: false, progress: false };\n                if (hit === 'videoRenderer' || hit === 'compactVideoRenderer' || hit === 'gridVideoRenderer') {\n                    it.id = o.videoId || null; it.title = textOf(o.title); it.thumb = !!o.thumbnail;\n                    it.channel = !!(o.ownerText || o.shortBylineText || o.longBylineText); it.duration = !!o.lengthText;\n                    it.progress = has(o, 'thumbnailOverlayResumePlaybackRenderer');\n                } else if (hit === 'lockupViewModel') {\n                    if (o.contentType &amp;&amp; o.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') { out.renderers['lockupViewModel(' + o.contentType + ')'] = (out.renderers['lockupViewModel(' + o.contentType + ')'] || 0) + 1; continue; }\n                    it.id = o.contentId || null; it.title = textOf(dig(o, ['metadata', 'lockupMetadataViewModel', 'title']));\n                    it.thumb = !!o.contentImage; it.channel = has(o, 'metadataRows');\n                    it.duration = has(o, 'thumbnailBadgeViewModel') || has(o, 'thumbnailOverlayBadgeViewModel');\n                    it.progress = has(o, 'thumbnailOverlayProgressBarViewModel') || has(o, 'thumbnailOverlayResumePlaybackRenderer');\n                } else if (hit === 'shortsLockupViewModel') {\n                    it.id = dig(o, ['onTap', 'innertubeCommand', 'reelWatchEndpoint', 'videoId']) || null;\n                    if (!it.id &amp;&amp; o.entityId) { var em = String(o.entityId).match(/([A-Za-z0-9_-]{11})$/); if (em) it.id = em[1]; }\n                    it.title = textOf(dig(o, ['overlayMetadata', 'primaryText'])); it.thumb = !!o.thumbnail;\n                } else if (hit === 'reelItemRenderer') {\n                    it.id = o.videoId || null; it.title = textOf(o.headline); it.thumb = !!o.thumbnail;\n                }\n                out.renderers[hit] = (out.renderers[hit] || 0) + 1;\n                out.items.push(it);\n                continue;   /* 項目の中は下りない（数え直しを防ぐ） */\n            }\n            if (v.itemSectionRenderer) {\n                out.sections++;\n                var ht = textOf(dig(v.itemSectionRenderer, ['header', 'itemSectionHeaderRenderer', 'title']));\n                if (ht &amp;&amp; out.headers.length &lt; 6) out.headers.push(ht);\n            }\n            var tok = dig(v, ['continuationItemRenderer', 'continuationEndpoint', 'continuationCommand', 'token']);\n            if (tok &amp;&amp; !out.cont) out.cont = tok;\n            /* 🔴 画面の並び順を保つ（後ろから積むと先頭から取り出せる）。位置（何番目）を数えるので順番が大事 */\n            var ks = Object.keys(v);\n            for (var q = ks.length - 1; q &gt;= 0; q--) if (v[ks[q]] &amp;&amp; typeof v[ks[q]] === 'object') stack.push(v[ks[q]]);\n        }\n        return out;\n    }\n    async function browse(c, body) {\n        var hh = await headers(c);\n        var t0 = performance.now(), res = null, j = null, size = 0;\n        res = await fetch('/youtubei/v1/browse?' + (c.key ? 'key=' + encodeURIComponent(c.key) + '&amp;' : '') + 'prettyPrint=false',\n            { method: 'POST', credentials: 'include', headers: hh.h, body: JSON.stringify(Object.assign({ context: c.ctx }, body)) });\n        var txt = await res.text(); size = txt.length;\n        try { j = JSON.parse(txt); } catch (e) { j = null; }\n        return { status: res.status, body: j, ms: Math.round(performance.now() - t0), kb: Math.round(size / 1024), info: hh.info };\n    }\n    function pct(n, d) { return d ? n + '/' + d : '0/0'; }\n    function fieldStat(items) {\n        var n = items.length, f = function (k) { return items.filter(function (x) { return x[k]; }).length; };\n        return 'ID ' + pct(items.filter(function (x) { return x.id; }).length, n) + ' / タイトル ' + pct(items.filter(function (x) { return x.title; }).length, n)\n            + ' / サムネ ' + pct(f('thumb'), n) + ' / チャンネル ' + pct(f('channel'), n) + ' / 長さ ' + pct(f('duration'), n) + ' / 再生位置の印 ' + pct(f('progress'), n);\n    }\n    function renderersText(r) { var k = Object.keys(r); return k.length ? k.map(function (x) { return x + '×' + r[x]; }).join(' / ') : '(なし)'; }\n\n    /* ---------- D-Q1: 履歴を読む（読むだけ） ---------- */\n    async function readHistory() {\n        var r = { id: 'D-Q1', name: '視聴履歴を読む（🔴 読むだけ・タイトルと ID は載せない）', results: [], pcs: [], notes: [] };\n        var c = cfg();\n        var hit = pickAuthCookie();\n        r.pcs.push({ name: 'ここは www.youtube.com のページ（実行先が Top）', ok: true, value: location.origin + location.pathname });\n        r.pcs.push({ name: 'キーと文脈（INNERTUBE_API_KEY / CONTEXT）がある', ok: !!(c.key &amp;&amp; c.ctx), value: (c.key &amp;&amp; c.ctx) ? 'ok' : '無い（YouTube のページを開き直してから貼る）' });\n        r.pcs.push({ name: '🔴 ログイン済み（認証用の Cookie がある）', ok: !!hit, value: hit ? 'あり（' + hit.name + '）' : 'なし' });\n        r.notes.push({ name: 'ytcfg の LOGGED_IN / SESSION_INDEX / ブランドアカウント（DELEGATED_SESSION_ID）', value: String(c.loggedIn) + ' / ' + String(c.sessionIndex) + ' / ' + (c.delegated ? 'あり' : 'なし') });\n        if (!(c.key &amp;&amp; c.ctx)) { r.verdict = '判定不能'; return r; }\n\n        var p1 = null;\n        try { p1 = await browse(c, { browseId: 'FEhistory' }); } catch (e) { r.notes.push({ name: 'browse（FEhistory）', value: '失敗: ' + (e &amp;&amp; e.message) }); }\n        var e1 = p1 &amp;&amp; p1.body ? extract(p1.body) : { items: [], renderers: {}, sections: 0, headers: [], cont: null };\n        if (p1) {\n            r.notes.push({ name: 'browse（FEhistory）の HTTP・時間・大きさ', value: p1.status + ' / ' + p1.ms + 'ms / ' + p1.kb + 'KB' });\n            r.notes.push({ name: '応答の一番上の名前', value: keysOf(p1.body) });\n            r.notes.push({ name: 'contents の下の名前', value: p1.body &amp;&amp; p1.body.contents ? keysOf(p1.body.contents) : '(contents なし)' });\n            if (!hit) r.notes.push({ name: 'ログインしていないときの応答（ログインを促す部品があるか）', value: p1.body ? (has(p1.body, 'signInEndpoint') || has(p1.body, 'feedNudgeRenderer') ? 'ある' : 'ない') : '-' });\n        }\n        if (!hit) { r.verdict = '判定不能'; return r; }   /* ログインしていない回は形の記録だけ */\n\n        r.results.push({ name: '🔴 HTTP 200 が返った', ok: !!(p1 &amp;&amp; p1.status === 200), actual: p1 ? String(p1.status) : '失敗', expected: '200' });\n        r.results.push({ name: '🔴 履歴の動画の項目が1件以上ある', ok: e1.items.length &gt; 0, actual: e1.items.length + '件', expected: '1件以上' });\n        var withId = e1.items.filter(function (x) { return x.id; }).length;\n        r.results.push({ name: '🔴 すべての項目から動画 ID を取れた', ok: e1.items.length &gt; 0 &amp;&amp; withId === e1.items.length, actual: pct(withId, e1.items.length), expected: '全件' });\n        r.notes.push({ name: '1ページ目: 項目の部品と数', value: renderersText(e1.renderers) });\n        r.notes.push({ name: '1ページ目: 取れる情報（件数）', value: fieldStat(e1.items) });\n        r.notes.push({ name: '1ページ目: 日付の区切り（itemSectionRenderer）の数・見出し', value: e1.sections + ' / ' + (e1.headers.join('・') || '(見出しなし)') });\n        r.notes.push({ name: '1ページ目: 続きの番号（continuation）', value: e1.cont ? 'あり' : 'なし' });\n\n        var e2 = { items: [], renderers: {}, sections: 0, headers: [], cont: null };\n        if (e1.cont) {\n            try {\n                var p2 = await browse(c, { continuation: e1.cont });\n                e2 = p2.body ? extract(p2.body) : e2;\n                r.notes.push({ name: '2ページ目: HTTP・時間・項目の数・部品', value: p2.status + ' / ' + p2.ms + 'ms / ' + e2.items.length + '件 / ' + renderersText(e2.renderers) });\n                r.notes.push({ name: '2ページ目の応答の一番上の名前', value: keysOf(p2.body) });\n            } catch (e) { r.notes.push({ name: '2ページ目', value: '失敗: ' + (e &amp;&amp; e.message) }); }\n        }\n        r.results.push({ name: '続き（2ページ目）を読めた', ok: !e1.cont || e2.items.length &gt; 0, actual: e1.cont ? (e2.items.length + '件') : '続きなし（1ページで全部）', expected: '1件以上 または 続きなし' });\n\n        /* 予備の経路: /feed/history の HTML（ytInitialData） */\n        try {\n            var hres = await fetch('/feed/history', { credentials: 'include' });\n            var hd = hres.ok ? initialData(await hres.text()) : null;\n            var eh = hd ? extract(hd) : null;\n            var same = eh &amp;&amp; eh.items.length &amp;&amp; e1.items.length\n                ? eh.items.slice(0, 5).map(function (x) { return x.id; }).join() === e1.items.slice(0, 5).map(function (x) { return x.id; }).join() : false;\n            r.notes.push({ name: '予備: /feed/history の HTML の項目の数・部品・先頭5件が browse と同じか', value: hres.status + ' / ' + (eh ? eh.items.length + '件 / ' + renderersText(eh.renderers) + ' / ' + (same ? '同じ' : '違う') : 'ytInitialData なし') });\n        } catch (e) { r.notes.push({ name: '予備: /feed/history の HTML', value: '失敗: ' + (e &amp;&amp; e.message) }); }\n\n        var all = e1.items.concat(e2.items);\n        var ids = all.map(function (x) { return x.id; }).filter(Boolean);\n        var dup = ids.length - ids.filter(function (x, i) { return ids.indexOf(x) === i; }).length;\n        r.notes.push({ name: '1〜2ページ目の合計・同じ動画の重複', value: all.length + '件 / 重複 ' + dup + '件' });\n        S.pages = { ids: ids, at: Date.now() };\n        var pass = r.results.filter(function (x) { return x.ok; }).length;\n        r.pass = pass;\n        r.verdict = pass === r.results.length ? '合格' : '不合格';\n        return r;\n    }\n\n    /* ---------- D-Q2: 入れた2本の位置（読むだけ） ---------- */\n    function posText(ids, id) { var i = ids.indexOf(id); return i &gt;= 0 ? (i + 1) + '番目' : '1〜2ページ目に無い'; }\n    async function findTwo(embedIn, siteIn) {\n        var r = { id: 'D-Q2', name: '入れた2本が履歴の何番目にあるか（🔴 読むだけ）', results: [], pcs: [], notes: [] };\n        var eId = videoIdOf(embedIn), sId = videoIdOf(siteIn);\n        r.pcs.push({ name: '先に ▶ Q1 履歴を読む が済んでいる', ok: !!S.pages, value: S.pages ? (S.pages.ids.length + '件を読んだ') : 'まだ' });\n        r.pcs.push({ name: '2本の動画 ID を読めた（このツールの枠で見た動画 / YouTube のサイトで見た動画）', ok: !!(eId &amp;&amp; sId &amp;&amp; eId !== sId), value: (eId || '(読めない)') + ' / ' + (sId || '(読めない)') + (eId &amp;&amp; eId === sId ? '（同じ動画は不可）' : '') });\n        if (!S.pages || !eId || !sId || eId === sId) { r.verdict = '判定不能'; return r; }\n        var ids = S.pages.ids;\n        /* 土俵: YouTube のサイトで見た動画は履歴に載るはず（載らなければ、履歴が止まっている・反映待ちなど） */\n        r.pcs.push({ name: '🔴 YouTube のサイトで見た動画が履歴にある（測れる土俵）', ok: ids.indexOf(sId) &gt;= 0, value: posText(ids, sId) });\n        r.notes.push({ name: '🔴 このツールの枠（埋め込み）で見た動画の位置', value: posText(ids, eId) });\n        r.results.push({ name: '2本とも履歴の中を探し終えた', ok: true, actual: '探した（' + ids.length + '件）', expected: '探した' });\n        r.pass = 1;\n        r.verdict = r.pcs.every(function (p) { return p.ok; }) ? '合格' : '判定不能';\n        return r;\n    }\n\n    /* ---------- 出力（debug_suite.js と同じ書式） ---------- */\n    function toMarkdown() {\n        var L = [];\n        L.push('### スパイク H1 計測結果（YouTube の視聴履歴）');\n        L.push('');\n        L.push('## 1. 事実');\n        L.push('');\n        L.push('- debug_suite: `' + SNIP_VERSION + '` / APP_VERSION: `(YouTube のページ)`');\n        L.push('- 実行日時: ' + new Date().toISOString());\n        L.push('- 場所: `' + location.origin + location.pathname + '`');\n        L.push('- UA: `' + navigator.userAgent + '`');\n        L.push('- 🔴 履歴の動画のタイトル・ID・チャンネル名は載せていない（件数・形・入れた2本の位置だけ）');\n        L.push('');\n        L.push('| テスト | 判定 | 合格/項目数 | PC |');\n        L.push('| :--- | :--: | ---: | :--- |');\n        S.reports.forEach(function (r) {\n            var pcOk = r.pcs.filter(function (p) { return p.ok; }).length;\n            L.push('| ' + r.id + ' ' + r.name + ' | ' + (r.verdict === '合格' ? '⚪' : (r.verdict === '不合格' ? '❌' : '⚠️')) + ' ' + r.verdict\n                + ' | ' + (r.pass || 0) + '/' + r.results.length + ' | ' + (pcOk === r.pcs.length ? '全' + pcOk + '件成立' : pcOk + '/' + r.pcs.length + '成立') + ' |');\n        });\n        S.reports.forEach(function (r) {\n            L.push('');\n            L.push('#### ' + r.id + ' ' + r.name);\n            L.push('');\n            L.push('| 種別 | 項目 | 実測 | 期待 | 判定 |');\n            L.push('| :--- | :--- | :--- | :--- | :--: |');\n            r.pcs.forEach(function (p) { L.push('| PC | ' + p.name + ' | ' + p.value + ' | 成立すること | ' + (p.ok ? '⚪' : '❌') + ' |'); });\n            r.results.forEach(function (x) { L.push('| 判定 | ' + x.name + ' | ' + x.actual + ' | ' + x.expected + ' | ' + (x.ok ? '⚪' : '❌') + ' |'); });\n            r.notes.forEach(function (n) { L.push('| 観測 | ' + n.name + ' | ' + n.value + ' | （期待値なし） | ─ |'); });\n        });\n        L.push('');\n        L.push('## 3. 生データJSON');\n        L.push('');\n        L.push('```json');\n        L.push(JSON.stringify({ snippet: SNIP_VERSION, report: S.reports }, null, 1));\n        L.push('```');\n        return L.join('\\n');\n    }\n\n    /* ---------- パネル ---------- */\n    function mk(tag, text, css) { var e = document.createElement(tag); if (text) e.textContent = text; if (css) e.style.cssText = css; return e; }\n    var panel = mk('div', '', 'position:fixed;right:8px;top:64px;z-index:2147483647;background:rgba(0,0,0,.9);color:#fff;border:1px solid #0fc;'\n        + 'border-radius:6px;padding:8px 10px;font:13px/1.5 sans-serif;width:320px;');\n    var status = mk('div', '', 'margin:4px 0;font-weight:bold;');\n    var bRead = mk('button', '▶ Q1 履歴を読む', 'margin:2px 0;padding:2px 6px;cursor:pointer;');\n    var inEmbed = mk('input', '', 'width:100%;box-sizing:border-box;margin:6px 0 2px;padding:3px;color:#000;');\n    inEmbed.placeholder = '① このツールの枠で見た動画の URL か ID';\n    var inSite = mk('input', '', 'width:100%;box-sizing:border-box;margin:2px 0;padding:3px;color:#000;');\n    inSite.placeholder = '② YouTube のサイトで見た動画の URL か ID';\n    var bFind = mk('button', '▶ Q2 位置を調べる', 'margin:2px 0;padding:2px 6px;cursor:pointer;');\n    var bCopy = mk('button', '📋 コピー', 'margin:2px;padding:2px 6px;cursor:pointer;');\n    var bClose = mk('button', '×', 'margin:2px;padding:2px 6px;cursor:pointer;');\n    panel.appendChild(mk('div', 'スパイク H1（' + SNIP_VERSION + '）', 'color:#0fc;font-weight:bold;'));\n    panel.appendChild(status); panel.appendChild(bRead);\n    panel.appendChild(inEmbed); panel.appendChild(inSite); panel.appendChild(bFind);\n    panel.appendChild(mk('div', '', 'height:4px;')); panel.appendChild(bCopy); panel.appendChild(bClose);\n    document.body.appendChild(panel);\n    S.panel = panel;\n    function setStatus(t, hot) { status.textContent = t; status.style.color = hot ? '#ff0' : '#fff'; }\n    setStatus('▶ Q1 履歴を読む を押す');\n\n    async function run(fn) {\n        if (S.running) return;\n        S.running = true; bRead.disabled = bFind.disabled = true;\n        try {\n            var r = await fn();\n            S.reports = S.reports.filter(function (x) { return x.id !== r.id; });\n            S.reports.push(r);\n            setStatus(r.id + ': ' + r.verdict + '（' + (r.pass || 0) + '/' + r.results.length + '）。📋 で結果をコピー', r.verdict !== '合格');\n        } catch (e) {\n            setStatus('⚠ 失敗: ' + (e &amp;&amp; e.message ? e.message : e), true);\n        } finally {\n            S.running = false; bRead.disabled = bFind.disabled = false;\n        }\n    }\n    bRead.onclick = function () { setStatus('読んでいます…'); run(readHistory); };\n    bFind.onclick = function () { setStatus('調べています…'); run(function () { return findTwo(inEmbed.value, inSite.value); }); };\n    bCopy.onclick = function () {\n        var md = toMarkdown();\n        function fallback() {\n            var ta = document.createElement('textarea');\n            ta.value = md; document.body.appendChild(ta); ta.select();\n            var ok = false;\n            try { ok = document.execCommand('copy'); } catch (e) { }\n            ta.remove();\n            setStatus(ok ? 'コピーしました（予備の方法）' : '⚠ コピーできません。コンソールで copy(__histSpike.md()) と打って Enter', !ok);\n        }\n        if (navigator.clipboard &amp;&amp; navigator.clipboard.writeText) {\n            navigator.clipboard.writeText(md).then(function () { setStatus('コピーしました', false); }, fallback);\n        } else fallback();\n    };\n    bClose.onclick = function () { if (!S.running) panel.remove(); };\n    S.md = toMarkdown;\n    S._t = { videoIdOf: videoIdOf, extract: extract, initialData: initialData };\n    console.log('[スパイク H1] パネルを出しました（画面の右上）。');\n})();\n" + "</textarea>" },
+
+{ ttl: 'T1. 履歴を作る（2本見る）',
+  rows: [
+    ['Floorp（普段のプロファイル）で YouTube に<b>ログインしている</b>ことを確かめる', '右上に自分のアイコンが出ている'],
+    ['<code>https://syanao-coder.github.io/.github.io/</code> を開き、枠1に<b>最近見ていない動画</b>を1本読み込んで、<b>1分以上</b>再生する', 'これが ①（このツールの枠で見た動画）。URL を控える'],
+    ['別のタブで <b>YouTube のサイト</b>を開き、<b>①とは別の</b>最近見ていない動画を <b>1分以上</b>再生する', 'これが ②（YouTube のサイトで見た動画）。URL を控える'],
+    ['どちらも止めて、<b>3分</b>ほど待つ', '履歴に反映されるまでの時間']
+  ],
+  ans: [
+    { id: 'T1', type: 'check', label: '①と②をそれぞれ1分以上見て、3分待った' },
+    { id: 'T1b', type: 'text', label: '①（このツールの枠で見た動画）の URL' },
+    { id: 'T1c', type: 'text', label: '②（YouTube のサイトで見た動画）の URL' }
+  ] },
+
+{ ttl: 'R1. Q1 履歴を読む → Q2 位置を調べる',
+  rows: [
+    ['<b>YouTube のサイト</b>のタブ（②を見たタブでよい）で <b>F12</b> を押し、「<b>コンソール</b>」タブを開く', '実行先は「Top」のまま（切り替えない）'],
+    ['上の「📋 計測コードをコピー」で写したものをコンソールの入力欄に貼って <b>Enter</b>', '🔴 警告が出たら入力欄に <code>allow pasting</code> と打って Enter してから貼り直す'],
+    ['<b>F12</b> をもう一度押して閉じる', '画面の右上に「スパイク H1」のパネルが出る'],
+    ['パネルの <b>▶ Q1 履歴を読む</b> を押す', '数秒。「D-Q1: 合格」などと出る'],
+    ['パネルの①の欄に①の URL、②の欄に②の URL を貼る', ''],
+    ['パネルの <b>▶ Q2 位置を調べる</b> を押す', '「D-Q2: 合格」などと出る。「判定不能」なら②がまだ履歴に無い（さらに数分待って ▶ Q1 → ▶ Q2 をやり直す）'],
+    ['パネルの <b>📋 コピー</b> を押し、下の R1 の欄へ貼り付ける', 'コピーできないと出たら、F12 → コンソールに <code>copy(__histSpike.md())</code> と打って Enter し、貼り付ける']
+  ],
+  ans: [
+    { id: 'R1', type: 'suite', label: '📋 コピー の中身をここへ貼り付けてください', expectIds: ['D-Q1', 'D-Q2'] }
+  ] },
+
+{ ttl: 'R2. 目で見る（YouTube の履歴のページ）',
+  rows: [
+    ['YouTube のサイトで <code>https://www.youtube.com/feed/history</code> を開く', ''],
+    ['②が履歴にあるか、①が履歴にあるかを目で見る', '']
+  ],
+  ans: [
+    { id: 'R2', type: 'radio', label: '①（このツールの枠で見た動画）は YouTube の履歴に', options: ['あった', 'なかった'] },
+    { id: 'R2b', type: 'radio', label: '②（YouTube のサイトで見た動画）は YouTube の履歴に', options: ['あった', 'なかった'] },
+    { id: 'R2c', type: 'radio', label: 'YouTube の「再生履歴を一時停止」', options: ['していない', 'している'] }
+  ] },
+
+{ ans: { id: 'FREE', type: 'text', label: '自由記入（パネルが出なかった、エラーの文言、など。無ければ「なし」）' } }
+
+];
+/* ============================================================
+   ここまでが「この回の中身」。
+   ============================================================ */
+</script>
+
+<style>
+:root { --bg:#14141a; --fg:#e6e6ea; --line:#2e2e3a; --acc:#00ffcc; --ng:#ff5a5a; --warn:#ffb020; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family: "Segoe UI", Meiryo, sans-serif;
+       font-size:14px; line-height:1.7; }
+header { position:sticky; top:0; z-index:5; background:#1b1b24; border-bottom:1px solid var(--line);
+         padding:10px 16px; }
+header h1 { margin:0 0 4px; font-size:1.05rem; color:var(--acc); }
+.meta { font-size:.78rem; color:#9a9aa8; }
+.hstat { margin-top:6px; font-size:.82rem; }
+.hstat b { color:var(--warn); }
+main { max-width:1000px; margin:0 auto; padding:16px; }
+.sec { margin:26px 0 10px; padding:10px 12px; border-left:4px solid var(--acc); background:#1a1a23; }
+.sec h2 { margin:0 0 4px; font-size:.98rem; color:var(--acc); }
+.sec p { margin:0; font-size:.86rem; color:#b9b9c6; }
+.item { border:1px solid var(--line); border-radius:6px; margin:14px 0; background:#171720; }
+.item > h3 { margin:0; padding:8px 12px; font-size:.92rem; background:#20202b;
+             border-bottom:1px solid var(--line); border-radius:6px 6px 0 0; }
+.body { padding:10px 12px; }
+table.steps { width:100%; border-collapse:collapse; margin-bottom:8px; font-size:.86rem; }
+table.steps th, table.steps td { border:1px solid var(--line); padding:5px 8px; vertical-align:top; }
+table.steps th { background:#20202b; color:#b9b9c6; font-weight:normal; text-align:left; }
+table.steps td:first-child { width:58%; }
+table.steps td:last-child { color:#9a9aa8; }
+.note { font-size:.82rem; color:var(--warn); margin:6px 0 8px; }
+.ans { border-top:1px dashed var(--line); margin-top:10px; padding-top:8px; }
+.ans .lbl { font-size:.86rem; color:#cfcfda; margin-bottom:4px; }
+.ans .lbl .aid { color:var(--acc); font-weight:bold; margin-right:6px; }
+label.opt { display:block; padding:2px 0; font-size:.86rem; cursor:pointer; }
+input[type=radio], input[type=checkbox] { margin-right:6px; }
+textarea { width:100%; background:#0f0f15; color:var(--fg); border:1px solid var(--line);
+           border-radius:4px; padding:6px 8px; font-family: Consolas, monospace; font-size:.8rem; }
+textarea.paste { height:180px; max-height:180px; resize:none; overflow:auto; white-space:pre; }
+textarea.free { height:90px; max-height:90px; resize:none; }
+input[type=text] { width:100%; background:#0f0f15; color:var(--fg); border:1px solid var(--line);
+                   border-radius:4px; padding:5px 8px; font-size:.86rem; }
+.blank { border-color:var(--ng) !important; box-shadow:0 0 0 1px var(--ng) inset; }
+.chkbox { border:1px solid transparent; border-radius:4px; padding:2px 4px; }
+.verify { margin-top:6px; font-size:.82rem; border-radius:4px; padding:6px 8px; }
+.verify.ok { background:rgba(0,255,204,.08); color:#8ff3df; }
+.verify.ng { background:rgba(255,90,90,.12); color:#ffb3b3; }
+.verify.warn { background:rgba(255,176,32,.12); color:#ffd98f; }
+.bar { position:sticky; bottom:0; background:#1b1b24; border-top:1px solid var(--line);
+       padding:10px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+button { background:#20202b; color:var(--fg); border:1px solid var(--line); border-radius:4px;
+         padding:6px 12px; cursor:pointer; font-size:.86rem; }
+button.primary { background:var(--acc); color:#000; font-weight:bold; border-color:var(--acc); }
+#status { font-size:.82rem; color:#9a9aa8; }
+code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="hTitle">統合テスト用紙</h1>
+  <div class="meta" id="hMeta"></div>
+  <div class="meta" id="hNote"></div>
+  <div class="hstat" id="hStat"></div>
+</header>
+<main id="form"></main>
+<div class="bar">
+  <button class="primary" id="btnCopy">📋 報告書用にコピー</button>
+  <button id="btnDl">⬇ .md で保存</button>
+  <button id="btnClear">🗑 下書きを消す</button>
+  <span id="status"></span>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var FORM_ENGINE_VERSION = '3.0.1';
+    var LS_KEY = 'test_form_draft';
+    var EXTRA_CHOICES = ['該当なし', '測れなかった（理由は自由記入へ）', '未実施'];
+    var RUNAT_MAX_H = 24;          /* 照合③のしきい値（時間） */
+
+    /* ---------------------------------------------------------------
+       項目の正規化
+       --------------------------------------------------------------- */
+    function normalize(a) {
+        var it = {
+            id: a.id, type: a.type || 'text', label: a.label || '',
+            options: a.options ? a.options.slice() : null,
+            expectIds: a.expectIds ? a.expectIds.slice() : null,
+            secret: !!a.secret, optional: !!a.optional
+        };
+        /* 🔴 認証情報は「ある / ない」の radio に強制する。値の入力欄を作らない。 */
+        if (it.secret) { it.type = 'radio'; it.options = ['ある', 'ない']; }
+        if (it.type === 'radio') {
+            it.options = it.options || [];
+            EXTRA_CHOICES.forEach(function (c) {
+                if (it.options.indexOf(c) < 0) it.options.push(c);
+            });
+        }
+        return it;
+    }
+
+    /* STEPS を「描画順の並び」と「回答項目の並び」に分ける。 */
+    var ITEMS = [];
+    var BLOCKS = [];
+    (function build() {
+        STEPS.forEach(function (s, i) {
+            if (s.sec) { BLOCKS.push({ kind: 'sec', sec: s.sec, html: s.html || '' }); return; }
+            var list = [];
+            if (s.ans) list = (Object.prototype.toString.call(s.ans) === '[object Array]') ? s.ans : [s.ans];
+            var norm = list.map(normalize);
+            norm.forEach(function (n) { ITEMS.push(n); });
+            BLOCKS.push({ kind: s.ttl ? 'step' : 'ansonly', ttl: s.ttl || '', rows: s.rows || [],
+                          note: s.note || '', items: norm, idx: i });
+        });
+        var seen = {};
+        ITEMS.forEach(function (it) {
+            if (!it.id) throw new Error('id の無い回答欄があります');
+            if (seen[it.id]) throw new Error('id が重複しています: ' + it.id);
+            seen[it.id] = 1;
+        });
+    })();
+
+    var answers = {};
+    ITEMS.forEach(function (it) { answers[it.id] = { choice: '', text: '', done: false }; });
+
+    function ans(id) { return answers[id]; }
+    function isBlank(it) {
+        if (it.optional) return false;
+        var a = ans(it.id);
+        if (it.type === 'radio') return !a.choice;
+        if (it.type === 'check') return !a.done;
+        return !(a.text && a.text.trim());
+    }
+    function blankItems() { return ITEMS.filter(isBlank); }
+
+    /* ---------------------------------------------------------------
+       3つの照合（/get-debug-suite 9-3節）
+       --------------------------------------------------------------- */
+    /* 🔴 テストIDは出力の一覧表の行頭から取る。ログの文言からは拾わない。 */
+    function extractIds(text) {
+        var out = [], re = /^\|\s*(D-[A-Z]+\d+)\b/gm, m;
+        while ((m = re.exec(text || ''))) { if (out.indexOf(m[1]) < 0) out.push(m[1]); }
+        return out;
+    }
+    function extractVersions(text) {
+        var t = text || '';
+        var d = /debug_suite:\s*`([^`]*)`/.exec(t);
+        var a = /APP_VERSION:\s*`([^`]*)`/.exec(t);
+        var b = /版数バッジ:\s*`([^`]*)`/.exec(t);
+        return { suite: d ? d[1] : null, app: a ? a[1] : null, badge: b ? b[1] : null };
+    }
+    function extractRunAt(text) {
+        var m = /実行日時:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z)/.exec(text || '');
+        return m ? m[1] : null;
+    }
+    /* 戻り値: { level:'ok'|'warn'|'ng', msg:'...' } の配列 */
+    function verifyPaste(it, text) {
+        var out = [];
+        if (!text || !text.trim()) return out;
+
+        /* 照合① 要求したテストIDが揃っているか */
+        if (it.expectIds) {
+            var got = extractIds(text);
+            var miss = it.expectIds.filter(function (x) { return got.indexOf(x) < 0; });
+            var extra = got.filter(function (x) { return it.expectIds.indexOf(x) < 0; });
+            if (got.length === 0) {
+                out.push({ level: 'ng', msg: '照合① テストIDを1つも読み取れません。'
+                    + '「📋 報告書用にコピー」の中身をそのまま貼っているか確認してください。' });
+            } else if (miss.length) {
+                out.push({ level: 'ng', msg: '照合① 欠けているテストID: ' + miss.join(', ')
+                    + '（ボタンの押し忘れ、または測定が途中で止まっています）' });
+            } else {
+                out.push({ level: 'ok', msg: '照合① 要求した ' + it.expectIds.length + '件のIDが揃っています。' });
+            }
+            if (extra.length) {
+                out.push({ level: 'warn', msg: '照合① この回で要求していないIDも入っています: '
+                    + extra.join(', ') + '（⚠️ 欠落ではありません。'
+                    + '「🗑 ログを消す」を押さずに2回目を回すと前回の記録が残ります）' });
+            }
+        }
+        /* 照合② 版数 */
+        var v = extractVersions(text);
+        if (v.suite === null && v.app === null) {
+            out.push({ level: 'warn', msg: '照合② 版数の行を読み取れませんでした。' });
+        } else {
+            var bad = [];
+            if (v.suite !== FORM_META.expectSuite) bad.push('debug_suite = ' + v.suite + '（期待 ' + FORM_META.expectSuite + '）');
+            if (v.app !== FORM_META.expectApp) bad.push('APP_VERSION = ' + v.app + '（期待 ' + FORM_META.expectApp + '）');
+            if (v.badge && /warn|ng|未検出|⇔|権限なし/.test(v.badge)) bad.push('版数バッジ = ' + v.badge);
+            if (bad.length) out.push({ level: 'ng', msg: '照合② 版数が期待と違います: ' + bad.join(' / ') });
+            else out.push({ level: 'ok', msg: '照合② 版数は期待どおりです（suite ' + v.suite + ' / app ' + v.app + '）。' });
+        }
+        /* 照合③ 実行日時 */
+        var at = extractRunAt(text);
+        if (!at) {
+            out.push({ level: 'warn', msg: '照合③ 実行日時を読み取れませんでした。' });
+        } else {
+            var h = (Date.now() - new Date(at).getTime()) / 3600000;
+            if (!isFinite(h)) out.push({ level: 'warn', msg: '照合③ 実行日時を解釈できません: ' + at });
+            else if (h > RUNAT_MAX_H) out.push({ level: 'ng', msg: '照合③ 出力が古すぎます（'
+                + h.toFixed(1) + '時間前）。前のラウンドの出力を貼っていませんか。' });
+            else out.push({ level: 'ok', msg: '照合③ 実行日時は ' + h.toFixed(1) + '時間前です。' });
+        }
+        return out;
+    }
+
+    /* ---------------------------------------------------------------
+       描画（🔴 画面の並び ＝ 手順の順 ＝ 出力の順。節でまとめ直さない）
+       --------------------------------------------------------------- */
+    function el(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined && text !== null) e.textContent = text;
+        return e;
+    }
+
+    function render() {
+        document.getElementById('hTitle').textContent = '統合テスト用紙 ─ ' + FORM_META.work;
+        document.getElementById('hMeta').textContent =
+            'エンジン ' + FORM_ENGINE_VERSION + ' / 項目定義 ' + FORM_META.defVersion
+            + ' / 基点: ' + FORM_META.base
+            + ' / 期待版数: app ' + FORM_META.expectApp + ' ・ suite ' + FORM_META.expectSuite;
+        document.getElementById('hNote').textContent = FORM_META.note || '';
+        var host = document.getElementById('form');
+        host.textContent = '';
+        BLOCKS.forEach(function (b) {
+            if (b.kind === 'sec') {
+                var s = el('div', 'sec');
+                s.appendChild(el('h2', null, b.sec));
+                var p = el('p'); p.innerHTML = b.html; s.appendChild(p);
+                host.appendChild(s);
+                return;
+            }
+            var box = el('div', 'item');
+            if (b.ttl) box.appendChild(el('h3', null, b.ttl));
+            var body = el('div', 'body');
+            if (b.rows && b.rows.length) {
+                var t = el('table', 'steps');
+                var hr = document.createElement('tr');
+                hr.appendChild(el('th', null, 'やること'));
+                hr.appendChild(el('th', null, 'これで何をしたいか'));
+                t.appendChild(hr);
+                b.rows.forEach(function (r) {
+                    var tr = document.createElement('tr');
+                    var td1 = document.createElement('td'); td1.innerHTML = r[0];
+                    var td2 = document.createElement('td'); td2.innerHTML = r[1] || '';
+                    tr.appendChild(td1); tr.appendChild(td2); t.appendChild(tr);
+                });
+                body.appendChild(t);
+            }
+            if (b.note) body.appendChild(el('div', 'note', b.note));
+            b.items.forEach(function (it) { body.appendChild(renderAns(it)); });
+            box.appendChild(body);
+            host.appendChild(box);
+        });
+        updateBlank();
+    }
+
+    function renderAns(it) {
+        var wrap = el('div', 'ans');
+        wrap.id = 'ans_' + it.id;
+        var lbl = el('div', 'lbl');
+        var aid = el('span', 'aid', it.id); lbl.appendChild(aid);
+        lbl.appendChild(document.createTextNode(it.label));
+        wrap.appendChild(lbl);
+        var a = ans(it.id);
+
+        if (it.type === 'radio') {
+            it.options.forEach(function (opt, i) {
+                var lab = el('label', 'opt');
+                var inp = document.createElement('input');
+                inp.type = 'radio'; inp.name = 'r_' + it.id; inp.value = opt;
+                inp.addEventListener('change', function () { a.choice = opt; save(); updateBlank(); });
+                lab.appendChild(inp);
+                lab.appendChild(document.createTextNode(opt));
+                wrap.appendChild(lab);
+            });
+        } else if (it.type === 'check') {
+            var lab2 = el('label', 'opt');
+            var chk = document.createElement('input');
+            chk.type = 'checkbox'; chk.id = 'c_' + it.id;
+            chk.addEventListener('change', function () { a.done = chk.checked; save(); updateBlank(); });
+            lab2.appendChild(chk);
+            lab2.appendChild(document.createTextNode(' 確認した'));
+            wrap.appendChild(lab2);
+        } else if (it.type === 'suite' || it.type === 'paste') {
+            var ta = document.createElement('textarea');
+            ta.className = 'paste'; ta.id = 't_' + it.id;
+            ta.placeholder = 'ここへ貼り付けてください';
+            var vbox = el('div');
+            ta.addEventListener('input', function () {
+                a.text = ta.value; save(); updateBlank(); drawVerify(it, vbox, ta.value);
+            });
+            wrap.appendChild(ta);
+            wrap.appendChild(vbox);
+        } else {
+            var ta2 = document.createElement('textarea');
+            ta2.className = 'free'; ta2.id = 't_' + it.id;
+            ta2.addEventListener('input', function () { a.text = ta2.value; save(); updateBlank(); });
+            wrap.appendChild(ta2);
+        }
+        return wrap;
+    }
+
+    function drawVerify(it, host, text) {
+        host.textContent = '';
+        verifyPaste(it, text).forEach(function (v) {
+            host.appendChild(el('div', 'verify ' + v.level, v.msg));
+        });
+    }
+
+    function updateBlank() {
+        ITEMS.forEach(function (it) {
+            var bad = isBlank(it);
+            var w = document.getElementById('ans_' + it.id);
+            if (!w) return;
+            var f = w.querySelector('textarea') || w.querySelector('input[type=checkbox]');
+            if (f) { if (bad) f.classList.add('blank'); else f.classList.remove('blank'); }
+            if (it.type === 'radio') {
+                if (bad) w.classList.add('blank'); else w.classList.remove('blank');
+            }
+        });
+        var b = blankItems();
+        document.getElementById('hStat').innerHTML = b.length
+            ? ('未記入 <b>' + b.length + '件</b>（' + b.map(function (x) { return x.id; }).join(', ') + '）')
+            : '未記入はありません。';
+    }
+
+    /* ---------------------------------------------------------------
+       下書き（localStorage / 回が変われば混ざらない）
+       --------------------------------------------------------------- */
+    function draftKey() { return LS_KEY + ':' + FORM_META.defVersion; }
+    var saveTimer = null;
+    function save() {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(function () {
+            try {
+                localStorage.setItem(draftKey(), JSON.stringify({
+                    engine: FORM_ENGINE_VERSION, def: FORM_META.defVersion,
+                    at: Date.now(), answers: answers
+                }));
+                setStatus('下書きを保存しました（' + new Date().toLocaleTimeString() + '）');
+            } catch (e) { setStatus('⚠ 下書きを保存できません: ' + (e && e.message)); }
+        }, 250);
+    }
+    function load() {
+        var raw = null;
+        try { raw = localStorage.getItem(draftKey()); } catch (e) { }
+        if (!raw) return false;
+        try {
+            var o = JSON.parse(raw);
+            if (!o || o.def !== FORM_META.defVersion) return false;
+            /* ★3.0.1: 入れ物ごと差し替えない。回答欄の入力処理は描いたときの入れ物を持っているので、
+               差し替えると下書きを読んだあとの入力が答えに届かず、赤枠のまま・出力も空になる（2026-10-26 v2.17.0 の用紙で発生） */
+            Object.keys(o.answers || {}).forEach(function (k) {
+                var src = o.answers[k], dst = answers[k];
+                if (!dst || !src) return;
+                dst.choice = src.choice || ''; dst.text = src.text || ''; dst.done = !!src.done;
+            });
+            return true;
+        } catch (e) { return false; }
+    }
+    function applyToDom() {
+        ITEMS.forEach(function (it) {
+            var a = ans(it.id);
+            if (it.type === 'radio') {
+                var list = document.getElementsByName('r_' + it.id);
+                for (var i = 0; i < list.length; i++) list[i].checked = (list[i].value === a.choice);
+            } else if (it.type === 'check') {
+                var c = document.getElementById('c_' + it.id); if (c) c.checked = !!a.done;
+            } else {
+                var t = document.getElementById('t_' + it.id); if (t) t.value = a.text || '';
+                if (it.type === 'suite' || it.type === 'paste') {
+                    var w = document.getElementById('ans_' + it.id);
+                    if (w) drawVerify(it, w.lastChild, a.text || '');
+                }
+            }
+        });
+        updateBlank();
+    }
+    function setStatus(s) { document.getElementById('status').textContent = s; }
+
+    /* ---------------------------------------------------------------
+       出力
+       --------------------------------------------------------------- */
+    function valueText(it) {
+        var a = ans(it.id);
+        if (it.type === 'radio') return a.choice || '（未記入）';
+        if (it.type === 'check') return a.done ? '確認した' : '（未記入）';
+        return (a.text && a.text.trim()) ? a.text : '（未記入）';
+    }
+    function isLong(it) { return it.type === 'suite' || it.type === 'paste'; }
+
+    function fence(body) {
+        var m = body.match(/`+/g) || [];
+        var max = 0;
+        m.forEach(function (s) { if (s.length > max) max = s.length; });
+        var n = Math.max(3, max + 1), f = '';
+        for (var i = 0; i < n; i++) f += '`';
+        return f;
+    }
+
+    function buildBody() {
+        var L = [];
+        ITEMS.forEach(function (it) {
+            L.push('### ' + it.id + ' ' + it.label);
+            if (isLong(it)) {
+                var v = valueText(it);
+                var f = fence(v);
+                L.push(f);
+                L.push(v);
+                L.push(f);
+                verifyPaste(it, ans(it.id).text).forEach(function (x) {
+                    L.push('- ' + (x.level === 'ok' ? '⚪ ' : (x.level === 'ng' ? '❌ ' : '⚠ ')) + x.msg);
+                });
+            } else {
+                L.push(valueText(it));
+            }
+            L.push('');
+        });
+        return L.join('\n');
+    }
+
+    /* ---------------------------------------------------------------
+       自己診断（🔴 本文を先に組み立ててから、その文字列を検査する）
+       --------------------------------------------------------------- */
+    function chk(list, name, actual, expected) {
+        var ok = String(actual) === String(expected);
+        list.push({ ok: ok, name: name, actual: String(actual), expected: String(expected) });
+        return ok;
+    }
+
+    function runSelfCheck(bodyText) {
+        var L = [];
+
+        /* 項目数と種別 */
+        chk(L, '描画された回答欄の数が定義と一致',
+            document.querySelectorAll('#form .ans').length, ITEMS.length);
+        var kinds = {};
+        ITEMS.forEach(function (it) { kinds[it.type] = (kinds[it.type] || 0) + 1; });
+        chk(L, 'suite 欄が1つ以上ある', (kinds.suite || 0) > 0, true);
+        chk(L, 'radio 欄が1つ以上ある', (kinds.radio || 0) > 0, true);
+        chk(L, 'check 欄が1つ以上ある', (kinds.check || 0) > 0, true);
+        chk(L, 'text 欄が1つ以上ある', (kinds.text || 0) > 0, true);
+        ITEMS.forEach(function (it) {
+            if (!document.getElementById('ans_' + it.id)) {
+                L.push({ ok: false, name: '描画されていない回答欄', actual: it.id, expected: '描画済み' });
+            }
+        });
+
+        /* 🔴 画像を扱わないこと */
+        chk(L, '画像・ファイル入力の要素が無い',
+            document.querySelectorAll('img, canvas, svg, input[type=file]').length, 0);
+
+        /* secret の強制（この回には secret 項目が無いので正規化関数で確かめる） */
+        var s = normalize({ id: '__pc_secret__', type: 'text', secret: true });
+        chk(L, 'PC: secret を付けると radio「ある / ない」に強制される',
+            s.type + ':' + s.options.slice(0, 2).join('/'), 'radio:ある/ない');
+
+        /* 選択肢の自動追加 */
+        var okExtra = true;
+        ITEMS.forEach(function (it) {
+            if (it.type !== 'radio') return;
+            EXTRA_CHOICES.forEach(function (c) { if (it.options.indexOf(c) < 0) okExtra = false; });
+        });
+        chk(L, 'すべての radio に「該当なし / 測れなかった / 未実施」が足されている', okExtra, true);
+
+        /* 1万文字を入れても欄の高さが変わらない */
+        (function () {
+            var ta = document.querySelector('textarea.paste');
+            if (!ta) { L.push({ ok: false, name: '貼り付け欄が見つからない', actual: 'なし', expected: 'あり' }); return; }
+            var h0 = ta.offsetHeight, keep = ta.value, big = new Array(10001).join('x');
+            ta.value = big;
+            var h1 = ta.offsetHeight;
+            ta.value = keep;
+            chk(L, '1万文字を入れても貼り付け欄の高さが変わらない', h1, h0);
+        })();
+
+        /* 未記入と赤枠の一致 */
+        (function () {
+            var reds = 0;
+            ITEMS.forEach(function (it) {
+                var w = document.getElementById('ans_' + it.id);
+                if (!w) return;
+                var f = w.querySelector('textarea') || w.querySelector('input[type=checkbox]');
+                if ((f && f.classList.contains('blank')) || w.classList.contains('blank')) reds++;
+            });
+            chk(L, '赤枠の数と未記入の数が一致', reds, blankItems().length);
+        })();
+
+        /* 「（未記入）」の表記 */
+        chk(L, '未記入があるとき出力に「（未記入）」が入る',
+            blankItems().length > 0 ? (bodyText.indexOf('（未記入）') >= 0) : true, true);
+
+        /* 出力の並び順 ＝ 画面の並び順 */
+        (function () {
+            var pos = -1, ok = true;
+            ITEMS.forEach(function (it) {
+                var p = bodyText.indexOf('### ' + it.id + ' ');
+                if (p < 0 || p < pos) ok = false;
+                pos = p;
+            });
+            chk(L, '出力の並び順が画面の並び順と一致', ok, true);
+        })();
+
+        /* 下書きの往復 */
+        (function () {
+            var keep = JSON.stringify(answers);
+            save();
+            var raw = null;
+            try {
+                localStorage.setItem(draftKey(), JSON.stringify({
+                    engine: FORM_ENGINE_VERSION, def: FORM_META.defVersion, at: Date.now(), answers: answers
+                }));
+                raw = localStorage.getItem(draftKey());
+            } catch (e) { }
+            var ok = false;
+            try { ok = (JSON.stringify(JSON.parse(raw).answers) === keep); } catch (e) { }
+            chk(L, '下書きの保存と読み出しが往復する', ok, true);
+        })();
+
+        /* ★3.0.1: 下書きを読んだあとも、回答欄の入力が答えに届く（入れ物が描いたときと同じ） */
+        (function () {
+            var moved = ITEMS.filter(function (it) { return boxesAtRender[it.id] !== answers[it.id]; }).map(function (it) { return it.id; });
+            chk(L, '下書きを読んだあとも入力が答えに届く（差し替えた回答欄）', moved.length ? moved.join(',') : 'なし', 'なし');
+        })();
+
+        /* 🔴 照合そのものの positive control（鉄則 #22） */
+        (function () {
+            var fake = '| D-Z9 にせもの | ⚪ | 1/1 | |\n- debug_suite: `0.0.0` / APP_VERSION: `0.0.0`\n'
+                + '- 版数バッジ: `v0.0.0 / アドオン未検出`\n- 実行日時: 2000-01-01T00:00:00.000Z';
+            var r = verifyPaste({ id: '__pc__', type: 'suite', expectIds: ['D-Y1'] }, fake);
+            var txt = r.map(function (x) { return x.level + ':' + x.msg; }).join(' | ');
+            chk(L, 'PC: 偽のIDを与えると照合①が「欠けている」と言う',
+                /ng.*照合①/.test(txt), true);
+            chk(L, 'PC: 偽の版数を与えると照合②が落ちる', /ng.*照合②/.test(txt), true);
+            chk(L, 'PC: 古い日時を与えると照合③が落ちる', /ng.*照合③/.test(txt), true);
+            chk(L, 'PC: 要求していないIDがあると照合①が警告する', /warn.*照合①/.test(txt), true);
+            var good = '| D-Y1 ほんもの | ⚪ | 1/1 | |\n- debug_suite: `' + FORM_META.expectSuite
+                + '` / APP_VERSION: `' + FORM_META.expectApp + '`\n- 版数バッジ: `v'
+                + FORM_META.expectApp + '`\n- 実行日時: ' + new Date().toISOString();
+            var r2 = verifyPaste({ id: '__pc2__', type: 'suite', expectIds: ['D-Y1'] }, good);
+            var ng2 = r2.filter(function (x) { return x.level !== 'ok'; }).length;
+            chk(L, 'PC: 正しい出力では3つの照合がすべて ⚪', ng2, 0);
+        })();
+
+        /* 各 suite 欄の照合結果 */
+        ITEMS.forEach(function (it) {
+            if (it.type !== 'suite') return;
+            var r = verifyPaste(it, ans(it.id).text);
+            var ng = r.filter(function (x) { return x.level === 'ng'; }).length;
+            var wn = r.filter(function (x) { return x.level === 'warn'; }).length;
+            L.push({ ok: ng === 0, name: '照合の結果（' + it.id + '）',
+                actual: 'NG ' + ng + ' / 警告 ' + wn, expected: 'NG 0' });
+        });
+
+        return L;
+    }
+
+    function buildMarkdown() {
+        var body = buildBody();
+        var diag = runSelfCheck(body);
+        var L = [];
+        var blanks = blankItems();
+        L.push('# 統合テスト用紙 出力 ─ ' + FORM_META.work);
+        L.push('');
+        L.push('## 0. この用紙について');
+        L.push('');
+        L.push('- エンジン: `' + FORM_ENGINE_VERSION + '` / 項目定義: `' + FORM_META.defVersion + '`');
+        L.push('- 基点コード: ' + FORM_META.base);
+        L.push('- 期待版数: app `' + FORM_META.expectApp + '` / suite `' + FORM_META.expectSuite + '`');
+        L.push('- 提出日時: ' + new Date().toISOString());
+        L.push('- 未記入: ' + blanks.length + '件'
+            + (blanks.length ? '（' + blanks.map(function (b) { return b.id; }).join(', ') + '）' : ''));
+        L.push('');
+        L.push('### 用紙の自己診断');
+        L.push('');
+        L.push('| 検査 | 結果 | 実測 | 期待 |');
+        L.push('| :--- | :--: | :--- | :--- |');
+        diag.forEach(function (d) {
+            L.push('| ' + d.name + ' | ' + (d.ok ? '⚪' : '❌') + ' | ' + d.actual + ' | ' + d.expected + ' |');
+        });
+        var ng = diag.filter(function (d) { return !d.ok; }).length;
+        L.push('');
+        L.push('❌ の件数: **' + ng + '**');
+        L.push('');
+        L.push('## 1. 回答');
+        L.push('');
+        L.push(body);
+        return L.join('\n');
+    }
+
+    /* ---------------------------------------------------------------
+       操作
+       --------------------------------------------------------------- */
+    function copyOut() {
+        var md = buildMarkdown();
+        var done = function () { setStatus('コピーしました（' + md.length + '文字）'); };
+        var fail = function () {
+            /* 退路: 画面外テキストエリア + execCommand。display:none にすると選択できず失敗する。 */
+            var ta = document.createElement('textarea');
+            ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0';
+            ta.value = md; document.body.appendChild(ta); ta.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            document.body.removeChild(ta);
+            setStatus(ok ? 'コピーしました（退路 / ' + md.length + '文字）'
+                : '⚠ コピーできませんでした。「⬇ .md で保存」を使ってください。');
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(md).then(done, fail);
+        } else { fail(); }
+    }
+    function download() {
+        var md = buildMarkdown();
+        var b = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'test_' + FORM_META.defVersion.replace(/[^0-9a-zA-Z.]/g, '_') + '.md';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setStatus('.md を保存しました。');
+    }
+
+    render();
+    var boxesAtRender = {};
+    ITEMS.forEach(function (it) { boxesAtRender[it.id] = answers[it.id]; });
+    var had = load();
+    applyToDom();
+    setStatus(had ? '前回の下書きを読み込みました。' : '新しい用紙です。');
+
+    document.getElementById('btnCopy').addEventListener('click', copyOut);
+    document.getElementById('btnDl').addEventListener('click', download);
+    document.getElementById('btnClear').addEventListener('click', function () {
+        if (!window.confirm('この回の下書きを消します。よろしいですか。')) return;
+        try { localStorage.removeItem(draftKey()); } catch (e) { }
+        ITEMS.forEach(function (it) { var a = answers[it.id]; a.choice = ''; a.text = ''; a.done = false; });   /* ★3.0.1: 入れ物は差し替えない */
+        applyToDom();
+        setStatus('下書きを消しました。');
+    });
+})();
+</script>
+</body>
+</html>
