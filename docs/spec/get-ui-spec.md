@@ -5,7 +5,7 @@ description: "A側UIの部品仕様（トップメニュー・枠内通知・設
 
 # A側UI 部品仕様書（`controller.html`）
 
-最終更新: 2026-10-25 / 現行リリース **v2.15.0**（14節を追加・14-6節 名前の編集）
+最終更新: 2026-10-26 / 現行リリース **v2.16.0**（15節 ライブの投稿欄を追加）
 
 > **成立の経緯**: 1節は `/get-chat-feature-spec` 8-12節 →（v2.7.3）→ `/get-protocol-spec` 12節、
 > 2節は `/get-protocol-spec` 旧13節。**2026-08-07 に「A側UIの部品仕様」として本スキルへ分離した**
@@ -943,3 +943,16 @@ Google Drive API を有効化・OAuth 同意画面は対象「外部」・公開
 - 🔴 一覧の名前は `escapeHtmlAttr` で出す（v2.15.0 まで `escapeJsString` で、`<` `>` `&` をそのまま HTML に入れていた）。
 - 実測（2026-10-25）: 保存の欄・✏ の両方で引用して直して保存できた・もう一方の環境でも名前が変わった。⚠️ 📂 を開いたまま枠の動画を替えたときの候補の更新は未確認（開き直せば作り直す）。
 
+## 15. ライブの投稿欄 ★v2.16.0
+
+正本は `/get-chat-feature-spec` 1-7節（経路・エンジン・A側の状態）。ここは画面の部品だけ。
+
+| 部品 | 中身 |
+| :--- | :--- |
+| `.chat-post`（`#chatPost_{cardId}`） | チャット欄（`.chat-container`）の最下段・`.chat-body` の下。`flex: 0 0 auto`・既定 `display:none`。取得中のライブでチャット欄を開いているときだけ `flex`（`updateChatPostUI`） |
+| 入力欄 `#chatPostInput_` | `maxlength=200`・`autocomplete=off`。🔴 `flex: 1 1 0; width: 0; min-width: 0`（`flex: 1 1 auto` では細いチャット欄で送るボタンが2行目へ落ちた ─ headless 2枠で確認）。案内は準備の結果で「準備中…」/ YouTube の案内文＋「（Enter で送信）」/「投稿できません」 |
+| 送るボタン `#chatPostBtn_` | 「送信」。止まっている間は薄く |
+| 知らせ `#chatPostMsg_` | 2行目いっぱい（`flex: 1 0 100%`）・空なら出さない。`ok` 緑・`ng` 橙 |
+
+- ⚠️ 下端の「▲ 操作メニュー」のつまみ（`.controller-tab`・画面の下の中央）は、枠の並び方によっては送るボタンに重なる（headless の2枠で重なった）。利用者の配置（2026-10-26）では重ならなかった。Enter で送れるので実害は小さい。
+- 🔴 文面を入れる仕組みを作らない（`/get-chat-feature-spec` 1-7-1節）。

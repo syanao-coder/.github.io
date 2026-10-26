@@ -5,7 +5,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 
 # チャット / コメント流し機能 実装仕様書
 
-最終更新: 2026-10-25 / 現行リリース **v2.14.1**（実機検証済み）
+最終更新: 2026-10-26 / 現行リリース **v2.16.0**（実機検証済み・1-7節 ライブへの投稿）
 関連スキル: `/get-protocol-spec`（A↔B通信プロトコル、バージョン管理規約、既知の不具合）
 関連スキル: `/get-danmaku-spec`（ニコニコ風コメント流しと調整UI ─ 本スキル旧 8-10節・8-11節。★2026-08-15 分離）
 関連スキル: `/get-ui-spec`（A側UIの部品仕様 ─ トップバーのメニュー構造・再生可否の確定と枠内通知）
@@ -36,6 +36,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 | メンバー限定アーカイブの**チャット取得** | ✅ v2.7.5（POST に SAPISIDHASH 認証ヘッダ ─ 1-3-2節） |
 | **ライブ（配信中）のチャット** | ✅ v2.8.0（1-6節）／v2.8.1 で A側が `liveBy` / `livePolls` を保存 |
 | 🔴 **参照されなくなったコメントの破棄** | ✅ **v2.8.3**（8-13節）。中止の判定も同じ参照集合へ統一 |
+| **ライブへのコメント投稿** | ✅ **v2.16.0**（1-7節・アドオン 2.14.0） |
 
 🔴 **この表は④のたびに実態と突き合わせること。**
 2026-08-15 まで **v2.7.5 / v2.8.0 で実装済みのものが「⬜ 予定」のまま2版残っていた**
@@ -426,6 +427,68 @@ v2.13.0 の R6 で取得が約3分で止まった（心拍が途絶え `STALLED`
 | 実測（2026-10-24・`XRjTrCScZ7E`） | `failChat` を直接呼んで途切れを作り、新しい要求 15秒以内・**7秒で心拍が戻る**・コメント 137 → 253・**重複 0 → 0**・見出し `(253 / 🔴 配信中・再接続1回・👤 7,268人)`。🔴 **自然な途切れからの復帰は未確認**（20分の観測で途切れなかった） |
 
 🔴 **v2.13.2: 🔄 のあと流しが止まる**（利用者報告 2026-10-24。チャット欄は流れる・流しの入れ直しでも直らない）。`reloadChat` で store を作り直すと、流しの読む位置 `flowCursor[cardId]` が**古い store の件数のまま**残り、新しい store の件数を超えて何も出さなかった。store に通し番号 `sid`（`chatStoreSeq`）を持たせ、`pumpFlowProgress` で `flowStoreSid[cardId]` と違えば読む位置を引き直す。🔴 **store そのものを覚えない**（古い store を握ると解放できない ─ 8-13節）。ライブで流しを入れ直したときの読む位置は `null`（開いた時点）。
+
+### 1-7. 🔴 配信中のライブへのコメント投稿 ★v2.16.0（アドオン 2.14.0）
+
+要望③（2026-10-08）。スパイク C1（2026-10-25・`docs/reports/spike_post_c1.md`）で「取得エンジンと同じ認証で送れる・`params` は `/live_chat` ページにだけある」と確かめてから作った。
+
+#### 1-7-1. 🔴 利用者の決めごと（2026-10-25）
+
+> 「配信は人様の物なのでテストは慎重に。文面も定型などではなく、都度配信内容を聞いて違和感ないものを手動で入力する仕様としてください。」
+
+- 🔴 **文面は利用者が毎回手で打つ。定型文・候補・自動入力・前回の文の再利用を作らない。** 送れたら入力欄は空に戻す。入力欄の `value` を外から入れない。
+- 入力欄は**各ライブ枠のチャット欄の下**（取得中のライブ＝`store.live` かつ `chatState === 'streaming'`、かつチャット欄を開いているときだけ）。
+- **確認の窓は出さない（Enter で送る）。** その代わり、🔴 **日本語の変換中の Enter では送らない**（`event.isComposing` / `keyCode 229`）。
+- 試験らしい文の制限（スパイクの安全策）は本番では外した（普通の言葉も止めてしまうため）。
+- 🔴 **自動の判定は投稿しない**（準備＝dryRun まで）。実機の投稿は用紙の目視で、利用者が配信を見てから1回だけ（`/get-dev-workflow` 鉄則 #54）。
+
+#### 1-7-2. 経路（A↔B に1組足した ＝ マイナー）
+
+```
+A  window.postMessage({ type:'CHAT_POST_REQUEST', requestId, videoId, text, dryRun })
+ → content_controller.js → runtime 'POST_CHAT_MESSAGE'
+ → background.js startChatPost（ensureChatTab → ensureInjected → tabs.sendMessage 'CHAT_POST'）
+ → content_yt_chat.js（PASS_CMD に CHAT_POST・text / dryRun を転送）→ MAIN chat_fetcher_main.js chatPost
+ → post({ ev:'post', requestId, videoId, ok, canPost, reason, placeholder, httpStatus, echo, error })
+ → background.js sendChatStreamEvent → content_controller.js（CHAT_STREAM_STATE に post:'chatPost'）
+ → A  EXTERNAL_SYNC_EVENT state:'chatPost' → handleChatPost
+```
+
+🔴 `canPost / reason / placeholder / httpStatus / echo` は `background.js` と `content_controller.js` の**両方で列挙して転送**している（7-4節の罠）。送った本文は B から A へ返さない。
+
+#### 1-7-3. エンジン（`chatPost`）
+
+| 項目 | 内容 |
+| :--- | :--- |
+| `params` | `/live_chat?is_popout=1&v=ID` の `ytInitialData.contents.liveChatRenderer.actionPanel.liveChatMessageInputRenderer.sendButton.buttonRenderer.serviceEndpoint.sendLiveChatMessageEndpoint.params`。🔴 **watch ページと `get_live_chat` の応答には `actionPanel` が無い**（スパイクで実測）。配信ごとに `postParams`（Map）へ覚え、送るときは覚えたものを使う |
+| 投稿できない | `actionPanel` が `liveChatMessageInputRenderer` 以外（例 `liveChatRestrictedParticipationRenderer`）・`params` が無い → `canPost:false`・理由は中の `message` / `text` の文字。`liveChatRenderer` が無い →「この配信のチャットが見つかりません」 |
+| 案内文 | `inputField.liveChatTextInputFieldRenderer.placeholder`（例「チャット...」）→ A の入力欄の案内に使う |
+| 送信 | `POST /youtubei/v1/live_chat/send_message?key=…&prettyPrint=false`・body `{ context, params, richMessage:{ textSegments:[{ text }] }, clientMessageId }`・ヘッダは `buildAuthHeaders`（1-3-2節と同じ）・打ち切り 15秒（`POST_TIMEOUT_MS`） |
+| 🔴 送り直し | **HTTP 4xx（429 を除く）のときだけ** `params` を取り直して**1回だけ**送り直す（送れていないことが確か）。**5xx・429・打ち切り・回線エラーは送り直さない**（届いている可能性 → 二重投稿を避ける）。送信後の例外は「届いたかどうか分からないので、チャット欄で確かめてから送り直してください」と返す |
+| 結果 | 200 なら `ok:true`。応答の `actions[].addChatItemAction` の本文が送った文と一致すれば `echo:true`（実機で一致した） |
+| dryRun | 準備だけ（`/live_chat` を読み、投稿できるか・理由・案内文を返す。`send_message` は叩かない） |
+| 本文 | 前後の空白を除いて1〜200字。外れたら送らない |
+
+#### 1-7-4. A側（`index.html`）
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 部品 | `.chat-post`（`#chatPost_{cardId}`）: 入力欄 `#chatPostInput_`（`maxlength=200`）・送るボタン `#chatPostBtn_`・知らせ `#chatPostMsg_`（`generateChatPaneHTML`）。入力欄は `flex:1 1 0; width:0`（細いチャット欄で送るボタンが2行目へ落ちないように） |
+| 出す・隠す | `updateChatPostUI(cardId)`。`updateChatHeadTitle` の最後で呼ぶ（状態が変わるたび）。逃げ道 `CHAT_POST_FEATURE = false` |
+| 準備 | 初めて出すとき**動画ごとに1回** dryRun を送る（`chatPostPrep[videoId]` = `pending` / `ready` / `blocked`）。`ready` で入力欄を使え、案内文に「（Enter で送信）」を付ける。`blocked` は止めて理由を出す。20秒（`chatPostTimeoutMs`）応答が無ければ `blocked`「アドオンから応答がありません（アドオン 2.14.0 が要ります）」 |
+| 送る | Enter（変換中を除く）かボタン。`ready`・送っていない・空でない・200字以内・間隔が空いている、のすべてを満たすときだけ |
+| 送っている間 | 入力欄とボタンを止める（`chatPostBusy`）。「送信中…」 |
+| 成功 | 入力欄を空に・「✓ 送信しました」・3秒（`chatPostCooldownMs`）は次を送らない |
+| 失敗 | 🔴 **打った文を残す**・理由を出す・🔴 **失敗の直後も3秒は送らない**（届いたか分からない失敗での二重投稿を防ぐ）。`canPost:false` が返れば `blocked` へ |
+| 応答なし | 20秒で戻し、「応答がありません。届いたかどうか分からないので…」・3秒は送らない |
+| 動画が変わった | 前の動画の知らせを消す（`chatPostMsgs[cardId].videoId` で見分ける） |
+
+#### 1-7-5. 実測
+
+- 🔴 **2026-10-26（v2.16.0・`W2XD2zx_rOE`・Floorp）: アドオン経由の準備が 0.4秒で `ready`・案内文「チャット...」。利用者が配信を見て打った1回が送れてチャットに出た・入力欄は空に戻った・変換を確定する Enter では送られなかった。**
+- スパイク C1（2026-10-25・`kKTA2s2g9gw`）: HTTP 200・1191ms・応答に本文が返った・`get_live_chat` の1回目の読み直しで出た。
+- ⚠️ 未確認: 投稿できない配信（メンバー限定・登録者限定・低速モード）の実機の文言と送信時のエラーの形／4xx で送り直す経路・打ち切りの経路（headless の偽物のみ）／`params` の有効期限／9枠で複数のライブに投稿したとき（取得タブは1枚）／ブランドアカウント（`X-Goog-PageId` を付けていない）。
+- ⚠️ アドオンを入れ直したときに古い取得タブが残っていると、古いエンジン（`CHAT_POST` を知らない）が応答せず、準備が20秒で `blocked` になる → 取得タブを閉じる（用紙の T1 に書いた）。
 
 ## 2. 確定した定数と見積もり
 
