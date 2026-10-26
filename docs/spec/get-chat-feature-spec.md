@@ -5,7 +5,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 
 # チャット / コメント流し機能 実装仕様書
 
-最終更新: 2026-10-26 / 現行リリース **v2.16.0**（実機検証済み・1-7節 ライブへの投稿）
+最終更新: 2026-10-26 / 現行リリース **v2.17.0**（実機検証済み・1-7節 ライブへの投稿・1-7-6節 ログイン）
 関連スキル: `/get-protocol-spec`（A↔B通信プロトコル、バージョン管理規約、既知の不具合）
 関連スキル: `/get-danmaku-spec`（ニコニコ風コメント流しと調整UI ─ 本スキル旧 8-10節・8-11節。★2026-08-15 分離）
 関連スキル: `/get-ui-spec`（A側UIの部品仕様 ─ トップバーのメニュー構造・再生可否の確定と枠内通知）
@@ -36,7 +36,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 | メンバー限定アーカイブの**チャット取得** | ✅ v2.7.5（POST に SAPISIDHASH 認証ヘッダ ─ 1-3-2節） |
 | **ライブ（配信中）のチャット** | ✅ v2.8.0（1-6節）／v2.8.1 で A側が `liveBy` / `livePolls` を保存 |
 | 🔴 **参照されなくなったコメントの破棄** | ✅ **v2.8.3**（8-13節）。中止の判定も同じ参照集合へ統一 |
-| **ライブへのコメント投稿** | ✅ **v2.16.0**（1-7節・アドオン 2.14.0） |
+| **ライブへのコメント投稿** | ✅ **v2.16.0**（1-7節・アドオン 2.14.0）／ログインの案内 ✅ **v2.17.0**（1-7-6節・アドオン 2.15.0） |
 
 🔴 **この表は④のたびに実態と突き合わせること。**
 2026-08-15 まで **v2.7.5 / v2.8.0 で実装済みのものが「⬜ 予定」のまま2版残っていた**
@@ -489,6 +489,18 @@ A  window.postMessage({ type:'CHAT_POST_REQUEST', requestId, videoId, text, dryR
 - スパイク C1（2026-10-25・`kKTA2s2g9gw`）: HTTP 200・1191ms・応答に本文が返った・`get_live_chat` の1回目の読み直しで出た。
 - ⚠️ 未確認: 投稿できない配信（メンバー限定・登録者限定・低速モード）の実機の文言と送信時のエラーの形／4xx で送り直す経路・打ち切りの経路（headless の偽物のみ）／`params` の有効期限／9枠で複数のライブに投稿したとき（取得タブは1枚）／ブランドアカウント（`X-Goog-PageId` を付けていない）。
 - ⚠️ アドオンを入れ直したときに古い取得タブが残っていると、古いエンジン（`CHAT_POST` を知らない）が応答せず、準備が20秒で `blocked` になる → 取得タブを閉じる（用紙の T1 に書いた）。
+
+#### 1-7-6. ログインしていないとき ★v2.17.0（アドオン 2.15.0）
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 判定 | エンジンの `hasAuthCookie()`（`pickAuthCookie(document.cookie)` ＝ 投稿の認証ヘッダと同じ Cookie）。🔴 **無ければ `/live_chat` を読まずに** `{canPost:false, needLogin:true, reason:'YouTube にログインしていません'}`。送れなかった・投稿できないときも、Cookie が無ければ `needLogin:true`（覚えた `params` で送って 401 → 4xx の取り直しで `needLogin` になり、送り直さない）。ログインしていて投稿できない配信（メンバー限定など）は `needLogin:false` |
+| 文脈 | `ytcfg` は `/live_chat` の HTML（`cfgFromHtml`）を先に使い、`params` と一緒に覚える。取得タブを開いたあとにログインした場合、タブの `ytcfg` はログイン前のまま |
+| A側のボタン | `#chatPostLogin_{cardId}`「🔑 YouTube にログイン」。`chatPostPrep[videoId]` が `blocked` かつ `needLogin` のときだけ出す。押すと `window.open(CHAT_POST_LOGIN_URL, '_blank', 'noopener')`（🔴 クリックの中で同期的に）＝ `accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https://www.youtube.com/signin?action_handle_signin=true…`（YouTube の「ログイン」と同じ形）。「ログインしたら、このタブへ戻ってください」 |
+| 戻ったとき | `window` の `focus` / `document` の `visibilitychange`（`visible`）で `recheckChatPostLogin`: **ログイン待ち（`needLogin`）の準備だけ**消して欄を描き直す（＝準備を1回やり直す）。メンバー限定などはやり直さない |
+| 🔄 | `reloadChat` でその動画の準備を消す（理由を問わず。ログインのあと・制限が外れたあとに確かめ直せる） |
+| 埋め込めない | Google はログイン画面を他のページへ埋め込ませないので、新しいタブで開くしかない |
+| 実測（2026-10-26・新しい Floorp のプロファイル） | ログアウトで 0.2秒で `needLogin`・ボタン・文言。ボタンからログインしてタブへ戻ると使える（目視 OK）・`D-W8` `ready` 0.4秒 |
 
 ## 2. 確定した定数と見積もり
 
