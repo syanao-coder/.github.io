@@ -727,7 +727,8 @@ function sendChatStreamEvent(p) {
       reason: p.reason,
       placeholder: p.placeholder,
       httpStatus: p.httpStatus,
-      echo: p.echo
+      echo: p.echo,
+      needLogin: p.needLogin   /* ★v2.17.0 */
     };
     for (const tab of tabs) chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
   });

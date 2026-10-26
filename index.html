@@ -517,6 +517,8 @@
         .chat-post-msg:empty { display: none; }
         .chat-post-msg.ok { color: #2ed573; }
         .chat-post-msg.ng { color: #ffb020; }
+        /* ★v2.17.0: ログインしていないときだけ出す */
+        .chat-post .chat-post-login { display: none; flex: 1 0 100%; background: #3a2a10; color: #ffcc66; padding: 3px 8px; }
         .chat-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
         .chat-toggle-btn.active:hover { background-color: #55ffdd; }
         /* ★v2.7.0: コメント流し。
@@ -895,12 +897,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.16.0';
+        const APP_VERSION = '2.17.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.14.0';
+        const ADDON_REQUIRED_VERSION = '2.15.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1739,6 +1741,9 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.17.0', d: '2026-10-26', t: [
+                'YouTube にログインしていないとき、投稿欄に「🔑 YouTube にログイン」ボタンを出すようにした（押すと新しいタブでログイン画面が開き、戻ってくると投稿できるようになる）',
+                '投稿できないと出たあと、🔄 で投稿できるかを確かめ直すようにした。🔴 アドオン 2.15.0 が要る'] },
             { v: '2.16.0', d: '2026-10-25', t: [
                 '配信中のライブにコメントを投稿できるようにした（チャット欄の下の入力欄に打って Enter）。日本語の変換中の Enter では送らない。🔴 アドオン 2.14.0 が要る'] },
             { v: '2.15.1', d: '2026-10-25', t: [
@@ -4427,6 +4432,7 @@
                             ' onkeydown="chatPostKeydown(event, \'' + cardId + '\')">' +
                         '<button id="chatPostBtn_' + cardId + '" onclick="submitChatPost(\'' + cardId + '\')" title="このライブのチャットに投稿する">送信</button>' +
                         '<div class="chat-post-msg" id="chatPostMsg_' + cardId + '"></div>' +
+                        '<button class="chat-post-login" id="chatPostLogin_' + cardId + '" onclick="openChatPostLogin(\'' + cardId + '\')" title="新しいタブで Google のログイン画面を開く（ログインしたらこのタブへ戻ってください）">🔑 YouTube にログイン</button>' +
                     '</div>' +
                 '</div>';
         }
@@ -4590,6 +4596,10 @@
         let chatPostBusy = {};       // cardId → 送っている requestId
         let chatPostCoolUntil = {};  // cardId → この時刻までは送らない
         let chatPostMsgs = {};       // cardId → { text, kind }
+        /* ★v2.17.0: YouTube の「ログイン」と同じ形（ログインのあと YouTube がログインを受け取ってから戻る） */
+        const CHAT_POST_LOGIN_URL = 'https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue='
+            + encodeURIComponent('https://www.youtube.com/signin?action_handle_signin=true&app=desktop&hl=ja&next=' + encodeURIComponent('https://www.youtube.com/'))
+            + '&hl=ja';
 
         function chatPostVideoId(cardId) {
             const key = chatLoadedVideoId[cardId];
@@ -4626,6 +4636,8 @@
             }
             const input = document.getElementById('chatPostInput_' + cardId);
             const btn = document.getElementById('chatPostBtn_' + cardId);
+            const login = document.getElementById('chatPostLogin_' + cardId);
+            if (login) login.style.display = (prep.state === 'blocked' && prep.needLogin) ? 'block' : 'none';
             const busy = !!chatPostBusy[cardId];
             if (prep.state === 'ready') {
                 input.disabled = busy; btn.disabled = busy;
@@ -4668,7 +4680,7 @@
             if (q.dryRun) {
                 chatPostPrep[q.videoId] = d.canPost
                     ? { state: 'ready', placeholder: d.placeholder || '' }
-                    : { state: 'blocked', reason: d.reason || d.error || '投稿できません' };
+                    : { state: 'blocked', reason: d.reason || d.error || '投稿できません', needLogin: !!d.needLogin };
                 activeCardIds.forEach(function (c) { if (chatPostVideoId(c) === q.videoId) { if (d.canPost) setChatPostMsg(c, '', ''); updateChatPostUI(c); } });
                 return;
             }
@@ -4679,7 +4691,7 @@
                 chatPostCoolUntil[q.cardId] = Date.now() + chatPostCooldownMs;
                 setChatPostMsg(q.cardId, '✓ 送信しました', 'ok');
             } else {
-                if (d.canPost === false) chatPostPrep[q.videoId] = { state: 'blocked', reason: d.reason || d.error || '投稿できません' };
+                if (d.canPost === false || d.needLogin) chatPostPrep[q.videoId] = { state: 'blocked', reason: d.reason || d.error || '投稿できません', needLogin: !!d.needLogin };
                 chatPostCoolUntil[q.cardId] = Date.now() + chatPostCooldownMs;   // 届いたか分からない失敗（打ち切り）もあるので、すぐには送り直させない
                 setChatPostMsg(q.cardId, '⚠ ' + (d.error || '送信できませんでした'), 'ng');   // 打った文は残す（直して送り直せる）
             }
@@ -4700,6 +4712,29 @@
             setChatPostMsg(q.cardId, '⚠ 応答がありません。届いたかどうか分からないので、チャット欄で確かめてから送り直してください', 'ng');
             updateChatPostUI(q.cardId);
         }
+
+        /* ★v2.17.0: ログイン画面を新しいタブで開く。🔴 クリックの中で同期的に開く（間を置くとポップアップとして止められる） */
+        function openChatPostLogin(cardId) {
+            window.open(CHAT_POST_LOGIN_URL, '_blank', 'noopener');
+            setChatPostMsg(cardId, 'ログインしたら、このタブへ戻ってください（自動で確かめ直します）', '');
+        }
+        /* ★v2.17.0: このタブへ戻ったら、ログイン待ちの準備だけをやり直す（メンバー限定などはやり直さない） */
+        function recheckChatPostLogin() {
+            let n = 0;
+            Object.keys(chatPostPrep).forEach(function (v) {
+                const p = chatPostPrep[v];
+                if (p && p.state === 'blocked' && p.needLogin) { delete chatPostPrep[v]; n++; }
+            });
+            if (!n) return 0;
+            activeCardIds.forEach(function (c) {
+                const prev = chatPostMsgs[c];
+                if (prev && prev.kind === 'ng') setChatPostMsg(c, '', '');
+                updateChatPostUI(c);
+            });
+            return n;
+        }
+        window.addEventListener('focus', recheckChatPostLogin);
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') recheckChatPostLogin(); });
 
         function updateChatHeadTitleText(cardId) {
             const el = document.getElementById('chatHeadTitle_' + cardId);
@@ -5691,6 +5726,9 @@
                 /* ★v2.8.0: 配信が終わってアーカイブになったときに戻れるよう、
                    🔄 ではライブ判定も捨てる。次の取得で B 側が判定し直す。 */
                 delete liveVideoIds[videoId];
+                /* ★v2.17.0: 投稿できるかも確かめ直す（ログインしたあと・制限が外れたあと） */
+                delete chatPostPrep[videoIdOfChatKey(videoId)];
+                if (chatPostMsgs[cardId] && chatPostMsgs[cardId].kind === 'ng') setChatPostMsg(cardId, '', '');
             }
             chatLoadedVideoId[cardId] = null;
             updateChatContent(cardId, true);

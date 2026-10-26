@@ -165,7 +165,8 @@ if (document.getElementById('playersGrid')) {
           reason: message.reason,
           placeholder: message.placeholder,
           httpStatus: message.httpStatus,
-          echo: message.echo
+          echo: message.echo,
+          needLogin: message.needLogin   /* ★v2.17.0: ログインしていない（A側が「ログイン」ボタンを出す） */
         }, '*');
       } else {
         /* ★v2.6.5: 未知の ev は黙って捨てず、必ず痕跡を残す。
