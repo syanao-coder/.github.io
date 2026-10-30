@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.30.1';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.30.2';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.19.1';
+    var EXPECT_APP_VERSION = '2.19.2';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.17.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.19.1', ids: ['D-V1', 'D-V2', 'D-F1'] };
+    var VERSION_FOCUS = { v: '2.19.2', ids: ['D-V1', 'D-V2', 'D-F1', 'D-Z2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -2005,13 +2005,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 58);
+        expect('配列の件数', hist ? hist.length : 0, 59);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -9358,6 +9358,8 @@
         var histRaw = null, viewRaw = null;
         try { histRaw = localStorage.getItem('sync_video_history'); viewRaw = localStorage.getItem('sync_hist_view'); } catch (e) { }
         var view0 = histView, hist0 = ytHist, tmo0 = ytHistTimeoutMs;
+        var tile0 = (typeof histTileIdx !== 'undefined') ? histTileIdx : null, tileRaw = null;   /* ★v1.30.2 */
+        try { tileRaw = localStorage.getItem('sync_hist_tile'); } catch (e) { }
         var origPost = window.postMessage, origLoad = window.loadHistoryYt;
         var reqs = [], loads = [];
         function f1Body(c) { return document.getElementById('histBody_' + c); }
@@ -9373,6 +9375,7 @@
             reqs = [];
             localStorage.removeItem('sync_video_history');
             histView = 'tool';
+            if (tile0 !== null) histTileIdx = 1;   /* 既定の大きさ（140px）から測る */
             ytHist = { state: 'idle', items: [], at: 0, error: '', reqId: null, timer: null };
             var got = await setCardCount(started + 1);
             var cid = lastCard();
@@ -9412,6 +9415,26 @@
             var w5ch = tiles[4] ? tiles[4].querySelector('.hist-channel') : null;
             pc('🔴 長いチャンネル名の行は1枚の幅より長い（広がる土俵がある）', function () { return (w5ch && w5ch.scrollWidth > widths[0]) ? (w5ch.scrollWidth + 'px > ' + widths[0] + 'px') : false; });
             expect('🔴 タイルの幅がそろう（長いチャンネル名でも広がらない）', widths.every(function (w) { return w === widths[0]; }) ? 'そろう' : widths.join(','), 'そろう');
+            /* ★v1.30.2（v2.19.2）: タイルの大きさ（－ / ＋・4段階・覚える） */
+            function f1W() { var ts = document.querySelectorAll('#histBody_' + cid + ' .history-tile.yt'); var ws = Array.prototype.map.call(ts, function (t) { return Math.round(t.getBoundingClientRect().width); }); return ws.every(function (w) { return w === ws[0]; }) ? ws[0] : ws.join(','); }
+            function f1Click(which) { var b = document.getElementById('histSize' + which + '_' + cid); if (b && !b.disabled) b.click(); return b; }
+            expect('🔴 タイルの既定の幅は 140px（大きくした）', String(widths[0]), '140');
+            var up = f1Click('Up'); await wait(50);
+            expect('🔴 ＋ / － のボタンがある', (up && document.getElementById('histSizeDown_' + cid)) ? 'あり' : '無い', 'あり');
+            expect('🔴 ＋ で大きくなる・覚える（幅 / sync_hist_tile）', f1W() + ' / ' + localStorage.getItem('sync_hist_tile'), '180 / 2');
+            f1Click('Up'); await wait(50);
+            var upB = document.getElementById('histSizeUp_' + cid);
+            expect('いちばん大きい（240px）で ＋ が押せなくなる', f1W() + ' / ' + (upB && upB.disabled ? '押せない' : '押せる'), '240 / 押せない');
+            f1Click('Down'); f1Click('Down'); f1Click('Down'); await wait(50);
+            var dnB = document.getElementById('histSizeDown_' + cid);
+            expect('－ で小さくなり、いちばん小さい（100px）で － が押せなくなる', f1W() + ' / ' + (dnB && dnB.disabled ? '押せない' : '押せる'), '100 / 押せない');
+            var t1s = document.querySelector('#histBody_' + cid + ' .history-tile.yt .hist-title');
+            var fs100 = t1s ? parseFloat(getComputedStyle(t1s).fontSize) : 0;
+            f1Click('Up'); f1Click('Up'); await wait(50);
+            t1s = document.querySelector('#histBody_' + cid + ' .history-tile.yt .hist-title');
+            var fs180 = t1s ? parseFloat(getComputedStyle(t1s).fontSize) : 0;
+            expect('大きくすると文字も大きくなる', fs180 > fs100 ? 'ok' : (fs100 + ' → ' + fs180), 'ok');
+            f1Click('Down'); await wait(50);
             expect('チャンネル名・長さ・再生位置の線を出す', [tiles[0] && tiles[0].querySelector('.hist-channel') ? 'あり' : '無い', tiles[0] && /1:00/.test(tiles[0].textContent) ? 'あり' : '無い', tiles[0] && tiles[0].innerHTML.indexOf('width:40%') >= 0 ? 'あり' : '無い'].join(' / '), 'あり / あり / あり');
             if (tiles[0]) tiles[0].click();
             expect('🔴 押すとその動画をこの枠に読み込む', loads.length ? (loads[0].cid === cid ? '同じ枠 / ' : '別の枠 / ') + loads[0].url : '(読み込まない)', '同じ枠 / https://www.youtube.com/watch?v=dbgF1aaaa00');
@@ -9443,8 +9466,11 @@
             handleYtHistory({ requestId: reqs[3].requestId, ok: false, error: '履歴を読めません（HTTP 500）' });
             await wait(50);
             expect('読めなければ理由を出す', /読めませんでした（履歴を読めません（HTTP 500））/.test(f1Text(cid)) ? 'ok' : f1Text(cid), 'ok');
+            localStorage.setItem('sync_video_history', JSON.stringify([{ title: 'dbgF1tool', url: 'https://www.youtube.com/watch?v=dbgF1tool00', thumbnail: '', isLocal: false, timestamp: Date.now() }]));
             document.getElementById('histTabTool_' + cid).click();
             await wait(50);
+            var toolTile = document.querySelector('#histGallery_' + cid + ' .history-tile:not(.yt)');
+            expect('🕒 このツールのタイルも同じ大きさ（140px）', toolTile ? String(Math.round(toolTile.getBoundingClientRect().width)) : '(無い)', '140');
             expect('🕒 に戻すと YouTube の履歴を出さない・覚える', (f1Body(cid) ? 'まだ出ている' : '出ない') + ' / ' + localStorage.getItem('sync_hist_view'), '出ない / tool');
             note('送った要求の数（D-F1 の間）', reqs.length + '回');
         } finally {
@@ -9452,6 +9478,8 @@
             window.loadHistoryYt = origLoad;
             try { if (ytHist && ytHist.timer) clearTimeout(ytHist.timer); } catch (e) { }
             ytHistTimeoutMs = tmo0; ytHist = hist0; histView = view0;
+            if (tile0 !== null) histTileIdx = tile0;
+            try { if (tileRaw === null) localStorage.removeItem('sync_hist_tile'); else localStorage.setItem('sync_hist_tile', tileRaw); } catch (e) { }
             try {
                 if (histRaw === null) localStorage.removeItem('sync_video_history'); else localStorage.setItem('sync_video_history', histRaw);
                 if (viewRaw === null) localStorage.removeItem('sync_hist_view'); else localStorage.setItem('sync_hist_view', viewRaw);

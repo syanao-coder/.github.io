@@ -907,7 +907,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.19.1';
+        const APP_VERSION = '2.19.2';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1880,6 +1880,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.19.2', d: '2026-10-30', t: [
+                '「最近使った動画」のタイルを大きくし（幅 100 → 140px）、見出しの「－」「＋」で4段階に大きさを変えられるようにした（🕒 このツール・▶ YouTube の両方・全枠共通・覚える）'] },
             { v: '2.19.1', d: '2026-10-30', t: [
                 '▶ YouTube の履歴で、チャンネル名が長い動画のタイルだけ横に広がり、タイルの大きさがそろわなかったのを直した'] },
             { v: '2.19.0', d: '2026-10-30', t: [
@@ -2856,6 +2858,32 @@
             if (!/^[A-Za-z0-9_-]{11}$/.test(String(id || ''))) return;
             loadHistoryYt(cardId, 'https://www.youtube.com/watch?v=' + id);
         }
+        /* ★v2.19.2: 履歴のタイルの大きさ（幅 px）。－ / ＋ で4段階・全枠共通・保存（利用者要望 2026-10-30）。既定は 140px（v2.19.1 までは 100px）。 */
+        const HIST_TILE_SIZES = [100, 140, 180, 240];
+        let histTileIdx = 1;
+        try { const v = parseInt(localStorage.getItem('sync_hist_tile'), 10); if (v >= 0 && v < HIST_TILE_SIZES.length) histTileIdx = v; } catch (e) { }
+        function histTileW() { return HIST_TILE_SIZES[histTileIdx]; }
+        function setHistTileSize(delta) {
+            const n = Math.max(0, Math.min(HIST_TILE_SIZES.length - 1, histTileIdx + delta));
+            if (n === histTileIdx) return;
+            histTileIdx = n;
+            try { localStorage.setItem('sync_hist_tile', String(n)); } catch (e) { }
+            refreshHistGalleries();
+        }
+        /* タイルの外枠と文字の大きさ（幅に合わせて文字も少し大きくする）。🔴 width と min-width:0 で幅を固定する（v2.19.1） */
+        function histTileStyle() {
+            const w = histTileW();
+            return 'flex:0 0 ' + w + 'px; width:' + w + 'px; min-width:0; box-sizing:border-box; overflow:hidden; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;';
+        }
+        function histTitleRem() { return (0.65 + (histTileW() - 100) * 0.002).toFixed(3) + 'rem'; }
+        function histSizeBtnsHTML(cardId) {
+            const b = function (d, label, tip) {
+                const off = (d < 0 && histTileIdx === 0) || (d > 0 && histTileIdx === HIST_TILE_SIZES.length - 1);
+                return '<button id="histSize' + (d < 0 ? 'Down' : 'Up') + '_' + cardId + '" onclick="setHistTileSize(' + d + ')" title="' + tip + '"' + (off ? ' disabled' : '') +
+                    ' style="background:transparent; border:1px solid #444; color:' + (off ? '#555' : '#ccc') + '; font-size:0.7rem; width:20px; height:18px; padding:0; border-radius:3px; cursor:' + (off ? 'default' : 'pointer') + '; margin-left:4px;">' + label + '</button>';
+            };
+            return b(-1, '－', 'タイルを小さく') + b(1, '＋', 'タイルを大きく');
+        }
         function histTabsHTML(cardId) {
             const on = 'background:#2a2a3a; color:#fff; border:1px solid #666;';
             const off = 'background:transparent; color:#888; border:1px solid #333;';
@@ -2879,14 +2907,14 @@
                 const ch = escapeHtmlAttr(it.channel || '');
                 const len = escapeHtmlAttr(it.len || '');
                 const pct = (typeof it.pct === 'number' && it.pct > 0) ? Math.min(100, it.pct) : 0;
-                html += '<div class="history-tile yt" title="' + title + (ch ? '（' + ch + '）' : '') + '" style="flex:0 0 100px; width:100px; min-width:0; box-sizing:border-box; overflow:hidden; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="loadYtHistoryItem(\'' + cardId + '\', \'' + it.id + '\')">' +
+                html += '<div class="history-tile yt" title="' + title + (ch ? '（' + ch + '）' : '') + '" style="' + histTileStyle() + '" onclick="loadYtHistoryItem(\'' + cardId + '\', \'' + it.id + '\')">' +
                     '<div style="position:relative;">' +
                         '<img src="https://img.youtube.com/vi/' + it.id + '/mqdefault.jpg" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px; display:block;">' +
                         (len ? '<span style="position:absolute; right:2px; bottom:4px; background:rgba(0,0,0,0.8); color:#fff; font-size:0.55rem; padding:0 2px; border-radius:2px;">' + len + '</span>' : '') +
                         (pct ? '<div style="position:absolute; left:0; bottom:0; height:2px; width:' + pct + '%; background:#ff0000;"></div>' : '') +
                     '</div>' +
-                    '<div class="hist-title" style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + title + '</div>' +
-                    (ch ? '<div class="hist-channel" style="font-size:0.55rem; color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + ch + '</div>' : '') +
+                    '<div class="hist-title" style="font-size:' + histTitleRem() + '; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:2.4em; line-height:1.2; margin-top:2px;">' + title + '</div>' +
+                    (ch ? '<div class="hist-channel" style="font-size:calc(' + histTitleRem() + ' * 0.85); color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + ch + '</div>' : '') +
                 '</div>';
             });
             return html + '</div>';
@@ -2900,7 +2928,8 @@
                 /* 空の枠を描いたとき: 10分以内の結果が無ければ読む（描画の途中で描き直さないよう後回し） */
                 if (ytHist.state === 'idle' || (ytHist.state === 'ok' && (Date.now() - ytHist.at) >= YT_HIST_TTL_MS)) setTimeout(function () { ensureYtHistory(false); }, 0);
                 return wrapTop + '<div style="' + headStyle + '">' + histTabsHTML(cardId) +
-                    '<button id="histReload_' + cardId + '" onclick="reloadYtHistory()" title="YouTube の視聴履歴を読み直す" style="background:transparent; border:none; color:#aaa; font-size:0.75rem; cursor:pointer;">🔄</button>' +
+                    '<span style="display:flex; align-items:center;">' + histSizeBtnsHTML(cardId) +
+                    '<button id="histReload_' + cardId + '" onclick="reloadYtHistory()" title="YouTube の視聴履歴を読み直す" style="background:transparent; border:none; color:#aaa; font-size:0.75rem; cursor:pointer; margin-left:6px;">🔄</button></span>' +
                     '</div>' + ytHistBodyHTML(cardId) + '</div>';
             }
             /* ★v2.19.0: このツールの履歴が0件でも切り替えは出す（YouTube の履歴を見られるように） */
@@ -2908,7 +2937,8 @@
             let html = wrapTop +
                 '<div style="' + headStyle + '">' +
                     histTabsHTML(cardId) +
-                    '<button onclick="clearVideoHistory(\'' + cardId + '\')" style="background:transparent; border:none; color:#ff4757; font-size:0.7rem; cursor:pointer;">履歴消去</button>' +
+                    '<span style="display:flex; align-items:center;">' + histSizeBtnsHTML(cardId) +
+                    '<button onclick="clearVideoHistory(\'' + cardId + '\')" style="background:transparent; border:none; color:#ff4757; font-size:0.7rem; cursor:pointer; margin-left:6px;">履歴消去</button></span>' +
                 '</div><div style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
             history.forEach(item => {
                 const safeTitle = escapeJsString(item.title);
@@ -2921,9 +2951,9 @@
                     ? 'openLocalPicker(\'' + cardId + '\')'
                     : 'loadHistoryYt(\'' + cardId + '\', \'' + safeUrl + '\')';
                 const tileTitle = item.isLocal ? ('クリックでファイルを選ぶ（「' + escapeHtmlAttr(item.title) + '」を選んでください）') : '';
-                html += '<div class="history-tile' + (item.isLocal ? ' local' : '') + '" title="' + tileTitle + '" style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="' + loadArgs + '">' +
+                html += '<div class="history-tile' + (item.isLocal ? ' local' : '') + '" title="' + tileTitle + '" style="' + histTileStyle() + '" onclick="' + loadArgs + '">' +
                     '<img src="' + thumbSrc + '" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px;">' +
-                    '<div style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + safeTitle + '</div>' +
+                    '<div class="hist-title" style="font-size:' + histTitleRem() + '; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:2.4em; line-height:1.2; margin-top:2px;">' + safeTitle + '</div>' +
                     '<button onclick="event.stopPropagation(); deleteVideoHistoryItem(\'' + safeUrl + '\', \'' + cardId + '\')" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.7); border:none; color:#ff4757; font-size:0.6rem; width:14px; height:14px; display:flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer;">✕</button>' +
                 '</div>';
             });
