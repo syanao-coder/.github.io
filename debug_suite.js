@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.28.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.29.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.18.0';
+    var EXPECT_APP_VERSION = '2.18.1';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.16.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.18.0', ids: ['D-V1', 'D-V2', 'D-A8', 'D-A4'] };
+    var VERSION_FOCUS = { v: '2.18.1', ids: ['D-V1', 'D-V2', 'D-A2', 'D-A8', 'D-A9'] };   /* D-A9 は再読み込みするので最後 */
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -674,6 +674,17 @@
         catch (e) { return '(取得不可)'; }
     }
 
+    /* ★v1.29.0: パネルの並び。「D-L9」<「D-L10」になるよう、記号 → 数字で並べる。 */
+    function testFamily(id) { var m = /^D-([A-Z]+)/.exec(id); return m ? m[1] : id; }
+    function cmpTestId(a, b) {
+        var fa = testFamily(a.id), fb = testFamily(b.id);
+        if (fa !== fb) return fa < fb ? -1 : 1;
+        var na = parseInt(a.id.replace(/^D-[A-Z]+/, ''), 10) || 0, nb = parseInt(b.id.replace(/^D-[A-Z]+/, ''), 10) || 0;
+        return na - nb;
+    }
+    /* 用紙で1本ずつ押す実機の判定（v2.12.0〜v2.18.0 の用紙で押したもの: D-L9・D-W3〜D-W10）。D-W は実機の記号なので丸ごと外へ。 */
+    function isFormRealTest(t) { return t.id === 'D-L9' || testFamily(t.id) === 'W'; }
+
     function buildUI() {
         /* 🔴 ★v1.6.1: DOM順で最初の .topmenu-anchor を拾ってはいけない。
 
@@ -723,23 +734,50 @@
            🔴 消さずに畳む。単独実行は「1本だけ測り直す」唯一の手段で、
               2026-09-16 に D-Y11 の再測で実際に必要になった。消していたら
               一括（9〜15分）を回し直すことになる。既定は閉じる。 */
-        var row2 = document.createElement('div');
-        row2.className = 'dbg-row';
-        row2.style.display = 'none';
-        TESTS.forEach(function (t) {
-            row2.appendChild(mkBtn('▶ ' + t.id, t.name, function () { runOne(t.id); }));
+        /* ★v1.29.0 整頓（v2.18.0 の利用者の要望）: 用紙で押すものだけ外に出し、残りは「▼ 個別に実行」へしまう。
+           外: ① すべて実行ほか ② 🎯 この版の回帰 ③ 実機の判定（D-L9・D-W*。用紙で1本ずつ押す）。
+           中: 判定を記号ごとの行・番号順（登録順は足した順で探しにくかった）＋ 用紙で使わなくなった一括ボタン＋説明文。 */
+        var realRow = document.createElement('div');
+        realRow.className = 'dbg-row';
+        var realTests = TESTS.filter(isFormRealTest).sort(cmpTestId);
+        var realLabel = document.createElement('span');
+        realLabel.className = 'dbg-note';
+        realLabel.textContent = '📡 実機（用紙で1本ずつ押す）:';
+        realRow.appendChild(realLabel);
+        realTests.forEach(function (t) {
+            realRow.appendChild(mkBtn('▶ ' + t.id, t.name, function () { runOne(t.id); }));
         });
+        panel.appendChild(realRow);
+
+        var fold = document.createElement('div');
+        fold.style.display = 'none';
+        var inner = TESTS.filter(function (t) { return !isFormRealTest(t); }).sort(cmpTestId);
+        var lastFam = null, famRow = null;
+        inner.forEach(function (t) {
+            var fam = testFamily(t.id);
+            if (fam !== lastFam) {
+                famRow = document.createElement('div');
+                famRow.className = 'dbg-row';
+                fold.appendChild(famRow);
+                lastFam = fam;
+            }
+            famRow.appendChild(mkBtn('▶ ' + t.id, t.name, function () { runOne(t.id); }));
+        });
+        var groupHead = document.createElement('p');
+        groupHead.className = 'dbg-note';
+        groupHead.textContent = '▼ まとめて実行（用紙では使っていない一括ボタン）';
+        fold.appendChild(groupHead);
         var row2Head = document.createElement('div');
         row2Head.className = 'dbg-row';
-        var row2Btn = mkBtn('▼ 個別に実行（' + TESTS.length + '本）',
+        var row2Btn = mkBtn('▼ 個別に実行（' + inner.length + '本・番号順）',
             'テストを1本だけ実行する。再測のときに使う', function () {
-                var open = row2.style.display !== 'none';
-                row2.style.display = open ? 'none' : '';
-                row2Btn.textContent = (open ? '▼' : '▲') + ' 個別に実行（' + TESTS.length + '本）';
+                var open = fold.style.display !== 'none';
+                fold.style.display = open ? 'none' : '';
+                row2Btn.textContent = (open ? '▼' : '▲') + ' 個別に実行（' + inner.length + '本・番号順）';
             });
         row2Head.appendChild(row2Btn);
         panel.appendChild(row2Head);
-        panel.appendChild(row2);
+        panel.appendChild(fold);
 
         /* ★v1.4.0: D-P の一括実行。盾を1回だけ聞き、記録は再読み込みをまたいで残す。
            これで D-P1〜D-P5 の貼り付けが1回で済む。 */
@@ -759,7 +797,7 @@
                     'このあと D-P4 / D-P5 を続けて実行します（2〜3分）。'
                     + '盾は「オフ」のまま最後まで触らないでください。');
             }));
-        panel.appendChild(row3);
+        fold.appendChild(row3);
 
         /* ★v1.4.2: D-C（チャット取得）の一括。盾の操作は要らない。 */
         var row4 = document.createElement('div');
@@ -799,7 +837,7 @@
                     '重いアーカイブを取得します。3〜10分かかるので、'
                     + 'このタブを閉じずにお待ちください。');
             }));
-        panel.appendChild(row4);
+        fold.appendChild(row4);
 
         /* ★v1.7.0: D-G（コメント配列の破棄）。
            🔴 ボタンは1つだけにする。手順書の1項目＝ボタン1つに対応させるため（鉄則 #39）。 */
@@ -815,7 +853,7 @@
                     + '途中で枠や設定を操作せず、そのままお待ちください。\n'
                     + 'キャッシュもテストのコードが必要なところで自動的に捨てます。');
             }));
-        panel.appendChild(row4g);
+        fold.appendChild(row4g);
 
         /* ★v1.8.0: D-Y（ピン留め時のレイアウト）。
            🔴 ボタンは1つだけにする（鉄則 #39）。動画の読み込みは D-Y4 の中だけ。 */
@@ -834,7 +872,7 @@
                     + '🔴 測定中はマウスを動かさないでください（枠のヘッダーと一括コントローラーが反応します）。\n'
                     + '⚠️ D-Y4 と D-Y10 は保存URLを一時的に書き換えますが、終了時に自動で元へ戻します。');
             }));
-        panel.appendChild(row4y);
+        fold.appendChild(row4y);
 
         /* ★v1.10.0: この版で触った箇所の回帰だけを流すボタン。🔴 版ごとにボタンを増やさず、
            VERSION_FOCUS の中身だけを差し替える（/get-dev-workflow 1-5節の棚卸し対策）。 */
@@ -850,7 +888,7 @@
                     + '🔴 ウィンドウの大きさを測定中に変えないでください。\n'
                     + '🔴 測定中はマウスを動かさないでください。');
             }));
-        panel.appendChild(row4f);
+        panel.insertBefore(row4f, realRow);   /* ★v1.29.0: 🎯 は「すべて実行」のすぐ下 */
 
         /* ★v1.8.1: D-Y9 は動画を1本読み込むので別のボタンにする（鉄則 #39: 1項目1ボタン）。 */
         var row4y2 = document.createElement('div');
@@ -865,7 +903,7 @@
                     + '🔴 ウィンドウの大きさを測定中に変えないでください。\n'
                     + '⚠️ 「最近使った動画」の履歴が1件増えます。');
             }));
-        panel.appendChild(row4y2);
+        fold.appendChild(row4y2);
 
         /* ★v1.5.0: D-L（ライブ配信）。動画IDは最初の1回だけ聞き、以降は持ち回す。
            🔴 ボタンは2つだけにする。手順書の1項目＝ボタン1つに対応させるため。 */
@@ -907,7 +945,7 @@
                 try { localStorage.removeItem(LS_LIVE_VID); } catch (e) { }
                 log('ライブの動画IDを忘れました。次の実行でもう一度聞きます。');
             }));
-        panel.appendChild(row5);
+        fold.appendChild(row5);
 
         var noteEl = document.createElement('p');
         noteEl.className = 'dbg-note';
@@ -945,7 +983,7 @@
             + '★v1.13.1: D-S2 はページを再読み込みして、変えた枠の比が残るかを測ります（「🎯 この版の回帰」の最後に走ります）。'
             + '★v1.13.2: D-Z2 はローカル動画の履歴を押すと選択画面が開くことを測ります（選択画面そのものは開かずに止めます）。'
             + '★v1.14.0: v2.8.12 の上部メニューの出し入れは D-T1、縮小は D-T2。D-T1 は上部メニューを畳んで戻します（終了時に元の状態へ）。';
-        panel.appendChild(noteEl);
+        fold.appendChild(noteEl);   /* ★v1.29.0: 一括ボタンの説明なので一緒にしまう */
 
         var pre = document.createElement('pre');
         pre.id = 'debugLog';
@@ -1910,13 +1948,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 55);
+        expect('配列の件数', hist ? hist.length : 0, 56);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -6213,7 +6251,8 @@
             expect('実効音量 ＝ マスター × 枠ごと（枠B: 20 × 30% ＝ 6）', api.eff(b), 6);
             var saved = null;
             try { saved = JSON.parse(localStorage.getItem('sync_card_volume') || '{}'); } catch (e) { }
-            expect('枠ごとの音量が保存される（sync_card_volume）', saved ? (saved[a] + ' / ' + saved[b]) : '(読めず)', '80 / 30');
+            /* ★v1.29.0: v2.18.1 から並び順の番号（a は1番目・b は2番目）で保存する */
+            expect('枠ごとの音量が並び順の番号で保存される（sync_card_volume の 1 / 2）', saved ? (saved['1'] + ' / ' + saved['2']) : '(読めず)', '80 / 30');
             var li = document.getElementById('localVolume_' + a);
             expect('枠の操作バーの音量欄（localVolume_）は枠ごとの音量を出す', li ? li.value : '(なし)', '80');
             /* 実プレイヤーがいれば、実際に設定された音量も見る（いなければ観測だけ） */
@@ -9013,7 +9052,8 @@
         var lsComp = null, lsMeter = null, compBackup = JSON.stringify(cardComp || {});
         try { lsComp = localStorage.getItem('sync_card_comp'); lsMeter = localStorage.getItem('sync_meter_on'); } catch (e) { }
         function lastSend(id) { var a = (compSendLog || []).filter(function (x) { return x.cardId === id; }); return a.length ? a[a.length - 1] : null; }
-        function stored(id) { try { return (JSON.parse(localStorage.getItem('sync_card_comp') || '{}') || {})[id] || null; } catch (e) { return null; } }
+        /* ★v1.29.0: v2.18.1 から並び順の番号で保存する（枠 ID ではない） */
+        function stored(id) { try { var i = sortedCardIds().indexOf(id); return (JSON.parse(localStorage.getItem('sync_card_comp') || '{}') || {})[String(i + 1)] || null; } catch (e) { return null; } }
         try {
             await setCardCount(started + 1);
             cid = lastCard();
@@ -9154,6 +9194,96 @@
         }
     }
 
+    /* --- D-A9: 枠ごとの設定（高音を抑える・音量）が再読み込みのあとも同じ番号の枠に残る -----
+       ★v1.29.0（v2.18.1）。v2.18.0 の R4d「消えていた」: 枠 ID で保存していたので、枠の削除や
+       マイリストの読み込みで ID と並び順がずれたあと再読み込みすると、別の枠へ移る／捨てられた。
+       🔴 利用者の枠には触らない。末尾に2つ足して1つ目を ✕ で消し、残った枠の ID を並び順とずらす。
+       ページを再読み込みして続きを測る（D-S2 と同じ LS_RESUME）。 */
+    function a9Snap() {
+        return sortedCardIds().map(function (id) {
+            var c = getCardComp(id);
+            return [c.on, c.freq, c.threshold, c.ratio, getCardVolume(id)].join('/');
+        });
+    }
+    async function testA9() {
+        log('  [目的] 枠の ID が並び順とずれたあと（枠の削除・マイリストの読み込み）にページを読み込み直しても、高音を抑える・音量の設定が同じ番号の枠に残ること。');
+        var has = (typeof readSlotMap === 'function' && typeof loadSlotSettings === 'function');
+        expect('🔴 A側が枠ごとの設定を並び順の番号で保存する（readSlotMap / loadSlotSettings）', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var lsComp = null, lsVol = null;
+        try { lsComp = localStorage.getItem('sync_card_comp'); lsVol = localStorage.getItem('sync_card_volume'); } catch (e) { }
+        await closeAllMenus();
+        await stopAllIfPlaying();
+        var got = await setCardCount(started + 2);
+        pc('枠を2つ足せた', function () { return got === started + 2 ? (got + '枠') : false; });
+        if (got !== started + 2) { await setCardCount(started); return; }
+        var ids0 = sortedCardIds(), x = ids0[started], y = ids0[started + 1];
+        var cdEl = document.getElementById('confirmDelete'), cd = cdEl ? cdEl.checked : null;
+        if (cdEl) cdEl.checked = false;
+        try { deletePlayer(x); } catch (e) { log('  [⚠] deletePlayer で例外 … ' + (e && e.message || e)); }
+        if (cdEl) { cdEl.checked = cd; try { saveSettings(); } catch (e) { } }
+        await wait(300);
+        var ids1 = sortedCardIds(), slot = ids1.indexOf(y) + 1;
+        pc('足した1つ目を ✕ で消せた（' + x + '）', function () { return (ids1.indexOf(x) < 0 && ids1.length === started + 1) ? (ids1.length + '枠') : false; });
+        /* 🔴 positive control: ずれていなければ不具合を再現できない（再読み込みで ID は card_1 から振り直される） */
+        pc('🔴 残った枠の ID が並び順の番号とずれている（' + y + ' が ' + slot + ' 番目）', function () { return (slot > 0 && y !== 'card_' + slot) ? (y + ' ≠ card_' + slot) : false; });
+        setCardComp(y, { on: true, freq: 5000, threshold: -33, ratio: 9 });
+        setCardVolume(y, 41);
+        var sc = null, sv = null;
+        try { sc = JSON.parse(localStorage.getItem('sync_card_comp') || '{}'); sv = JSON.parse(localStorage.getItem('sync_card_volume') || '{}'); } catch (e) { }
+        var c1 = sc && sc[String(slot)];
+        expect('🔴 高音を抑えるが並び順の番号で保存される（sync_card_comp の ' + slot + '）', c1 ? [c1.on, c1.freq, c1.threshold, c1.ratio].join(' / ') : '(無い)', 'true / 5000 / -33 / 9');
+        expect('🔴 音量が並び順の番号で保存される（sync_card_volume の ' + slot + '）', sv ? String(sv[String(slot)]) : '(読めず)', '41');
+        var before = a9Snap();
+        note('再読み込み前の 枠 / 設定（on/帯域/しきい値/強さ/音量）', ids1.join(', ') + ' ／ ' + before.join(', '));
+        var payload = {
+            v: DEBUG_SUITE_VERSION, at: Date.now(), phase: 'after-reload', which: 'A9',
+            fromAll: runningAll, remaining: allQueue.slice(), logLines: logLines.slice(), report: report,
+            a9: { started: started, backup: backup, lsComp: lsComp, lsVol: lsVol, slot: slot, y: y, ids: ids1, before: before, count: cardCount() }
+        };
+        try { localStorage.setItem(LS_RESUME, JSON.stringify(payload)); } catch (e) { }
+        log('  [待機] 再読み込み前に 500ms 待つ');
+        await wait(500);
+        log('  [操作] location.reload() ─ 読み込み後に自動で続きを実行します');
+        location.reload();
+        await wait(30000);
+    }
+    async function resumeA9(payload) {
+        report = Array.isArray(payload.report) ? payload.report : [];
+        report.forEach(fixRecord);
+        if (report.length === 0) report.push(mkRecord('D-A9', '★再読み込みしても枠ごとの設定が同じ番号の枠に残る'));
+        current = fixRecord(report[report.length - 1]);
+        logLines = (payload.logLines || []).slice();
+        if (logEl) logEl.textContent = logLines.join('\n');
+        log('  === 再読み込み後（自動継続） ===');
+        var d = payload.a9 || {};
+        await wait(800);
+        var ids2 = sortedCardIds(), after = a9Snap(), slot = d.slot || 0;
+        note('再読み込み後の 枠 / 設定', ids2.join(', ') + ' ／ ' + after.join(', '));
+        pc('再読み込み後も枠数が同じ', function () { return cardCount() === d.count ? (d.count + '枠') : false; });
+        var idAt = ids2[slot - 1];
+        note('同じ番号（' + slot + ' 番目）の枠の ID', (d.y || '-') + ' → ' + (idAt || '(無い)'));
+        var c = idAt ? getCardComp(idAt) : null;
+        expect('🔴 同じ番号の枠に高音を抑えるが戻る', c ? [c.on, c.freq, c.threshold, c.ratio].join(' / ') : '(枠が無い)', 'true / 5000 / -33 / 9');
+        expect('🔴 同じ番号の枠に音量が戻る', idAt ? String(getCardVolume(idAt)) : '(枠が無い)', '41');
+        var diff = (d.before || []).map(function (v, i) { return (v === after[i]) ? null : ((i + 1) + ': ' + v + ' → ' + after[i]); }).filter(Boolean);
+        expect('ほかの枠の設定も変わらない', diff.length ? diff.join(' ／ ') : 'ok', 'ok');
+        /* 後始末 */
+        try { await setCardCount(d.started); } catch (e) { }
+        try {
+            if (d.lsComp === null || d.lsComp === undefined) localStorage.removeItem('sync_card_comp'); else localStorage.setItem('sync_card_comp', d.lsComp);
+            if (d.lsVol === null || d.lsVol === undefined) localStorage.removeItem('sync_card_volume'); else localStorage.setItem('sync_card_volume', d.lsVol);
+        } catch (e) { }
+        try { loadSlotSettings(); sortedCardIds().forEach(function (id) { applyCardVolume(id); }); } catch (e) { }
+        var restored = d.backup ? restoreUrlSnapshot(d.backup) : '(退避なし)';
+        note('後始末: 枠数 / 保存URL / 設定', cardCount() + '枠 / ' + (d.backup && restored === urlSnapText(d.backup) ? '保存URLは元どおり' : '⚠ 差分あり') + ' / sync_card_comp・sync_card_volume を元へ');
+        try { localStorage.removeItem(LS_RESUME); } catch (e) { }
+        finishTest(current);
+        openDebugMenu();
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -9246,6 +9376,8 @@
         /* ★v1.28.0: v2.18.0。D-A8 は枠数を変える・D-W10 は再生中の YouTube とアドオン 2.16.0 が要るので manual */
         { id: 'D-A8', name: '★高音を抑える（🎚・設定の保存と送信・付け替え・抑えた量・BROKEN）', run: testA8, manual: true },
         { id: 'D-W10', name: '★高音を抑える（実機・再生中の枠で効いて抑えた量が届く・元に戻す）', run: testW10, manual: true },
+        /* ★v1.29.0: v2.18.1。ページを再読み込みして続きを測るので manual（🎯 の最後） */
+        { id: 'D-A9', name: '★再読み込みしても枠ごとの設定が同じ番号の枠に残る', run: testA9, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
@@ -9542,8 +9674,8 @@
         running = true;
         /* 本体の initApp() が終わってから続きを始める（loadFlowSettings の復元待ち）。 */
         setTimeout(function () {
-            /* ★v1.13.1: 再読み込みをまたぐテストは D-M7 と D-S2 の2本。which で振り分ける（無ければ D-M7）。 */
-            (payload.which === 'S2' ? resumeS2 : resumeM7)(payload).catch(function (e) {
+            /* ★v1.13.1: 再読み込みをまたぐテストは D-M7 と D-S2 の2本。which で振り分ける（無ければ D-M7）。★v1.29.0: D-A9 を足して3本 */
+            (payload.which === 'S2' ? resumeS2 : (payload.which === 'A9' ? resumeA9 : resumeM7))(payload).catch(function (e) {
                 log('  [❌] 継続実行でエラー … ' + (e && e.message || e));
             }).then(function () { running = false; });
         }, 600);
