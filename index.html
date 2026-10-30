@@ -907,7 +907,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.18.0';
+        const APP_VERSION = '2.18.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1559,18 +1559,15 @@
         const COMP_KEY = 'sync_card_comp';
         const COMP_DEFAULTS = { on: false, freq: 4000, threshold: -30, ratio: 8 };
         let cardComp = {};               // cardId → { on, freq, threshold, ratio }
+        let slotSettingsLoaded = false;  // ★v2.18.1: 枠ごとの値（音量・高音を抑える）を保存から読んだか（loadSlotSettings）
         let compSendLog = [];            // debug_suite 用（直近に送った指示）
-        function loadCardComps() {
-            try {
-                const o = JSON.parse(localStorage.getItem(COMP_KEY) || '{}');
-                cardComp = (o && typeof o === 'object') ? o : {};
-            } catch (e) { cardComp = {}; }
-        }
+        /* ★v2.18.1: 保存は並び順の番号（saveSlotMap / readSlotMap）。読むのは枠ができてから（initializeGrid の初回・loadSession）。 */
+        function loadCardComps() { cardComp = readSlotMap(COMP_KEY); }
         function saveCardComps() {
             const keep = {};   // 消えた枠の値は捨てる（sync_card_volume と同じ）
             getSortedCards().forEach(c => { if (cardComp[c.id]) keep[c.id] = cardComp[c.id]; });
             cardComp = keep;
-            try { localStorage.setItem(COMP_KEY, JSON.stringify(keep)); } catch (e) { }
+            saveSlotMap(COMP_KEY, keep);
         }
         function getCardComp(cardId) {
             return Object.assign({}, COMP_DEFAULTS, cardComp[cardId] || {});
@@ -1671,7 +1668,6 @@
             else t = '準備中（再生すると効きます・アドオン 2.16.0 が要ります）';
             red.textContent = t;
         }
-        loadCardComps();
 
         /* ------------------------------------------------------------
            YouTubeの「➕送信」ボタンから動画を受け取り、空き枠へ流し込む。
@@ -1882,6 +1878,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.18.1', d: '2026-10-30', t: [
+                '枠の削除やマイリストの読み込みのあとにページを読み込み直すと、枠ごとの「🎚 高音を抑える」と音量が別の枠へ移る・消える不具合を直した（枠の並び順の番号で保存するようにした）'] },
             { v: '2.18.0', d: '2026-10-30', t: [
                 '🔊 音量パネルの各枠に「🎚 高音を抑える」を追加した（YouTube の枠）。指定した高さより上の音だけ、しきい値を超えた瞬間に抑える。帯域・しきい値・強さを枠ごとに調整して保存する。🔴 アドオン 2.16.0 が要る'] },
             { v: '2.17.0', d: '2026-10-26', t: [
@@ -2187,19 +2185,43 @@
             if (val) val.innerText = Math.round(v);
             saveCardVolumes();
         }
+        /* ★v2.18.1: 枠ごとの値（音量・高音を抑える）は「並び順の番号（1..N）」で保存する。
+           🔴 枠 ID で保存してはいけない。ID は再読み込みのたびに card_1 から振り直され、
+              枠の削除・マイリストの読み込み（保存したときの ID で作り直す）のあとは並び順とずれる。
+              ID で保存すると、動画は元の枠へ戻るのに設定だけ別の枠へ移る／捨てられる（v2.18.0 の R4d）。
+              保存URL（sync_url_<番号>・resaveUrlsBasedOnOrder）と同じ番号に揃える。 */
+        function saveSlotMap(key, map) {
+            if (!slotSettingsLoaded) return null;   // 🔴 読む前（枠ができる前）に書くと保存を空で消す
+            const out = {};
+            getSortedCards().forEach((c, i) => { if (map[c.id] !== undefined) out[String(i + 1)] = map[c.id]; });
+            try { localStorage.setItem(key, JSON.stringify(out)); } catch (e) { }
+            return out;
+        }
+        /* 今の並びの i 番目の枠に "i+1" の値を当てる（枠 ID → 値）。
+           v2.18.0 までの形（card_N）は同じ ID の枠があれば読む（再読み込みの直後は card_N が N 番目）。 */
+        function readSlotMap(key) {
+            let o = {};
+            try { o = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (e) { o = {}; }
+            if (typeof o !== 'object' || Array.isArray(o)) o = {};
+            const map = {};
+            getSortedCards().forEach((c, i) => {
+                const k = String(i + 1);
+                if (o[k] !== undefined) map[c.id] = o[k];
+                else if (o[c.id] !== undefined) map[c.id] = o[c.id];
+            });
+            return map;
+        }
         function saveCardVolumes() {
             /* 消えた枠の値は捨てる（枠IDは作り直すたびに新しい番号になる）。 */
             const keep = {};
             getSortedCards().forEach(c => { if (cardVolume[c.id] !== undefined) keep[c.id] = cardVolume[c.id]; });
             cardVolume = keep;
-            try { localStorage.setItem('sync_card_volume', JSON.stringify(keep)); } catch (e) {}
+            saveSlotMap('sync_card_volume', keep);
         }
-        function loadCardVolumes() {
-            try {
-                const o = JSON.parse(localStorage.getItem('sync_card_volume') || '{}');
-                if (o && typeof o === 'object') cardVolume = o;
-            } catch (e) { cardVolume = {}; }
-        }
+        function loadCardVolumes() { cardVolume = readSlotMap('sync_card_volume'); }
+        /* 🔴 読んでから保存する（逆だと、空のメモリで保存を消す）。枠ができてから呼ぶこと。 */
+        function loadSlotSettings() { loadCardVolumes(); loadCardComps(); slotSettingsLoaded = true; }
+        function saveSlotSettings() { saveCardVolumes(); saveCardComps(); }
         function cardKindOf(cardId) {
             if (ytPlayers[cardId]) return 'YouTube';
             const v = document.getElementById('localVideo_' + cardId);
@@ -2356,6 +2378,9 @@
                 try { destroyPlayerCard(removeId); } catch (e) { console.error(e); }
             }
             updateCardOrder();
+            /* ★v2.18.1: 初回は保存した枠ごとの値を読む → そのあと今の枠数で書き直す（減らした枠の値を消す） */
+            if (!slotSettingsLoaded) loadSlotSettings();
+            saveSlotSettings();
             /* ★v2.8.3: 🔴 ループの中では呼ばない。
                枠が減っている途中の集合で判定してしまう。抜けたあとに1回だけ呼ぶ。 */
             releaseUnusedChatData('枠数の変更');
@@ -3104,6 +3129,7 @@
                 restorePlayerCardFromState(p);
             });
             updateCardOrder(); updateLayout(); updateChatLayout(); updateSkipDisplays(); checkLocalVideoExists();
+            loadSlotSettings();   /* ★v2.18.1: 枠 ID が作り直されたので、番号で保存した音量・高音を抑えるを当て直す */
             setTimeout(() => {
                 updateMasterOptions();
                 const select = document.getElementById('syncMasterSelect');
@@ -3777,6 +3803,7 @@
                 const url = (input && input.value.trim()) ? input.value.trim() : (cardUrls[card.id] || '');
                 if (url) localStorage.setItem('sync_url_' + (index + 1), url);
             });
+            saveSlotSettings();   /* ★v2.18.1: 並びが変わったら枠ごとの値も同じ番号で書き直す */
         }
         /* ★v2.8.7: ピン枠を置く隅。
            🔴 状態は「右か（pinAtRight）」「下か（pinAtBottom）」の2軸で持つ。
@@ -7277,7 +7304,7 @@
                 document.getElementById('speedDisplay').innerText = currentPlaybackSpeed.toFixed(1);
             }
             if (localStorage.getItem('sync_master_volume')) document.getElementById('masterVolume').value = localStorage.getItem('sync_master_volume');
-            loadCardVolumes();   // ★v2.8.9
+            /* ★v2.8.9 枠ごとの音量 → ★v2.18.1: 並び順の番号で保存するので、枠ができてから読む（initializeGrid の初回） */
             loadGridRatios();    // ★v2.8.11
             if (localStorage.getItem('sync_controller_trigger') === 'click') {
                 controllerTrigger = 'click';
