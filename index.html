@@ -191,6 +191,16 @@
         .vol-meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; display: none; }   /* ★v2.12.1 ピークホールド */
         .vol-meter-txt { width: 78px; flex-shrink: 0; font-size: 0.7rem; color: #9fe; font-family: monospace; text-align: right; }
         .vol-ch { display: block; font-size: 0.68rem; color: #b8b8c8; overflow: hidden; text-overflow: ellipsis; }   /* ★v2.11.2 */
+        /* ★v2.18.0: 高音を抑える */
+        .vol-comp-btn { flex-shrink: 0; background: transparent; border: 1px solid #555; color: #aaa; font-size: 0.7rem; padding: 0 5px; border-radius: 3px; cursor: pointer; }
+        .vol-comp-btn.on { border-color: #ff9f43; color: #ff9f43; }
+        .vol-comp-row { display: none; flex-direction: column; gap: 3px; margin: -2px 0 8px 12px; padding: 4px 8px; background: rgba(255,255,255,0.04); border-radius: 3px; font-size: 0.72rem; color: #ccc; }
+        .vol-comp-row.open { display: flex; }
+        .vol-comp-row label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .vol-comp-row .vc-name { width: 4.5em; flex-shrink: 0; }
+        .vol-comp-row input[type=range] { flex: 1; min-width: 80px; }
+        .vol-comp-row .vc-val { font-family: monospace; color: #00ffcc; width: 7.5em; flex-shrink: 0; text-align: right; }
+        .vol-comp-row .vc-red { font-family: monospace; color: #ff9f43; min-height: 1.2em; }
         /* ★v2.11.2: マイリストの「▸ 再生位置」 */
         .gd-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
         .gd-row input[type=text] { width: 220px; font-size: 0.75rem; }
@@ -897,12 +907,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.17.0';
+        const APP_VERSION = '2.18.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.15.0';
+        const ADDON_REQUIRED_VERSION = '2.16.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1408,7 +1418,8 @@
             activeCardIds.forEach(function (cid) {
                 const ifr = meterIframeOf(cid);
                 if (!ifr || !ifr.contentWindow) return;
-                const attach = on && meterNoAttach[cid] !== (cardVideoKeys[cid] || null);
+                const attach = (on || isCompOn(cid)) && meterNoAttach[cid] !== (cardVideoKeys[cid] || null);   /* ★v2.18.0: 高音を抑える枠はスイッチに関係なく付け替える */
+                if (COMP_FEATURE && cardComp[cid]) sendCompTo(cid);   /* ★v2.18.0: 設定のある枠へ毎秒送る（後から読み込んだ枠もこれで拾う） */
                 if (!attach && !report) return;
                 try {
                     ifr.contentWindow.postMessage({ type: 'SYNC_EMBED_METER', attach: attach, report: report }, 'https://www.youtube.com');
@@ -1428,6 +1439,9 @@
             m.volume = (typeof d.volume === 'number') ? d.volume : null;
             m.loud = (typeof d.perceptualLoudnessDb === 'number') ? d.perceptualLoudnessDb : null;
             m.version = d.version || null;
+            m.compOn = d.compOn === true;                                   /* ★v2.18.0 */
+            m.compDb = (typeof d.compDb === 'number') ? d.compDb : null;
+            m.compLatencyMs = (typeof d.compLatencyMs === 'number') ? d.compLatencyMs : null;
             if (m.state === 'running' && m.db !== null) m.hist.push({ t: now, p: Math.pow(10, m.db / 10) });
             while (m.hist.length && now - m.hist[0].t > METER_AVG_MS) m.hist.shift();
         }
@@ -1517,6 +1531,7 @@
                 else { label = '測れません'; tip = m.why || m.state; }
                 txt.textContent = label;
                 txt.title = tip;
+                if (COMP_FEATURE) updateCompRow(cid);   /* ★v2.18.0 */
             });
         }
         function startMeterUi() {
@@ -1531,6 +1546,132 @@
             meterUiTimer = requestAnimationFrame(loop);
         }
         if (METER_FEATURE) setInterval(meterTick, 1000);
+
+        /* ------------------------------------------------------------
+           ★v2.18.0 高音を抑える（枠ごと・YouTube の枠）
+           枠の中のアドオン（content_yt_embed.js）が、音を「境より低い側」と「高い側」に分け、
+           高い側だけをコンプレッサーに通して足し戻す（音量メーターと同じ付け替えに乗る）。
+           A側は SYNC_EMBED_COMP { on, freq, threshold, ratio } を 1秒ごと（meterTick）と、設定を変えたときに送る。
+           🔴 入れた枠は、音量メーターのスイッチが切られていても付け替える（meterTick の attach）。
+           🔴 逃げ道: COMP_FEATURE を false にすると、ボタンも出さず何も送らない。
+           ------------------------------------------------------------ */
+        const COMP_FEATURE = true;
+        const COMP_KEY = 'sync_card_comp';
+        const COMP_DEFAULTS = { on: false, freq: 4000, threshold: -30, ratio: 8 };
+        let cardComp = {};               // cardId → { on, freq, threshold, ratio }
+        let compSendLog = [];            // debug_suite 用（直近に送った指示）
+        function loadCardComps() {
+            try {
+                const o = JSON.parse(localStorage.getItem(COMP_KEY) || '{}');
+                cardComp = (o && typeof o === 'object') ? o : {};
+            } catch (e) { cardComp = {}; }
+        }
+        function saveCardComps() {
+            const keep = {};   // 消えた枠の値は捨てる（sync_card_volume と同じ）
+            getSortedCards().forEach(c => { if (cardComp[c.id]) keep[c.id] = cardComp[c.id]; });
+            cardComp = keep;
+            try { localStorage.setItem(COMP_KEY, JSON.stringify(keep)); } catch (e) { }
+        }
+        function getCardComp(cardId) {
+            return Object.assign({}, COMP_DEFAULTS, cardComp[cardId] || {});
+        }
+        function isCompOn(cardId) { return !!(COMP_FEATURE && cardComp[cardId] && cardComp[cardId].on); }
+        function compMsg(cardId) {
+            const c = getCardComp(cardId);
+            return { type: 'SYNC_EMBED_COMP', on: !!c.on, freq: c.freq, threshold: c.threshold, ratio: c.ratio };
+        }
+        function sendCompTo(cardId) {
+            if (!COMP_FEATURE) return false;
+            const ifr = meterIframeOf(cardId);
+            if (!ifr || !ifr.contentWindow) return false;
+            const msg = compMsg(cardId);
+            if (compBlocked(cardId)) msg.on = false;   // 🔴 BROKEN で付け替えをやめた動画には入れない（on は付け替えを許してしまう）
+            try { ifr.contentWindow.postMessage(msg, 'https://www.youtube.com'); } catch (e) { return false; }
+            compSendLog.push(Object.assign({ cardId: cardId, at: Date.now() }, msg));
+            if (compSendLog.length > 50) compSendLog.shift();
+            return true;
+        }
+        function setCardComp(cardId, patch) {
+            const c = getCardComp(cardId);
+            Object.keys(patch || {}).forEach(function (k) { if (k in COMP_DEFAULTS) c[k] = patch[k]; });
+            c.freq = Math.max(1000, Math.min(12000, Number(c.freq) || COMP_DEFAULTS.freq));
+            c.threshold = Math.max(-60, Math.min(0, Number(c.threshold)));
+            if (!isFinite(c.threshold)) c.threshold = COMP_DEFAULTS.threshold;
+            c.ratio = Math.max(2, Math.min(20, Number(c.ratio) || COMP_DEFAULTS.ratio));
+            c.on = !!c.on;
+            cardComp[cardId] = c;
+            saveCardComps();
+            sendCompTo(cardId);   // すぐ当てる（1秒待たない）
+            updateCompRow(cardId);
+        }
+        function compFreqText(f) { return f >= 1000 ? (f / 1000).toFixed(f % 1000 ? 2 : 0).replace(/0$/, '') + 'kHz' : f + 'Hz'; }
+        function buildCompRow(cid, card) {
+            const c = getCardComp(cid);
+            const row = document.createElement('div');
+            row.className = 'vol-comp-row'; row.id = 'volComp_' + cid;
+            const onL = document.createElement('label');
+            const on = document.createElement('input'); on.type = 'checkbox'; on.id = 'volCompOn_' + cid; on.checked = !!c.on;
+            on.onchange = function () { setCardComp(cid, { on: this.checked }); };
+            onL.appendChild(on); onL.appendChild(document.createTextNode('高音を抑える'));
+            row.appendChild(onL);
+            const slider = function (key, label, min, max, step, title) {
+                const l = document.createElement('label'); l.title = title;
+                const nm = document.createElement('span'); nm.className = 'vc-name'; nm.textContent = label;
+                l.appendChild(nm);
+                const r = document.createElement('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = c[key];
+                r.id = 'volComp' + key.charAt(0).toUpperCase() + key.slice(1) + '_' + cid;
+                r.oninput = function () { const p = {}; p[key] = Number(this.value); setCardComp(cid, p); };
+                const v = document.createElement('span'); v.className = 'vc-val'; v.id = r.id + 'Val';
+                l.appendChild(r); l.appendChild(v);
+                return l;
+            };
+            row.appendChild(slider('freq', '帯域', 1000, 12000, 250, 'この高さより上の音だけを抑えます（下げるほど広い範囲。歯擦音なら 5〜8kHz、キンキンする声なら 2〜4kHz が目安）'));
+            row.appendChild(slider('threshold', 'しきい値', -60, 0, 1, '高い側の音がこの大きさを超えたら抑え始めます（下げるほどよく効く）'));
+            row.appendChild(slider('ratio', '強さ', 2, 20, 1, '超えた分をどれだけ縮めるか（8 なら 8分の1。20 でほぼ頭打ち）'));
+            const red = document.createElement('span'); red.className = 'vc-red'; red.id = 'volCompRed_' + cid;
+            row.appendChild(red);
+            row.addEventListener('mouseenter', () => card.classList.add('vol-highlight'));
+            row.addEventListener('mouseleave', () => card.classList.remove('vol-highlight'));
+            setTimeout(function () { updateCompRow(cid); }, 0);
+            return row;
+        }
+        function toggleCompRow(cid) {
+            const row = document.getElementById('volComp_' + cid);
+            if (row) row.classList.toggle('open');
+        }
+        function compBlocked(cid) {
+            return meterNoAttach[cid] !== undefined && meterNoAttach[cid] === (cardVideoKeys[cid] || null);
+        }
+        /* 行の表示を今の設定と報告に合わせる（パネルの描き直しのたびと、メーターの書き換えのたび）。 */
+        function updateCompRow(cid) {
+            const c = getCardComp(cid);
+            const btn = document.getElementById('volCompBtn_' + cid);
+            if (btn) {
+                btn.classList.toggle('on', !!c.on);
+                btn.title = c.on ? ('高音を抑えています（' + compFreqText(c.freq) + ' より上・しきい値 ' + c.threshold + ' dB・強さ ' + c.ratio + '）') : '高音を抑える（押して設定を開く）';
+            }
+            const on = document.getElementById('volCompOn_' + cid);
+            if (on && on.checked !== !!c.on) on.checked = !!c.on;
+            [['freq', compFreqText(c.freq) + ' より上'], ['threshold', c.threshold + ' dB'], ['ratio', c.ratio + ' : 1']].forEach(function (p) {
+                const k = p[0], id = 'volComp' + k.charAt(0).toUpperCase() + k.slice(1) + '_' + cid;
+                const r = document.getElementById(id);
+                if (r && document.activeElement !== r && String(r.value) !== String(c[k])) r.value = c[k];
+                const v = document.getElementById(id + 'Val');
+                if (v) v.textContent = p[1];
+            });
+            const red = document.getElementById('volCompRed_' + cid);
+            if (!red) return;
+            const m = meterLevels[cid];
+            const fresh = m && (Date.now() - m.at) <= METER_STALE_MS;
+            let t = '';
+            if (!c.on) t = '';
+            else if (compBlocked(cid)) t = '⚠ この動画では使えません（音の処理が止まったため）';
+            else if (fresh && m.compOn && typeof m.compDb === 'number') t = '高い側を ' + Math.abs(m.compDb).toFixed(1) + ' dB 抑えています';
+            else if (fresh && m.compOn) t = '効いています';
+            else t = '準備中（再生すると効きます・アドオン 2.16.0 が要ります）';
+            red.textContent = t;
+        }
+        loadCardComps();
 
         /* ------------------------------------------------------------
            YouTubeの「➕送信」ボタンから動画を受け取り、空き枠へ流し込む。
@@ -1741,6 +1882,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.18.0', d: '2026-10-30', t: [
+                '🔊 音量パネルの各枠に「🎚 高音を抑える」を追加した（YouTube の枠）。指定した高さより上の音だけ、しきい値を超えた瞬間に抑える。帯域・しきい値・強さを枠ごとに調整して保存する。🔴 アドオン 2.16.0 が要る'] },
             { v: '2.17.0', d: '2026-10-26', t: [
                 'YouTube にログインしていないとき、投稿欄に「🔑 YouTube にログイン」ボタンを出すようにした（押すと新しいタブでログイン画面が開き、戻ってくると投稿できるようになる）',
                 '投稿できないと出たあと、🔄 で投稿できるかを確かめ直すようにした。🔴 アドオン 2.15.0 が要る'] },
@@ -2114,9 +2257,16 @@
                     track.appendChild(peak);
                     const txt = document.createElement('span'); txt.className = 'vol-meter-txt'; txt.id = 'volMeterTxt_' + cid; txt.textContent = '—';
                     mrow.appendChild(track); mrow.appendChild(txt);
+                    if (COMP_FEATURE) {   /* ★v2.18.0 */
+                        const cb = document.createElement('button');
+                        cb.className = 'vol-comp-btn'; cb.id = 'volCompBtn_' + cid; cb.textContent = '🎚';
+                        cb.onclick = function () { toggleCompRow(cid); };
+                        mrow.appendChild(cb);
+                    }
                     mrow.addEventListener('mouseenter', () => card.classList.add('vol-highlight'));
                     mrow.addEventListener('mouseleave', () => card.classList.remove('vol-highlight'));
                     host.appendChild(mrow);
+                    if (COMP_FEATURE) host.appendChild(buildCompRow(cid, card));
                 }
             });
         }

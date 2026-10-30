@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.27.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.28.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.17.0';
+    var EXPECT_APP_VERSION = '2.18.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.15.0';
+    var EXPECT_ADDON_REQUIRED = '2.16.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.17.0', ids: ['D-V1', 'D-V2', 'D-L13', 'D-L12'] };
+    var VERSION_FOCUS = { v: '2.18.0', ids: ['D-V1', 'D-V2', 'D-A8', 'D-A4'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -1910,13 +1910,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 54);
+        expect('配列の件数', hist ? hist.length : 0, 55);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -8995,6 +8995,165 @@
         }
     }
 
+    /* ======================================================================
+       ★v1.28.0 : v2.18.0 の判定（枠ごとの「高音を抑える」）
+       ==================================================================== */
+
+    /* --- D-A8: A側だけ。偽の YouTube 枠で 🎚・設定・送る指示・付け替え・抑えた量・BROKEN --- */
+    async function testA8() {
+        log('  [目的] 音量パネルの YouTube の枠に 🎚 と設定の行が出て、オン・帯域・しきい値・強さが枠ごとに保存され、すぐ枠へ送られること。入れた枠はメーターのスイッチを切っても付け替えること。抑えた量を出し、BROKEN の動画では使えないと出すこと。');
+        var has = (typeof setCardComp === 'function' && typeof getCardComp === 'function' && typeof compSendLog !== 'undefined');
+        expect('🔴 A側の「高音を抑える」（setCardComp / getCardComp / compSendLog）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var started = cardCount();
+        var backup = urlSnapshot();
+        var backupText = urlSnapText(backup);
+        var cid = null, saved = null, ifr = null, savedKey;
+        var lsComp = null, lsMeter = null, compBackup = JSON.stringify(cardComp || {});
+        try { lsComp = localStorage.getItem('sync_card_comp'); lsMeter = localStorage.getItem('sync_meter_on'); } catch (e) { }
+        function lastSend(id) { var a = (compSendLog || []).filter(function (x) { return x.cardId === id; }); return a.length ? a[a.length - 1] : null; }
+        function stored(id) { try { return (JSON.parse(localStorage.getItem('sync_card_comp') || '{}') || {})[id] || null; } catch (e) { return null; } }
+        try {
+            await setCardCount(started + 1);
+            cid = lastCard();
+            pc('枠を1つ足せた', function () { return cid ? cid : false; });
+            if (!cid) return;
+            ifr = document.createElement('iframe');
+            ifr.style.cssText = 'position:fixed;left:-50px;top:-50px;width:10px;height:10px;';
+            document.body.appendChild(ifr);
+            saved = ytPlayers[cid];
+            var fp = fakeYtPlayer({ video_id: 'dbgA8aaaaaa', title: '高音試験', author: '', __t: 10 });
+            fp.getIframe = function () { return ifr; };
+            ytPlayers[cid] = fp;
+            savedKey = cardVideoKeys[cid];
+            cardVideoKeys[cid] = 'dbgA8aaaaaa';
+            delete cardComp[cid];
+            toggleVolumeMenu();
+            await wait(150);
+            pc('🔴 偽の YouTube 枠の行がある（土俵）', function () { return document.getElementById('volRow_' + cid) ? 'あり' : false; });
+            var btn = document.getElementById('volCompBtn_' + cid), row = document.getElementById('volComp_' + cid);
+            expect('🔴 その枠に 🎚 と設定の行がある', (btn && row) ? 'ok' : ('ボタン=' + !!btn + ' / 行=' + !!row), 'ok');
+            if (!btn || !row) return;
+            var other = activeCardIds.filter(function (c) { return c !== cid && !ytPlayers[c]; })[0];
+            if (other) expect('YouTube でない枠には 🎚 が無い', document.getElementById('volCompBtn_' + other) ? 'ある' : '無い', '無い');
+            var c0 = getCardComp(cid);
+            expect('既定値（オフ・4kHz・-30 dB・8）', [c0.on, c0.freq, c0.threshold, c0.ratio].join(' / '), 'false / 4000 / -30 / 8');
+            expect('設定の行ははじめ閉じている', row.classList.contains('open') ? '開いている' : '閉じている', '閉じている');
+            btn.click();
+            expect('🎚 を押すと設定の行が開く', row.classList.contains('open') ? '開いている' : '閉じている', '開いている');
+
+            /* オン → 保存・すぐ送る */
+            var n0 = (compSendLog || []).length;
+            document.getElementById('volCompOn_' + cid).click();
+            var s1 = lastSend(cid), st1 = stored(cid);
+            expect('🔴 オンにすると枠ごとに保存される（sync_card_comp）', st1 ? [st1.on, st1.freq, st1.threshold, st1.ratio].join(' / ') : '(無い)', 'true / 4000 / -30 / 8');
+            expect('🔴 オンにするとすぐ SYNC_EMBED_COMP を送る（1秒待たない）', (compSendLog.length > n0 && s1) ? [s1.type, s1.on, s1.freq, s1.threshold, s1.ratio].join(' / ') : '(送っていない)', 'SYNC_EMBED_COMP / true / 4000 / -30 / 8');
+            expect('ボタンが「効いている」見た目になる', btn.classList.contains('on') ? 'ok' : '変わらない', 'ok');
+
+            /* 帯域・しきい値・強さ */
+            var setR = function (key, v) { var r = document.getElementById('volComp' + key + '_' + cid); if (!r) return false; r.value = v; r.dispatchEvent(new Event('input')); return true; };
+            var okR = setR('Freq', 6000) && setR('Threshold', -45) && setR('Ratio', 12);
+            pc('スライダー3本を動かせた', function () { return okR ? 'ok' : false; });
+            var s2 = lastSend(cid);
+            expect('🔴 帯域・しきい値・強さを変えると送り直す', s2 ? [s2.freq, s2.threshold, s2.ratio].join(' / ') : '-', '6000 / -45 / 12');
+            expect('値の表示', ['Freq', 'Threshold', 'Ratio'].map(function (k) { var v = document.getElementById('volComp' + k + '_' + cid + 'Val'); return v ? v.textContent : '-'; }).join(' / '), '6kHz より上 / -45 dB / 12 : 1');
+            setCardComp(cid, { freq: 99999, threshold: 5, ratio: 100 });
+            var c2 = getCardComp(cid);
+            expect('範囲の外の値は丸める（1〜12kHz・-60〜0 dB・2〜20）', [c2.freq, c2.threshold, c2.ratio].join(' / '), '12000 / 0 / 20');
+            setCardComp(cid, { freq: 6000, threshold: -45, ratio: 12 });
+
+            /* 付け替え: メーターのスイッチを切っても、入れた枠は attach */
+            setMeterOn(false); meterTick();
+            var mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
+            expect('🔴 メーターのスイッチを切っても、高音を抑える枠には attach を送る', mine ? String(mine.attach) : '(送っていない)', 'true');
+            expect('毎秒の点呼でも設定を送る', (lastSend(cid) || {}).on === true ? 'ok' : '送らない', 'ok');
+            setCardComp(cid, { on: false }); meterTick();
+            mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
+            expect('オフでスイッチも切っていれば attach を送らない（report だけ）', mine ? (mine.attach + ' / ' + mine.report) : '(送っていない)', 'false / true');
+            expect('オフにしたことも送る（枠の中で外させる）', (lastSend(cid) || {}).on === false ? 'ok' : '送らない', 'ok');
+            setMeterOn(true);
+            setCardComp(cid, { on: true });
+
+            /* 抑えた量の表示 */
+            var red = document.getElementById('volCompRed_' + cid);
+            handleEmbedMessage({ type: 'SYNC_EMBED_LEVEL', state: 'running', db: -20, compOn: true, compDb: -7.4, compLatencyMs: 6, embedHref: '' }, ifr.contentWindow, 'https://www.youtube.com');
+            renderMeters();
+            expect('🔴 報告の compDb で抑えた量を出す', red ? red.textContent : '-', '高い側を 7.4 dB 抑えています');
+            handleEmbedMessage({ type: 'SYNC_EMBED_LEVEL', state: 'running', db: -20, compOn: false, compDb: null, embedHref: '' }, ifr.contentWindow, 'https://www.youtube.com');
+            renderMeters();
+            expect('オンなのに枠の中で効いていなければ「準備中」', red && /準備中/.test(red.textContent) ? 'ok' : (red ? red.textContent : '-'), 'ok');
+
+            /* BROKEN の動画では使えない */
+            meterNoAttach[cid] = cardVideoKeys[cid];
+            renderMeters(); meterTick();
+            expect('🔴 BROKEN の動画では「使えません」と出す', red && /使えません/.test(red.textContent) ? 'ok' : (red ? red.textContent : '-'), 'ok');
+            expect('🔴 BROKEN の動画には on:false を送る（付け替えを許さない）', (lastSend(cid) || {}).on === false ? 'ok' : '送った', 'ok');
+            mine = (meterSendLog || []).filter(function (x) { return x.cardId === cid; })[0];
+            expect('BROKEN の動画には attach を送らない', mine ? String(mine.attach) : '(送っていない)', 'false');
+        } finally {
+            try { if (lsComp === null) localStorage.removeItem('sync_card_comp'); else localStorage.setItem('sync_card_comp', lsComp); } catch (e) { }
+            try { if (lsMeter === null) localStorage.removeItem('sync_meter_on'); else localStorage.setItem('sync_meter_on', lsMeter); } catch (e) { }
+            try { cardComp = JSON.parse(compBackup); } catch (e) { }
+            try { if (cid) { delete meterLevels[cid]; delete meterNoAttach[cid]; delete meterReloadSeek[cid]; if (typeof meterDisp !== 'undefined') delete meterDisp[cid]; } } catch (e) { }
+            try { if (cid) { if (saved) ytPlayers[cid] = saved; else delete ytPlayers[cid]; if (savedKey === undefined) delete cardVideoKeys[cid]; else cardVideoKeys[cid] = savedKey; } } catch (e) { }
+            try { if (ifr) ifr.remove(); } catch (e) { }
+            try { await closeAllMenus(); } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL・設定', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり') + ' / sync_card_comp・sync_meter_on を元へ');
+        }
+    }
+
+    /* --- D-W10: 実機。再生中の YouTube 枠で高音を抑えると、枠の中で効いて抑えた量が届く --- */
+    async function testW10() {
+        log('  [目的] 枠の中のアドオン 2.16.0 が「高音を抑える」を受けて効かせ、抑えた量（compDb）を5秒以内に返すこと。音が出続けていること。最後に元の設定へ戻す。');
+        var has = (typeof setCardComp === 'function' && typeof getCardComp === 'function');
+        expect('🔴 A側の「高音を抑える」がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var ids = ytCardIds();
+        var playing = ids.filter(function (id) { try { return ytPlayers[id].getPlayerState() === 1; } catch (e) { return false; } });
+        pc('🔴 再生中の YouTube 枠がある（再生してから押す）', function () { return playing.length ? playing.join(',') : false; });
+        if (!playing.length) return;
+        var cid = playing[0];
+        var had = cardComp[cid] ? JSON.parse(JSON.stringify(cardComp[cid])) : null;
+        var opened = false;
+        try {
+            if (!isVolumeMenuOpen()) { toggleVolumeMenu(); opened = true; }
+            var r0 = await waitFor(function () { var m = meterLevels[cid]; return (m && Date.now() - m.at < 1500 && m.state === 'running') ? 'ok' : null; }, 6000, 200);
+            pc('この枠のメーターの報告が届いている（running）', function () { return r0.ok ? 'ok' : false; });
+            if (!r0.ok) return;
+            setCardComp(cid, { on: true, freq: 2000, threshold: -50, ratio: 20 });
+            var t0 = Date.now();
+            var r = await waitFor(function () { var m = meterLevels[cid]; return (m && m.compOn && typeof m.compDb === 'number' && m.at > t0) ? m.compDb : null; }, 5000, 100);
+            note('効くまでの時間', r.ok ? Math.round((Date.now() - t0) / 100) / 10 + '秒' : '-');
+            expect('🔴 5秒以内に枠の中で効いた（compOn と compDb が届く）', r.ok ? 'ok' : '届かない', 'ok');
+            if (!r.ok) return;
+            var reds = [], dbs = [];
+            for (var i = 0; i < 30; i++) {
+                await wait(100);
+                var m = meterLevels[cid];
+                if (m && typeof m.compDb === 'number') reds.push(m.compDb);
+                if (m && typeof m.db === 'number') dbs.push(m.db);
+            }
+            var mx = reds.length ? Math.min.apply(null, reds) : null;
+            note('3秒のあいだに抑えた量の最大（強め: 2kHz・-50 dB・20）', mx === null ? '-' : Math.abs(mx).toFixed(1) + ' dB');
+            note('測ったコンプレッサーの遅れ（低い側をこの分だけ遅らせている）', meterLevels[cid] && meterLevels[cid].compLatencyMs !== null ? meterLevels[cid].compLatencyMs + 'ms' : '-');
+            expect('強めに入れると高い側を抑えている（抑えた量 > 0 dB）', mx !== null && mx < -0.1 ? 'ok' : String(mx), 'ok');
+            expect('🔴 音が出続けている（メーターが数値を返す）', dbs.length >= 20 ? 'ok' : (dbs.length + '回'), 'ok');
+            var r2 = await waitFor(function () { setCardComp(cid, { on: false }); var m = meterLevels[cid]; return (m && m.compOn === false && m.at > Date.now() - 500) ? 'ok' : null; }, 5000, 300);
+            expect('オフに戻すと枠の中でも外れる', r2.ok ? 'ok' : '外れない', 'ok');
+        } finally {
+            try {
+                if (had) { cardComp[cid] = had; saveCardComps(); sendCompTo(cid); }
+                else { delete cardComp[cid]; saveCardComps(); sendCompTo(cid); }
+            } catch (e) { }
+            if (opened) { try { await closeAllMenus(); } catch (e) { } }
+            note('後始末: この枠の設定を元へ戻した', had ? JSON.stringify(had) : '(設定なし)');
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -9084,6 +9243,9 @@
         /* ★v1.27.0: v2.17.0。D-L13 は枠数を変える・D-W9 はログインしていないブラウザとライブが要るので manual。🔴 どちらも投稿しない・ログイン画面を開かない */
         { id: 'D-L13', name: '★ログインしていないときの「🔑 YouTube にログイン」（開く先・戻るとやり直す・🔄）', run: testL13, manual: true },
         { id: 'D-W9', name: '★ログインしていないと判定してボタンを出す（実機・ログアウトしたブラウザ・dryRun だけ）', run: testW9, manual: true },
+        /* ★v1.28.0: v2.18.0。D-A8 は枠数を変える・D-W10 は再生中の YouTube とアドオン 2.16.0 が要るので manual */
+        { id: 'D-A8', name: '★高音を抑える（🎚・設定の保存と送信・付け替え・抑えた量・BROKEN）', run: testA8, manual: true },
+        { id: 'D-W10', name: '★高音を抑える（実機・再生中の枠で効いて抑えた量が届く・元に戻す）', run: testW10, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
