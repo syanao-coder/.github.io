@@ -1298,6 +1298,121 @@
   }
 
   /* ==============================================================
+     ★v2.19.0 YouTube の視聴履歴（スパイク H1 ─ browse / FEhistory）
+     🔴 1ページ 3.4MB・199件なので、ここで30件に絞ってから A側へ送る。
+     🔴 ショートは除く。同じ動画は最初（新しい方）だけ。
+     ============================================================== */
+  const HIST_MAX = 30;
+  const HIST_TIMEOUT_MS = 20000;
+  function histDig(o, path) { let v = o; for (let i = 0; i < path.length; i++) { if (!v) return undefined; v = v[path[i]]; } return v; }
+  function histText(t) {
+    if (!t) return '';
+    if (typeof t === 'string') return t;
+    if (t.content != null) return String(t.content);
+    if (t.simpleText != null) return String(t.simpleText);
+    if (Array.isArray(t.runs)) return t.runs.map(function (r) { return r.text || ''; }).join('');
+    return '';
+  }
+  /* o の中で最初に見つかる key の値（深さ12まで・前から順に） */
+  function histFind(o, key) {
+    const stack = [[o, 0]];
+    while (stack.length) {
+      const top = stack.shift(), v = top[0], d = top[1];
+      if (!v || typeof v !== 'object' || d > 12) continue;
+      if (Object.prototype.hasOwnProperty.call(v, key)) return v[key];
+      for (const k in v) if (v[k] && typeof v[k] === 'object') stack.push([v[k], d + 1]);
+    }
+    return undefined;
+  }
+  function histCut(s) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > 200 ? s.slice(0, 200) : s; }
+  function histItem(kind, o) {
+    if (kind === 'videoRenderer') {
+      const ov = histFind(o, 'thumbnailOverlayResumePlaybackRenderer');
+      return {
+        id: o.videoId || null, title: histText(o.title),
+        channel: histText(o.ownerText || o.shortBylineText || o.longBylineText),
+        len: histText(o.lengthText),
+        pct: ov && typeof ov.percentDurationWatched === 'number' ? ov.percentDurationWatched : null
+      };
+    }
+    /* lockupViewModel */
+    const meta = histDig(o, ['metadata', 'lockupMetadataViewModel']) || {};
+    const rows = histDig(meta, ['metadata', 'contentMetadataViewModel', 'metadataRows']) || [];
+    let channel = '';
+    for (let i = 0; i < rows.length && !channel; i++) {
+      const parts = rows[i] && rows[i].metadataParts;
+      if (parts && parts[0]) channel = histText(parts[0].text);
+    }
+    const badge = histFind(o.contentImage, 'thumbnailBadgeViewModel');
+    const bar = histFind(o.contentImage, 'thumbnailOverlayProgressBarViewModel');
+    return {
+      id: o.contentId || null, title: histText(meta.title), channel: channel,
+      len: badge ? histText(badge.text) : '',
+      pct: bar && typeof bar.startPercent === 'number' ? bar.startPercent : null
+    };
+  }
+  function histExtract(root, out, seen) {
+    const stack = [root];
+    while (stack.length && out.length < HIST_MAX) {
+      const v = stack.pop();
+      if (!v || typeof v !== 'object') continue;
+      if (Array.isArray(v)) { for (let a = v.length - 1; a >= 0; a--) stack.push(v[a]); continue; }
+      if (v.shortsLockupViewModel || v.reelItemRenderer) { out.shorts++; continue; }   // 🔴 ショートは除く
+      let kind = null;
+      if (v.lockupViewModel) kind = 'lockupViewModel';
+      else if (v.videoRenderer) kind = 'videoRenderer';
+      if (kind) {
+        const o = v[kind];
+        if (kind === 'lockupViewModel' && o.contentType && o.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') continue;
+        const it = histItem(kind, o);
+        if (it.id && /^[A-Za-z0-9_-]{11}$/.test(it.id) && !seen[it.id]) {
+          seen[it.id] = 1;
+          out.push({ id: it.id, title: histCut(it.title), channel: histCut(it.channel), len: histCut(it.len).slice(0, 20),
+            pct: (typeof it.pct === 'number' && isFinite(it.pct)) ? Math.max(0, Math.min(100, Math.round(it.pct))) : null });
+        } else if (it.id) out.dups++;
+        continue;   // 項目の中は下りない
+      }
+      /* 🔴 画面の並び順を保つ（後ろから積むと先頭から取り出せる） */
+      const ks = Object.keys(v);
+      for (let q = ks.length - 1; q >= 0; q--) if (v[ks[q]] && typeof v[ks[q]] === 'object') stack.push(v[ks[q]]);
+    }
+  }
+  async function ytHistory(d) {
+    const out = { ev: 'history', requestId: d.requestId, ok: false, needLogin: false, items: null, error: null, httpStatus: null };
+    cancelIdleClose();
+    try {
+      if (!hasAuthCookie()) { out.needLogin = true; out.error = 'YouTube にログインしていません'; return out; }
+      let cfg = cfgFromPage();
+      if (!cfg) {
+        const h = await fetchTimed('/', { credentials: 'include' }, HIST_TIMEOUT_MS, 'text');
+        if (h.res.ok) cfg = cfgFromHtml(h.body);
+      }
+      if (!cfg) throw new Error('INNERTUBE_API_KEY / CONTEXT を取得できませんでした');
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, (await buildAuthHeaders()) || {});
+      const r = await fetchTimed('/youtubei/v1/browse?key=' + encodeURIComponent(cfg.key) + '&prettyPrint=false', {
+        method: 'POST', credentials: 'include', headers: headers,
+        body: JSON.stringify({ context: cfg.ctx, browseId: 'FEhistory' })
+      }, HIST_TIMEOUT_MS, 'json');
+      out.httpStatus = r.res.status;
+      if (!r.res.ok) {
+        if (r.res.status === 401 || r.res.status === 403) out.needLogin = !hasAuthCookie();
+        throw new Error('履歴を読めません（HTTP ' + r.res.status + '）');
+      }
+      const items = []; items.shorts = 0; items.dups = 0;
+      histExtract(r.body, items, {});
+      out.shorts = items.shorts; out.dups = items.dups;
+      out.items = items.slice(0, HIST_MAX);
+      out.ok = true;
+    } catch (e) {
+      out.error = String(e && e.message ? e.message : e).slice(0, 200);
+    } finally {
+      post(out);
+      if (!jobs.size) scheduleIdleClose();
+    }
+    return out;
+  }
+
+  /* ==============================================================
      ISOLATED からの指示を受ける
      ============================================================== */
   window.addEventListener('message', function (e) {
@@ -1307,6 +1422,7 @@
     if (d.cmd === 'CHAT_ENQUEUE') enqueue(d.requestId, d.videoId, d.mode);
     else if (d.cmd === 'CHAT_CANCEL') cancel(d.requestId);
     else if (d.cmd === 'CHAT_POST') chatPost(d);   /* ★v2.16.0 */
+    else if (d.cmd === 'CHAT_HISTORY') ytHistory(d);   /* ★v2.19.0（アドオン 2.17.0） */
     else if (d.cmd === 'CHAT_CONFIG' && d.config) {
       /* 段階 1-F の計測用。実行中に束ね方を差し替えられる。 */
       for (const k of Object.keys(d.config)) {

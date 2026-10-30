@@ -907,12 +907,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.18.1';
+        const APP_VERSION = '2.19.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.16.0';
+        const ADDON_REQUIRED_VERSION = '2.17.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1282,6 +1282,8 @@
                     handleChatPing(event.data);
                 } else if (newState === 'chatPost') {
                     handleChatPost(event.data);   /* ★v2.16.0 */
+                } else if (newState === 'ytHistory') {
+                    handleYtHistory(event.data);   /* ★v2.19.0 */
                 }
             }
             /* ★v2.9.0: 枠の中の YouTube（アドオンの content_yt_embed.js）から直接届く */
@@ -1878,6 +1880,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.19.0', d: '2026-10-30', t: [
+                '空の枠の「最近使った動画」で「🕒 このツール ／ ▶ YouTube」を切り替えられるようにした。▶ YouTube では YouTube の視聴履歴（最新30件・ショートは除く）を出し、押すとその動画を読み込む。10分は読み直さず、🔄 で読み直す。🔴 アドオン 2.17.0 が要る'] },
             { v: '2.18.1', d: '2026-10-30', t: [
                 '枠の削除やマイリストの読み込みのあとにページを読み込み直すと、枠ごとの「🎚 高音を抑える」と音量が別の枠へ移る・消える不具合を直した（枠の並び順の番号で保存するようにした）'] },
             { v: '2.18.0', d: '2026-10-30', t: [
@@ -2440,7 +2444,7 @@
                     '</div>' +
                 '</div>' +
                 // 履歴ギャラリーは伸縮させず下部に固定（履歴が無い場合は高さ0になり入力欄が完全な中央に来る）
-                '<div style="flex: 0 0 auto; width:100%;">' +
+                '<div id="histGallery_' + cardId + '" style="flex: 0 0 auto; width:100%;">' +   /* ★v2.19.0: id で中だけ描き直す */
                     generateHistoryGalleryHTML(cardId) +
                 '</div>' +
             '</div>';
@@ -2778,12 +2782,128 @@
             });
         }
 
+        /* ------------------------------------------------------------
+           ★v2.19.0 「最近使った動画」の切り替え（🕒 このツール ／ ▶ YouTube）
+           YouTube の視聴履歴は取得タブ（アドオン 2.17.0）が browse / FEhistory で読み、30件に絞って返す（スパイク H1）。
+           🔴 枠（埋め込み）で見た動画は YouTube の履歴に載らないので、置き換えずに切り替えで共存させる。
+           🔴 全枠で1つの結果を使い回す（10分）。🔄 で読み直す。タイトル・チャンネル名は HTML として逃がす。
+           ------------------------------------------------------------ */
+        const YT_HIST_TTL_MS = 10 * 60 * 1000;
+        let ytHistTimeoutMs = 25000;     // debug_suite が縮める
+        let histView = 'tool';
+        try { if (localStorage.getItem('sync_hist_view') === 'yt') histView = 'yt'; } catch (e) { }
+        let ytHist = { state: 'idle', items: [], at: 0, error: '', reqId: null, timer: null };
+        let ytHistSendLog = [];          // debug_suite 用（送った要求）
+        function setHistView(v) {
+            histView = (v === 'yt') ? 'yt' : 'tool';
+            try { localStorage.setItem('sync_hist_view', histView); } catch (e) { }
+            if (histView === 'yt') ensureYtHistory(false);
+            refreshHistGalleries();
+        }
+        function refreshHistGalleries() {
+            activeCardIds.forEach(function (id) {
+                const g = document.getElementById('histGallery_' + id);
+                if (g) g.innerHTML = generateHistoryGalleryHTML(id);
+            });
+        }
+        /* force: 🔄。それ以外は 10分以内の結果があれば読まない。読み込み中は重ねて送らない */
+        let ytHistWaitTries = 0, ytHistWaitTimer = null;
+        function ensureYtHistory(force) {
+            if (ytHist.state === 'loading') return false;
+            if (!force && ytHist.state === 'ok' && (Date.now() - ytHist.at) < YT_HIST_TTL_MS) return false;
+            /* 🔴 ページを開いた直後（▶ YouTube を覚えていたとき）は、アドオンの content_controller.js が
+                  まだ聞いていないことがある（document_end と本体の起動の順は決まらない）。名乗り（addonInfo）を最大10秒待つ。
+               🔴 待つのは1本だけ（空の枠ごとに呼ばれるので、枠の数だけ待ちを重ねない）。 */
+            if (!addonVersion && ytHistWaitTries < 10) {
+                if (!ytHistWaitTimer) {
+                    ytHistWaitTimer = setTimeout(function () {
+                        ytHistWaitTimer = null; ytHistWaitTries++;
+                        if (histView === 'yt' && ytHist.state !== 'loading') ensureYtHistory(force);
+                    }, 1000);
+                }
+                return false;
+            }
+            const requestId = 'yh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            ytHist.state = 'loading'; ytHist.reqId = requestId; ytHist.error = '';
+            if (ytHist.timer) clearTimeout(ytHist.timer);
+            ytHist.timer = setTimeout(function () {
+                if (ytHist.reqId === requestId && ytHist.state === 'loading') { ytHist.state = 'noaddon'; refreshHistGalleries(); }
+            }, ytHistTimeoutMs);
+            ytHistSendLog.push({ requestId: requestId, at: Date.now(), force: !!force });
+            if (ytHistSendLog.length > 50) ytHistSendLog.shift();
+            window.postMessage({ type: 'YT_HISTORY_REQUEST', requestId: requestId }, '*');
+            refreshHistGalleries();
+            return true;
+        }
+        function reloadYtHistory() { ensureYtHistory(true); }
+        function handleYtHistory(d) {
+            if (!d || d.requestId !== ytHist.reqId) return;   // 古い要求の答えは捨てる
+            if (ytHist.timer) { clearTimeout(ytHist.timer); ytHist.timer = null; }
+            if (d.ok && Array.isArray(d.items)) {
+                ytHist.items = d.items.filter(function (x) { return x && /^[A-Za-z0-9_-]{11}$/.test(String(x.id || '')); }).slice(0, 30);
+                ytHist.state = 'ok'; ytHist.at = Date.now();
+                ytHist.shorts = d.shorts; ytHist.dups = d.dups;   // 観測用（エンジンで除いた数）
+            } else if (d.needLogin) {
+                ytHist.state = 'needLogin'; ytHist.items = [];
+            } else {
+                ytHist.state = 'error'; ytHist.error = String(d.error || '不明').slice(0, 200);
+            }
+            if (histView === 'yt') refreshHistGalleries();
+        }
+        function loadYtHistoryItem(cardId, id) {
+            if (!/^[A-Za-z0-9_-]{11}$/.test(String(id || ''))) return;
+            loadHistoryYt(cardId, 'https://www.youtube.com/watch?v=' + id);
+        }
+        function histTabsHTML(cardId) {
+            const on = 'background:#2a2a3a; color:#fff; border:1px solid #666;';
+            const off = 'background:transparent; color:#888; border:1px solid #333;';
+            const b = function (v, label) {
+                return '<button id="histTab' + (v === 'yt' ? 'Yt' : 'Tool') + '_' + cardId + '" class="hist-tab' + (histView === v ? ' on' : '') + '" onclick="setHistView(\'' + v + '\')" style="' + (histView === v ? on : off) + ' font-size:0.7rem; padding:1px 6px; border-radius:3px; cursor:pointer; margin-right:4px;">' + label + '</button>';
+            };
+            return '<span>' + b('tool', '🕒 このツール') + b('yt', '▶ YouTube') + '</span>';
+        }
+        function ytHistBodyHTML(cardId) {
+            const msg = function (t) { return '<div id="histBody_' + cardId + '" style="font-size:0.75rem; color:#999; text-align:left; padding:6px 2px;">' + t + '</div>'; };
+            if (ytHist.state === 'loading' || ytHist.state === 'idle') return msg('YouTube の視聴履歴を読み込み中…');
+            if (ytHist.state === 'needLogin') return msg('YouTube にログインすると表示されます');
+            if (ytHist.state === 'noaddon') return msg('答えがありません（アドオン 2.17.0 が要ります）。🔄 でもう一度');
+            if (ytHist.state === 'error') return msg('読めませんでした（' + escapeHtmlAttr(ytHist.error) + '）。🔄 でもう一度');
+            if (!ytHist.items.length) return msg('履歴がありません');
+            let html = '<div id="histBody_' + cardId + '" style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
+            ytHist.items.forEach(function (it) {
+                const title = escapeHtmlAttr(it.title || '');
+                const ch = escapeHtmlAttr(it.channel || '');
+                const len = escapeHtmlAttr(it.len || '');
+                const pct = (typeof it.pct === 'number' && it.pct > 0) ? Math.min(100, it.pct) : 0;
+                html += '<div class="history-tile yt" title="' + title + (ch ? '（' + ch + '）' : '') + '" style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="loadYtHistoryItem(\'' + cardId + '\', \'' + it.id + '\')">' +
+                    '<div style="position:relative;">' +
+                        '<img src="https://img.youtube.com/vi/' + it.id + '/mqdefault.jpg" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px; display:block;">' +
+                        (len ? '<span style="position:absolute; right:2px; bottom:4px; background:rgba(0,0,0,0.8); color:#fff; font-size:0.55rem; padding:0 2px; border-radius:2px;">' + len + '</span>' : '') +
+                        (pct ? '<div style="position:absolute; left:0; bottom:0; height:2px; width:' + pct + '%; background:#ff0000;"></div>' : '') +
+                    '</div>' +
+                    '<div class="hist-title" style="font-size:0.65rem; color:#ccc; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; height:22px; line-height:1.2; margin-top:2px;">' + title + '</div>' +
+                    (ch ? '<div class="hist-channel" style="font-size:0.55rem; color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + ch + '</div>' : '') +
+                '</div>';
+            });
+            return html + '</div>';
+        }
+
         function generateHistoryGalleryHTML(cardId) {
             const history = JSON.parse(localStorage.getItem('sync_video_history')) || [];
-            if (history.length === 0) return '';
-            let html = '<div style="width:100%; margin-top:12px; border-top:1px dashed #333; padding-top:8px;">' +
-                '<div style="font-size:0.75rem; color:#888; margin-bottom:6px; text-align:left; display:flex; justify-content:space-between;">' +
-                    '<span>🕒 最近使った動画（最大30件）</span>' +
+            const wrapTop = '<div style="width:100%; margin-top:12px; border-top:1px dashed #333; padding-top:8px;">';
+            const headStyle = 'font-size:0.75rem; color:#888; margin-bottom:6px; text-align:left; display:flex; justify-content:space-between; align-items:center;';
+            if (histView === 'yt') {
+                /* 空の枠を描いたとき: 10分以内の結果が無ければ読む（描画の途中で描き直さないよう後回し） */
+                if (ytHist.state === 'idle' || (ytHist.state === 'ok' && (Date.now() - ytHist.at) >= YT_HIST_TTL_MS)) setTimeout(function () { ensureYtHistory(false); }, 0);
+                return wrapTop + '<div style="' + headStyle + '">' + histTabsHTML(cardId) +
+                    '<button id="histReload_' + cardId + '" onclick="reloadYtHistory()" title="YouTube の視聴履歴を読み直す" style="background:transparent; border:none; color:#aaa; font-size:0.75rem; cursor:pointer;">🔄</button>' +
+                    '</div>' + ytHistBodyHTML(cardId) + '</div>';
+            }
+            /* ★v2.19.0: このツールの履歴が0件でも切り替えは出す（YouTube の履歴を見られるように） */
+            if (history.length === 0) return wrapTop + '<div style="' + headStyle + '">' + histTabsHTML(cardId) + '</div></div>';
+            let html = wrapTop +
+                '<div style="' + headStyle + '">' +
+                    histTabsHTML(cardId) +
                     '<button onclick="clearVideoHistory(\'' + cardId + '\')" style="background:transparent; border:none; color:#ff4757; font-size:0.7rem; cursor:pointer;">履歴消去</button>' +
                 '</div><div style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
             history.forEach(item => {

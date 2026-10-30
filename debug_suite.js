@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.29.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.30.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.18.1';
+    var EXPECT_APP_VERSION = '2.19.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.16.0';
+    var EXPECT_ADDON_REQUIRED = '2.17.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.18.1', ids: ['D-V1', 'D-V2', 'D-A2', 'D-A8', 'D-A9'] };   /* D-A9 は再読み込みするので最後 */
+    var VERSION_FOCUS = { v: '2.19.0', ids: ['D-V1', 'D-V2', 'D-F1', 'D-Z2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -729,6 +729,11 @@
            D-X2 が記録パネルの選択肢・未選択時の赤枠・確定の可否を自動で検証しており、
            人が押して目で見る意味が無くなっていた（判定数は変わらない）。 */
         panel.appendChild(row1);
+        /* ★v1.30.0: 前の結果（最大3件）のコピーボタン */
+        var runsRow = document.createElement('div');
+        runsRow.className = 'dbg-row';
+        runsRow.id = 'dbgRuns';
+        panel.appendChild(runsRow);
 
         /* ★v1.9.1 棚卸し: 個別ボタンは本数が増え続け、どれを押せばよいか分からなくなっていた。
            🔴 消さずに畳む。単独実行は「1本だけ測り直す」唯一の手段で、
@@ -1006,6 +1011,58 @@
         report = [];
         if (logEl) logEl.textContent = '';
         header();
+    }
+
+    /* ★v1.30.0（利用者要望 2026-10-30）: 測定を始めるときにログを自動で消す。消す前の結果は
+       「名前・時刻・Markdown」で最大3件残し、パネルに名前つきのコピーボタンを出す。
+       🔴 再読み込みのあとの続き（D-M7 / D-S2 / D-A9）は「始め」ではないので呼ばない。
+       🔴 名前は再読み込みをまたいで持つ（LS_RUN_TITLE）。 */
+    var LS_RUNS = 'sync_debug_runs', LS_RUN_TITLE = 'sync_debug_run_title', RUNS_MAX = 3;
+    function loadRuns() {
+        try { var a = JSON.parse(localStorage.getItem(LS_RUNS) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+    }
+    function saveRuns(runs) {
+        /* 大きすぎて入らなければ古いものから落とす */
+        for (var n = runs.length; n >= 0; n--) {
+            try { localStorage.setItem(LS_RUNS, JSON.stringify(runs.slice(0, n))); return n; } catch (e) { }
+        }
+        return 0;
+    }
+    function startRun(title) {
+        if (report.length) {
+            var name = null;
+            try { name = localStorage.getItem(LS_RUN_TITLE); } catch (e) { }
+            var runs = loadRuns();
+            runs.unshift({ name: name || '(名前なし)', at: Date.now(), md: buildMarkdown() });
+            saveRuns(runs.slice(0, RUNS_MAX));
+        }
+        try { localStorage.setItem(LS_RUN_TITLE, title); } catch (e) { }
+        clearLog();
+        renderRuns();
+    }
+    function hhmm(t) { var d = new Date(t); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+    function renderRuns() {
+        var row = document.getElementById('dbgRuns');
+        if (!row) return;
+        row.innerHTML = '';
+        var runs = loadRuns();
+        row.style.display = runs.length ? '' : 'none';
+        if (!runs.length) return;
+        var lab = document.createElement('span');
+        lab.className = 'dbg-note';
+        lab.textContent = '📋 前の結果:';
+        row.appendChild(lab);
+        runs.forEach(function (r, i) {
+            row.appendChild(mkBtn('📋 ' + r.name + ' ' + hhmm(r.at), (i + 1) + '回前の測定の結果をコピーする（報告書用と同じ形）', function () {
+                var text = r.md || '';
+                var done = function (ok) { log(ok ? '📋 前の結果（' + r.name + ' ' + hhmm(r.at) + '）をコピーしました。' : '📋 コピーに失敗しました。'); };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+                } else {
+                    done(fallbackCopy(text));
+                }
+            }));
+        });
     }
 
     function header() {
@@ -1948,13 +2005,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 56);
+        expect('配列の件数', hist ? hist.length : 0, 57);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -6688,6 +6745,7 @@
         try { histRaw = localStorage.getItem('sync_video_history'); } catch (e) { }
         var origAlert = window.alert;
         var alerts = 0;
+        var z2View = null;
         try {
             await closeAllMenus();
             var hist = [];
@@ -6698,6 +6756,8 @@
             pc('枠を1つ足せた', function () { return got === started + 1 ? (got + '枠') : false; });
             var cid = lastCard();
             if (typeof clearCard === 'function') await clearCard(cid);
+            /* ★v1.30.0: ▶ YouTube を選んでいると、このツールの履歴（ローカル動画）が出ない。この間だけ 🕒 にする */
+            if (typeof histView !== 'undefined' && histView === 'yt') { z2View = 'yt'; histView = 'tool'; }
             restorePlaceholderDefault(cid);
             await wait(200);
             var input = document.getElementById('localFile_' + cid);
@@ -6723,6 +6783,7 @@
             expect('履歴にファイル名のヒントが出る（title）', /dbg_local\.mp4/.test(tile.title) ? 'ok' : tile.title, 'ok');
         } finally {
             window.alert = origAlert;
+            if (z2View) { histView = z2View; }
             try { if (histRaw === null) localStorage.removeItem('sync_video_history'); else localStorage.setItem('sync_video_history', histRaw); } catch (e) { }
             try { await setCardCount(started); } catch (e) { }
             var restored = restoreUrlSnapshot(backup);
@@ -9284,6 +9345,150 @@
         openDebugMenu();
     }
 
+    /* --- D-F1: 「最近使った動画」の切り替え（🕒 このツール ／ ▶ YouTube）─ A側だけ ---------------
+       ★v1.30.0（v2.19.0）。アドオンへの要求は postMessage を差し替えて捕まえ、偽の答えを handleYtHistory に渡す。
+       🔴 読み込み（loadHistoryYt）も差し替えて数えるだけ。利用者の「最近使った動画」・見せ方・保存URLは元へ戻す。 */
+    async function testF1() {
+        log('  [目的] 空の枠の「最近使った動画」で YouTube の視聴履歴に切り替えられ、全枠で1つの結果を使い回し、ログインしていない・答えが無い・読めないを出し分けること。');
+        var has = (typeof setHistView === 'function' && typeof handleYtHistory === 'function' && typeof ytHist !== 'undefined');
+        expect('🔴 A側の切り替え（setHistView / handleYtHistory / ytHist）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var started = cardCount(), backup = urlSnapshot(), backupText = urlSnapText(backup);
+        var histRaw = null, viewRaw = null;
+        try { histRaw = localStorage.getItem('sync_video_history'); viewRaw = localStorage.getItem('sync_hist_view'); } catch (e) { }
+        var view0 = histView, hist0 = ytHist, tmo0 = ytHistTimeoutMs;
+        var origPost = window.postMessage, origLoad = window.loadHistoryYt;
+        var reqs = [], loads = [];
+        function f1Body(c) { return document.getElementById('histBody_' + c); }
+        function f1Text(c) { var b = f1Body(c); return b ? b.textContent : '(無い)'; }
+        try {
+            window.postMessage = function (m) {
+                if (m && (m.type === 'YT_HISTORY_REQUEST' || m.type === 'DBG_F1_PING')) { reqs.push(m); return; }
+                return origPost.apply(window, arguments);
+            };
+            window.loadHistoryYt = function (cid, url) { loads.push({ cid: cid, url: url }); };
+            window.postMessage({ type: 'DBG_F1_PING' }, '*');
+            pc('🔴 アドオンへの要求を捕まえられる（差し替えが効く）', function () { return reqs.length === 1 ? '捕まえた' : false; });
+            reqs = [];
+            localStorage.removeItem('sync_video_history');
+            histView = 'tool';
+            ytHist = { state: 'idle', items: [], at: 0, error: '', reqId: null, timer: null };
+            var got = await setCardCount(started + 1);
+            var cid = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid);
+            restorePlaceholderDefault(cid);
+            await wait(150);
+            pc('空の枠がある（最近使った動画の欄）', function () { return (got === started + 1 && document.getElementById('histGallery_' + cid)) ? cid : false; });
+            var tabT = document.getElementById('histTabTool_' + cid), tabY = document.getElementById('histTabYt_' + cid);
+            expect('🔴 このツールの履歴が0件でも切り替えがある', (tabT && tabY) ? 'ある' : '無い', 'ある');
+            if (!tabY) return;
+            tabY.click();
+            await wait(50);
+            expect('🔴 ▶ YouTube で1回だけ要求する', reqs.length, 1);
+            expect('選んだ見せ方を覚える（sync_hist_view）', localStorage.getItem('sync_hist_view'), 'yt');
+            expect('読み込み中と出す', /読み込み中/.test(f1Text(cid)) ? 'ok' : f1Text(cid), 'ok');
+            document.getElementById('histTabYt_' + cid).click();
+            refreshHistGalleries();
+            await wait(50);
+            expect('読み込み中は重ねて要求しない', reqs.length, 1);
+            var items = [];
+            for (var i = 0; i < 30; i++) items.push({ id: 'dbgF1aaaa' + (i < 10 ? '0' : '') + i, title: 'dbg題名' + i, channel: 'dbgチャンネル', len: '1:0' + (i % 10), pct: i === 0 ? 40 : null });
+            items[1].title = '<img src=x onerror="window.__f1xss=1">';
+            window.__f1xss = undefined;
+            handleYtHistory({ requestId: reqs[0].requestId, ok: true, items: items });
+            await wait(100);
+            var tiles = document.querySelectorAll('#histBody_' + cid + ' .history-tile.yt');
+            expect('🔴 届いた30件をタイルで出す', tiles.length, 30);
+            var t0 = tiles[0] ? (tiles[0].querySelector('.hist-title') || {}).textContent : '-';
+            expect('順番は届いた順（先頭）', t0, 'dbg題名0');
+            var t1 = tiles[1] ? (tiles[1].querySelector('.hist-title') || {}).textContent : '-';
+            var imgs = f1Body(cid) ? f1Body(cid).querySelectorAll('img').length : -1;
+            expect('🔴 タイトルの HTML を解釈しない（文字のまま・画像が増えない・スクリプトが走らない）',
+                [t1 === items[1].title ? '文字のまま' : t1, imgs, window.__f1xss === undefined ? '走らない' : '走った'].join(' / '), '文字のまま / 30 / 走らない');
+            expect('チャンネル名・長さ・再生位置の線を出す', [tiles[0] && tiles[0].querySelector('.hist-channel') ? 'あり' : '無い', tiles[0] && /1:00/.test(tiles[0].textContent) ? 'あり' : '無い', tiles[0] && tiles[0].innerHTML.indexOf('width:40%') >= 0 ? 'あり' : '無い'].join(' / '), 'あり / あり / あり');
+            if (tiles[0]) tiles[0].click();
+            expect('🔴 押すとその動画をこの枠に読み込む', loads.length ? (loads[0].cid === cid ? '同じ枠 / ' : '別の枠 / ') + loads[0].url : '(読み込まない)', '同じ枠 / https://www.youtube.com/watch?v=dbgF1aaaa00');
+            expect('YouTube の履歴には ✕（消す）を付けない', tiles[0] && tiles[0].querySelector('button') ? 'ある' : '無い', '無い');
+            got = await setCardCount(started + 2);
+            var cid2 = lastCard();
+            if (typeof clearCard === 'function') await clearCard(cid2);
+            restorePlaceholderDefault(cid2);
+            await wait(150);
+            var tabY2 = document.getElementById('histTabYt_' + cid2);
+            if (tabY2) tabY2.click();   /* 別の枠で ▶ YouTube を押し直しても読まない */
+            await wait(50);
+            expect('🔴 10分以内は別の枠でも要求しない（同じ結果を使う）', reqs.length + ' / ' + document.querySelectorAll('#histBody_' + cid2 + ' .history-tile.yt').length + '件', '1 / 30件');
+            document.getElementById('histReload_' + cid).click();
+            await wait(50);
+            expect('🔴 🔄 で要求する', reqs.length, 2);
+            handleYtHistory({ requestId: reqs[1].requestId, ok: false, needLogin: true, error: 'YouTube にログインしていません' });
+            await wait(50);
+            expect('🔴 ログインしていなければ案内を出す', f1Text(cid), 'YouTube にログインすると表示されます');
+            ytHistTimeoutMs = 300;
+            document.getElementById('histReload_' + cid).click();
+            await wait(600);
+            expect('🔴 答えが無いとアドオンが要ると出す', /アドオン 2\.17\.0/.test(f1Text(cid)) ? 'ok' : f1Text(cid), 'ok');
+            handleYtHistory({ requestId: reqs[1].requestId, ok: true, items: items });
+            await wait(50);
+            expect('古い要求の答えは捨てる', /アドオン 2\.17\.0/.test(f1Text(cid)) ? 'ok' : f1Text(cid), 'ok');
+            ytHistTimeoutMs = tmo0;
+            document.getElementById('histReload_' + cid).click();
+            handleYtHistory({ requestId: reqs[3].requestId, ok: false, error: '履歴を読めません（HTTP 500）' });
+            await wait(50);
+            expect('読めなければ理由を出す', /読めませんでした（履歴を読めません（HTTP 500））/.test(f1Text(cid)) ? 'ok' : f1Text(cid), 'ok');
+            document.getElementById('histTabTool_' + cid).click();
+            await wait(50);
+            expect('🕒 に戻すと YouTube の履歴を出さない・覚える', (f1Body(cid) ? 'まだ出ている' : '出ない') + ' / ' + localStorage.getItem('sync_hist_view'), '出ない / tool');
+            note('送った要求の数（D-F1 の間）', reqs.length + '回');
+        } finally {
+            window.postMessage = origPost;
+            window.loadHistoryYt = origLoad;
+            try { if (ytHist && ytHist.timer) clearTimeout(ytHist.timer); } catch (e) { }
+            ytHistTimeoutMs = tmo0; ytHist = hist0; histView = view0;
+            try {
+                if (histRaw === null) localStorage.removeItem('sync_video_history'); else localStorage.setItem('sync_video_history', histRaw);
+                if (viewRaw === null) localStorage.removeItem('sync_hist_view'); else localStorage.setItem('sync_hist_view', viewRaw);
+            } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            try { refreshHistGalleries(); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・最近使った動画・見せ方・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-W11: 実機。YouTube の視聴履歴が取得タブ経由で届く ----------------------------------
+       ★v1.30.0（v2.19.0）。🔴 履歴のタイトル・ID・チャンネル名は出力に載せない（件数と項目の有無だけ）。 */
+    function w11Ver(v) {   /* v と 2.17.0 を比べる（-1 / 0 / 1） */
+        var a = String(v).split('.').map(Number), b = [2, 17, 0];
+        for (var i = 0; i < 3; i++) { var x = a[i] || 0; if (x !== b[i]) return x > b[i] ? 1 : -1; }
+        return 0;
+    }
+    async function testW11() {
+        log('  [目的] アドオン 2.17.0 の取得タブが YouTube の視聴履歴を読み、30件以内・ショートなし・重複なしで届くこと（🔴 中身は記録しない）。');
+        var has = (typeof ensureYtHistory === 'function' && typeof ytHist !== 'undefined');
+        expect('🔴 A側の視聴履歴（ensureYtHistory / ytHist）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var av = (typeof addonVersion !== 'undefined') ? addonVersion : null;
+        pc('アドオンが 2.17.0 以上（版数バッジの値）', function () { return (av && w11Ver(av) >= 0) ? av : false; });
+        if (!(av && w11Ver(av) >= 0)) return;
+        var t0 = Date.now();
+        ensureYtHistory(true);
+        var r = await waitFor(function () { return ytHist.state !== 'loading' ? ytHist.state : null; }, 26000, 200);
+        var ms = Date.now() - t0;
+        note('答えが届くまで', (ms / 1000).toFixed(1) + '秒');
+        expect('🔴 20秒以内に読めた（ok）', (r.ok && ytHist.state === 'ok' && ms <= 20000) ? 'ok' : (ytHist.state + (ytHist.error ? '（' + ytHist.error + '）' : '') + ' / ' + (ms / 1000).toFixed(1) + '秒'), 'ok');
+        if (ytHist.state !== 'ok') return;
+        var it = ytHist.items || [], n = it.length;
+        var ids = it.map(function (x) { return x.id; });
+        var uniq = ids.filter(function (x, i) { return ids.indexOf(x) === i; }).length;
+        expect('🔴 1〜30件', (n >= 1 && n <= 30) ? 'ok' : n + '件', 'ok');
+        expect('全件に ID とタイトル', it.filter(function (x) { return x.id && x.title; }).length + '/' + n, n + '/' + n);
+        expect('同じ動画が無い', uniq + '/' + n, n + '/' + n);
+        note('件数 / チャンネル名あり / 長さあり / 再生位置あり', n + ' / ' + it.filter(function (x) { return x.channel; }).length + ' / ' + it.filter(function (x) { return x.len; }).length + ' / ' + it.filter(function (x) { return typeof x.pct === 'number'; }).length);
+        note('エンジンで除いたショート / 重複', String(ytHist.shorts) + ' / ' + String(ytHist.dups));
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -9378,6 +9583,9 @@
         { id: 'D-W10', name: '★高音を抑える（実機・再生中の枠で効いて抑えた量が届く・元に戻す）', run: testW10, manual: true },
         /* ★v1.29.0: v2.18.1。ページを再読み込みして続きを測るので manual（🎯 の最後） */
         { id: 'D-A9', name: '★再読み込みしても枠ごとの設定が同じ番号の枠に残る', run: testA9, manual: true },
+        /* ★v1.30.0: v2.19.0。D-F1 は枠を足す・D-W11 はアドオン 2.17.0 と YouTube のログインが要るので manual */
+        { id: 'D-F1', name: '★最近使った動画の切り替え（🕒 このツール ／ ▶ YouTube・使い回し・ログイン・答えなし）', run: testF1, manual: true },
+        { id: 'D-W11', name: '★YouTube の視聴履歴（実機・取得タブ経由で届く・🔴 中身は記録しない）', run: testW11, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */
@@ -9514,6 +9722,7 @@
         }
         if (!guardInstall(title)) return;   /* ★v1.5.2 */
         running = true;
+        startRun(title);   /* ★v1.30.0 */
         window.alert(title + '\n\n' + hint);
         log('=== ' + title + ' 開始（' + ids.join(' → ') + '） ===');
         for (var i = 0; i < ids.length; i++) {
@@ -9560,6 +9769,7 @@
         var def = null;
         TESTS.forEach(function (t) { if (t.id === id) def = t; });
         if (!def) { log('⚠ 未登録のテスト: ' + id); return; }
+        if (!keepRunning) startRun('▶ ' + def.id);   /* ★v1.30.0: ボタンから1本だけ押したとき */
         running = true;
         current = mkRecord(def.id, def.name);
         report.push(current);
@@ -9590,7 +9800,7 @@
         if (running) { log('⚠ 実行中です。終わるまでお待ちください。'); return; }
         if (!guardInstall('▶ すべて実行')) return;   /* ★v1.5.2 */
         running = true; runningAll = true;
-        clearLog();
+        startRun('▶ すべて実行');   /* ★v1.30.0: 前の結果を残してから消す */
 
         /* 盾の切り替えなど人の準備が要るテストは飛ばす。取り違えた条件で測ると害になる。 */
         var queue = TESTS.filter(function (t) { return !t.manual; })
@@ -9623,6 +9833,7 @@
         loadMeta();      /* ★v1.3.0: ラベル・実施メモを再読み込みをまたいで復元する */
         joinTopMenus();
         if (!buildUI()) return;
+        renderRuns();    /* ★v1.30.0 */
         header();
 
         var raw = null;
