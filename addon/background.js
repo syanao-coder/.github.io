@@ -93,6 +93,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
+  // --- コントローラー ➔ YouTube の視聴履歴 ★v2.19.0（アドオン 2.17.0） ---
+  if (message.type === "FETCH_YT_HISTORY") {
+    startYtHistory(message).catch((err) => {
+      sendChatStreamEvent({
+        ev: "history",
+        requestId: message.requestId,
+        ok: false,
+        error: String(err && err.message ? err.message : err)
+      });
+    });
+  }
+
   // --- コントローラー ➔ 取得の中止 ★v2.6.0 ---
   if (message.type === "CANCEL_CHAT_STREAM") {
     cancelChatStream(message.requestId);
@@ -662,6 +674,17 @@ async function startChatPost(m) {
   });
 }
 
+/* ★v2.19.0: 視聴履歴も取得タブ（MAIN world・youtube.com の Cookie）で読む。投稿と同じく注入を確かめてから渡す。 */
+async function startYtHistory(m) {
+  const tabId = await ensureChatTab();
+  try {
+    await ensureInjected(tabId);
+  } catch (e) {
+    throw new Error("取得スクリプトの注入に失敗しました: " + (e && e.message ? e.message : e));
+  }
+  await chrome.tabs.sendMessage(tabId, { type: "CHAT_HISTORY", requestId: m.requestId });
+}
+
 async function cancelChatStream(requestId) {
   try {
     const st = await chrome.storage.local.get(CHAT_TAB_KEY);
@@ -728,7 +751,11 @@ function sendChatStreamEvent(p) {
       placeholder: p.placeholder,
       httpStatus: p.httpStatus,
       echo: p.echo,
-      needLogin: p.needLogin   /* ★v2.17.0 */
+      needLogin: p.needLogin,   /* ★v2.17.0 */
+      /* ★v2.19.0: 視聴履歴（エンジンで30件に絞ったもの）。🔴 content_controller.js と対で書くこと。 */
+      items: p.items,
+      shorts: p.shorts,
+      dups: p.dups
     };
     for (const tab of tabs) chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
   });

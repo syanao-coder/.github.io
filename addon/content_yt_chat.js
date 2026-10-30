@@ -41,7 +41,7 @@
          config … 取得タブ内で完結する情報。中継しない
          ready  … background.js が版数照合に使い、そこで消費する
          idle   … background.js が取得タブの後始末に使い、そこで消費する
-         meta / chunk / done / ping … A 側まで通す */
+         meta / chunk / done / ping / post / history（★v2.19.0）… A 側まで通す */
     const DROP_EV = ['config'];
     if (DROP_EV.indexOf(d.ev) >= 0) return;
 
@@ -52,7 +52,7 @@
   chrome.runtime.onMessage.addListener(function (message) {
     if (!message || !message.type) return;
 
-    const PASS_CMD = ['CHAT_ENQUEUE', 'CHAT_CANCEL', 'CHAT_CONFIG', 'CHAT_POST'];   /* ★v2.16.0: CHAT_POST */
+    const PASS_CMD = ['CHAT_ENQUEUE', 'CHAT_CANCEL', 'CHAT_CONFIG', 'CHAT_POST', 'CHAT_HISTORY'];   /* ★v2.16.0: CHAT_POST / ★v2.19.0: CHAT_HISTORY（視聴履歴） */
     if (PASS_CMD.indexOf(message.type) < 0) {
       /* ★v2.6.5: チャット関連の命令だけ警告する。
          他機能の runtime message もここへ流れてくるので、
