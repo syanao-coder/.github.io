@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.30.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.30.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.19.0';
+    var EXPECT_APP_VERSION = '2.19.1';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.17.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.19.0', ids: ['D-V1', 'D-V2', 'D-F1', 'D-Z2'] };
+    var VERSION_FOCUS = { v: '2.19.1', ids: ['D-V1', 'D-V2', 'D-F1'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -2005,13 +2005,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 57);
+        expect('配列の件数', hist ? hist.length : 0, 58);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -9395,6 +9395,8 @@
             var items = [];
             for (var i = 0; i < 30; i++) items.push({ id: 'dbgF1aaaa' + (i < 10 ? '0' : '') + i, title: 'dbg題名' + i, channel: 'dbgチャンネル', len: '1:0' + (i % 10), pct: i === 0 ? 40 : null });
             items[1].title = '<img src=x onerror="window.__f1xss=1">';
+            /* ★v1.30.1: 長いチャンネル名（折り返さない行）でタイルが広がらないか（v2.19.0 の実機 R4e） */
+            items[4].channel = 'とても長いチャンネル名のチャンネル Very Long Channel Name For Width Check';
             window.__f1xss = undefined;
             handleYtHistory({ requestId: reqs[0].requestId, ok: true, items: items });
             await wait(100);
@@ -9406,6 +9408,10 @@
             var imgs = f1Body(cid) ? f1Body(cid).querySelectorAll('img').length : -1;
             expect('🔴 タイトルの HTML を解釈しない（文字のまま・画像が増えない・スクリプトが走らない）',
                 [t1 === items[1].title ? '文字のまま' : t1, imgs, window.__f1xss === undefined ? '走らない' : '走った'].join(' / '), '文字のまま / 30 / 走らない');
+            var widths = Array.prototype.map.call(tiles, function (t) { return Math.round(t.getBoundingClientRect().width); });
+            var w5ch = tiles[4] ? tiles[4].querySelector('.hist-channel') : null;
+            pc('🔴 長いチャンネル名の行は1枚の幅より長い（広がる土俵がある）', function () { return (w5ch && w5ch.scrollWidth > widths[0]) ? (w5ch.scrollWidth + 'px > ' + widths[0] + 'px') : false; });
+            expect('🔴 タイルの幅がそろう（長いチャンネル名でも広がらない）', widths.every(function (w) { return w === widths[0]; }) ? 'そろう' : widths.join(','), 'そろう');
             expect('チャンネル名・長さ・再生位置の線を出す', [tiles[0] && tiles[0].querySelector('.hist-channel') ? 'あり' : '無い', tiles[0] && /1:00/.test(tiles[0].textContent) ? 'あり' : '無い', tiles[0] && tiles[0].innerHTML.indexOf('width:40%') >= 0 ? 'あり' : '無い'].join(' / '), 'あり / あり / あり');
             if (tiles[0]) tiles[0].click();
             expect('🔴 押すとその動画をこの枠に読み込む', loads.length ? (loads[0].cid === cid ? '同じ枠 / ' : '別の枠 / ') + loads[0].url : '(読み込まない)', '同じ枠 / https://www.youtube.com/watch?v=dbgF1aaaa00');

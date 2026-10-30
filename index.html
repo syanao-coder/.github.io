@@ -907,7 +907,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.19.0';
+        const APP_VERSION = '2.19.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1880,6 +1880,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.19.1', d: '2026-10-30', t: [
+                '▶ YouTube の履歴で、チャンネル名が長い動画のタイルだけ横に広がり、タイルの大きさがそろわなかったのを直した'] },
             { v: '2.19.0', d: '2026-10-30', t: [
                 '空の枠の「最近使った動画」で「🕒 このツール ／ ▶ YouTube」を切り替えられるようにした。▶ YouTube では YouTube の視聴履歴（最新30件・ショートは除く）を出し、押すとその動画を読み込む。10分は読み直さず、🔄 で読み直す。🔴 アドオン 2.17.0 が要る'] },
             { v: '2.18.1', d: '2026-10-30', t: [
@@ -2870,12 +2872,14 @@
             if (ytHist.state === 'error') return msg('読めませんでした（' + escapeHtmlAttr(ytHist.error) + '）。🔄 でもう一度');
             if (!ytHist.items.length) return msg('履歴がありません');
             let html = '<div id="histBody_' + cardId + '" style="display:flex; gap:8px; overflow-x:auto; width:100%; padding-bottom:4px; scrollbar-width: thin;">';
+            /* ★v2.19.1: 🔴 タイルは幅を固定し min-width:0。チャンネル名の行（nowrap）が長いと、
+               flex の項目は中身の幅（min-content）まで広がり、タイルの幅がバラバラになった（v2.19.0 の実機 R4e） */
             ytHist.items.forEach(function (it) {
                 const title = escapeHtmlAttr(it.title || '');
                 const ch = escapeHtmlAttr(it.channel || '');
                 const len = escapeHtmlAttr(it.len || '');
                 const pct = (typeof it.pct === 'number' && it.pct > 0) ? Math.min(100, it.pct) : 0;
-                html += '<div class="history-tile yt" title="' + title + (ch ? '（' + ch + '）' : '') + '" style="flex:0 0 100px; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="loadYtHistoryItem(\'' + cardId + '\', \'' + it.id + '\')">' +
+                html += '<div class="history-tile yt" title="' + title + (ch ? '（' + ch + '）' : '') + '" style="flex:0 0 100px; width:100px; min-width:0; box-sizing:border-box; overflow:hidden; cursor:pointer; background:#181822; border-radius:4px; padding:4px; border:1px solid #333; text-align:center; position:relative;" onclick="loadYtHistoryItem(\'' + cardId + '\', \'' + it.id + '\')">' +
                     '<div style="position:relative;">' +
                         '<img src="https://img.youtube.com/vi/' + it.id + '/mqdefault.jpg" style="width:100%; height:auto; aspect-ratio:16/9; object-fit:cover; border-radius:2px; display:block;">' +
                         (len ? '<span style="position:absolute; right:2px; bottom:4px; background:rgba(0,0,0,0.8); color:#fff; font-size:0.55rem; padding:0 2px; border-radius:2px;">' + len + '</span>' : '') +
