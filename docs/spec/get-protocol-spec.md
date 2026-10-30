@@ -5,7 +5,7 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 # A↔B 通信プロトコル詳細仕様書（実装検証済み）
 
-最終検証日: 2026-10-26 / 現行リリース **v2.17.0**（実機検証済み / ログアウトでボタン・ログイン後に投稿できる）/ アドオン **2.15.0**
+最終検証日: 2026-10-30 / 現行リリース **v2.18.1**（実機検証済み / 枠ごとの設定を並び順の番号で保存）/ アドオン **2.16.0**
 
 > **構成は A（controller.html）と B（Firefoxアドオン）の2層のみ。**
 > C側（ヘルパー）は v2.6.2 で撤去した。C に関する記述はすべて撤去記録である。
@@ -67,6 +67,8 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 | 版数 | 内容 |
 | :--- | :--- |
+| **v2.18.1** | **枠ごとの設定（高音を抑える・音量）を並び順の番号（1..N）で保存する**（`saveSlotMap` / `readSlotMap`・`/get-ui-spec` 10-1節）。🔴 v2.18.0 の R4d「読み直したら消えていた」: 枠 ID で保存していたので、枠の削除・マイリストの読み込みで ID と並び順がずれたあと読み直すと別の枠へ移る／捨てられた。**v2.8.9 の音量（`sync_card_volume`）も同じ不具合**。読むのは枠ができてから（`initializeGrid` の初回・`loadSession`）、保存は値を変えたとき・`resaveUrlsBasedOnOrder`・枠数の変更。旧形式（`card_N`）は同じ ID の枠があれば読む。あわせて `debug_suite.js` のパネルを整頓（利用者要望）。A側のみ・プロトコル変更なし・パッチ。`APP_HISTORY` **56件**・`debug_suite.js` **v1.29.0**（`D-A9`）。実機合格。記録 `report_v2_18_1.md` |
+| **v2.18.0** | **枠ごとの「🎚 高音を抑える」**（境より上だけのコンプレッサー ─ `/get-ui-spec` 10-7節）。枠の中のアドオン（`content_yt_embed.js`）が音量メーターと同じ付け替えに乗せ、Linkwitz-Riley 4次で上下に分け、高い側だけ `DynamicsCompressor`（knee 0・attack 3ms・release 120ms）→ 自動の持ち上げを打ち消す減衰 → 足し戻す。🔴 **Web Audio の lowpass / highpass の Q は dB**（線形 0.7071 を入れると境で +3.3 dB）・🔴 **コンプレッサーは約 6ms 遅らせる**ので低い側を測った分だけ遅らせる（`compLatency`）。🔴 **A→枠に `SYNC_EMBED_COMP` を追加＝マイナー**（4-2節）・`SYNC_EMBED_LEVEL` に `compOn` / `compDb` / `compLatencyMs`。入れた枠はメーターのスイッチを切っていても付け替える。逃げ道 `COMP_FEATURE`。アドオン **2.16.0**（`v2.16.0.zip`）・`APP_HISTORY` **55件**・`debug_suite.js` **v1.28.0**（`D-A8` / `D-W10`）。実機合格（0.2秒・抑えた量 28.3 dB・遅れ 6ms・耳で「和らいだ」・音色は「少し変わる」）。🔴 保存の不具合 → v2.18.1。記録 `report_v2_18_0.md`。先立つスパイク H1（YouTube の視聴履歴 ─ 11節・`spike_hist_h1.md`）は版数なし |
 | **v2.17.0** | **ログインしていないときに投稿欄からログイン画面を開く**（「🔑 YouTube にログイン」→ 新しいタブで Google のログイン画面 → このタブへ戻ると準備をやり直す ─ `/get-chat-feature-spec` 1-7-6節・`/get-ui-spec` 15節）。あわせて 🔄 で投稿の準備をやり直す（v2.16.0 は一度止まると同じ配信ではページを読み直すまで止まったまま）。🔴 **`chatPost` に `needLogin` を足した＝マイナー**。エンジンは認証の Cookie が無ければ `/live_chat` を読まずに `needLogin`・`ytcfg` は `/live_chat` の HTML を先に使う。🔴 **アドオン 2.15.0**（`v2.15.0.zip`）。`APP_HISTORY` **54件**・`debug_suite.js` **v1.27.0**（`D-L13` / `D-W9`）。実機合格（ログアウトで 0.2秒でボタン・ボタンからログインしたあと `ready`）。同じ測定で用紙エンジンの不具合を直した（3.0.1）。記録 `report_v2_17_0.md` |
 | **v2.16.0** | **配信中のライブにコメントを投稿する**（チャット欄の下の入力欄・Enter で送る・確認の窓なし・🔴 変換中の Enter では送らない・送れたら空・失敗は文を残す・成功と失敗の直後3秒は送らない ─ `/get-chat-feature-spec` 1-7節・`/get-ui-spec` 15節）。🔴 **A↔B にメッセージを1組追加＝マイナー**: `CHAT_POST_REQUEST`（A→B）/ `state:'chatPost'`（B→A・エンジンの `ev:'post'`）。取得タブが `/live_chat` から `params` を読み `send_message` へ送る（4xx だけ1回送り直す）。🔴 **アドオン 2.14.0**（`v2.14.0.zip`）。`APP_HISTORY` **53件**・`debug_suite.js` **v1.26.0**（`D-L12` / `D-W8` ─ どちらも投稿しない）。同版で `index.html` の `escapeHtmlAttr` の重複を解消。実機合格（準備 0.4秒・利用者が手で打った1回がチャットに出た）。記録 `report_v2_16_0.md`。先立つスパイク C1（2026-10-25・版数なし・`spike_post_c1.md`）で送れること・`params` が `/live_chat` ページにだけあることを確かめた |
 | **v2.15.1** | **コメント流しの同時表示数の上限の既定を 40 → 60**（`FLOW.maxOnscreen` / `FLOW_DEFAULTS` ─ `/get-danmaku-spec` 1-1節）。11節の保留（2026-10-24）を利用者指示（2026-10-25）で実施。保存済みの値はそのまま。A側のみ・プロトコル変更なし・パッチ。`APP_HISTORY` **52件**・`debug_suite.js` **v1.25.1**（`D-M7` の既定値）。目視のみ（利用者 2026-10-26 OK） |
@@ -382,7 +384,8 @@ YouTube の許可が外れることがある（8節🔴 の最重要項目）。
 | A → embed | `SYNC_EMBED_PING` | `nonce` | 点呼（debug_suite の D-W1） |
 | embed → A | `SYNC_EMBED_HELLO` | `nonce` / `embedHref` / `version` | 点呼への返事 |
 | A → embed | `SYNC_EMBED_METER` ★v2.12.0 | `attach` / `report` | 音量メーター。`attach:true` で付け替えを許可、`report:true` で 0.1秒ごとの報告を3秒間貸し出す。A側は1秒ごとに全 YouTube 枠へ送る |
-| embed → A | `SYNC_EMBED_LEVEL` ★v2.12.0 | `db` / `speechDb` / `state`（`running` / `waiting` / `suspended` / `error` / `off`）/ `why` / `latencyMs` / `volume` / `muted` / `paused` / `loudnessDb` / `perceptualLoudnessDb` / `embedHref` / `version` | 音のレベル（音量を掛けた後の RMS dBFS）。`perceptualLoudnessDb` は YouTube の動画全体の音の大きさ（`getPlayerResponse().playerConfig.audioConfig`） |
+| A → embed | `SYNC_EMBED_COMP` ★v2.18.0 | `on` / `freq`（1000〜12000 Hz）/ `threshold`（-60〜0 dB）/ `ratio`（2〜20） | 高音を抑える。枠の中で範囲に丸める。`on:true` は付け替えを許す（メーターのスイッチを切っていても）。A側は1秒ごとの `meterTick` と設定を変えたときに送る。BROKEN で付け替えをやめた動画には `on:false` |
+| embed → A | `SYNC_EMBED_LEVEL` ★v2.12.0 | `db` / `speechDb` / `state`（`running` / `waiting` / `suspended` / `error` / `off`）/ `why` / `latencyMs` / `volume` / `muted` / `paused` / `loudnessDb` / `perceptualLoudnessDb` / `embedHref` / `version` / **`compOn` / `compDb`（`DynamicsCompressorNode.reduction`・0 以下）/ `compLatencyMs`**（★v2.18.0） | 音のレベル（音量を掛けた後の RMS dBFS）。`perceptualLoudnessDb` は YouTube の動画全体の音の大きさ（`getPlayerResponse().playerConfig.audioConfig`） |
 | embed → A | `SYNC_EMBED_METER_BROKEN` ★v2.12.0 | `why` / `embedHref` / `version` | 付け替えた後、再生中なのに `AudioContext` が3秒 `running` に戻らない。A側はその枠を付け替えなしで読み直し、元の位置へ戻す（同じ動画のあいだは `attach` を送らない） |
 
 - **A側の受け口**（`handleEmbedMessage`）: `event.origin` が `https://www.youtube.com` 以外は捨てる。枠は ① `event.source` ＝ `ytPlayers[id].getIframe().contentWindow` ② 無ければ `embedHref` と iframe の `src` の videoId が一致する枠が1つだけのとき。どちらで決めたかを `lastEmbedEvent.how` に残す。`videoId` は11文字の形だけ通す。
@@ -1146,7 +1149,7 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 
 | 版数 | 内容 | 主な対象 | ライブ素材 |
 | :--- | :--- | :--- | :--: |
-| **スパイク（2026-10-26 合意）** | **YouTube の視聴履歴**（InnerTube `browse`・`FEhistory`・ログイン必須）が取れるか・応答の形・枠の中の YouTube（埋め込み）で見た動画が履歴に載るか。🔴 正式な Data API には履歴の口が無い。結果が良ければ、枠の「🕒 最近使った動画」と **共存**させる（2列で両方 or 切り替え ─ 利用者の希望。置き換えない: ローカル動画の履歴とこのツールで見た動画を失うため）。マイナーの見込み | アドオン・A側 | ─ |
+| **v2.19.0（2026-10-30 合意）** | **枠の「最近使った動画」に YouTube の視聴履歴を切り替えで出す**（「🕒 このツール ／ ▶ YouTube」）。⚪ スパイク H1（2026-10-30・`spike_hist_h1.md`）: InnerTube `POST /youtubei/v1/browse`（`browseId: 'FEhistory'`）が取得エンジンと同じ認証（`SAPISIDHASH`）で読める・1ページ **199件・3.4MB・0.6秒**・続きも読める・ID とタイトルは全件、チャンネル・長さ・再生位置の印はショート以外。🔴 **枠（埋め込み）で見た動画は YouTube の履歴に載らない** → 中身が別物なので置き換えずに共存。決めたこと: 30件・同じ動画はまとめる・ショートは除く・切り替えたときに取得タブで読み、10分は全枠で使い回す・🔄 で読み直す・ログインしていなければ「YouTube にログインすると表示されます」。取得タブで必要な項目だけに絞って A側へ送る。あわせて **デバッグのログの扱い**（測定を始めたら自動で消し、直前の結果を最大3件残して名前つきのコピーボタン ─ 利用者「個別テストは行わない」）。マイナー（アドオンを上げる見込み） | アドオン・A側・`debug_suite.js` | ─ |
 | **未定** | リアルタイム同時視聴対応 + **COLD再生の同期**（点呼メッセージ追加＝プロトコル変更） | 全般 | ─ |
 
 ⚪ **v2.11.0 の注記（ライブの出口3つ）は v2.11.0 / v2.11.1 で解消した。** 経緯と実測は `/get-chat-feature-spec` 1-6-7節。
@@ -1190,7 +1193,7 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 | 3 | ⚪ **配信終了時の挙動は v2.11.0 の実機で分かった**: 配信が終わっても `get_live_chat` は普通の応答を返し続け、出口に来るのはずっと後（`noLc` 1回で `ENDED`）。→ v2.11.1 で2分ごとの確認を入れた。🔴 **v2.11.1 の実機確認は持ち越し10** |
 | 4 | ⭐ **ライブ配信での解放の実測が未了**（2026-09-05）。v2.8.3 は**ライブ素材を使っていない。** 「配信中は取得が終わらないので、中止しないと解放できない」は**設計上の帰結として実装したが実測していない。** v2.11.0 でも未実施。**ライブ素材のある版で `D-G3` 相当をライブで1本測ること** |
 | 5 | **`D-C10`（非ログインでの取得）・`D-C11`（重いアーカイブの所要時間）が未実施**（2026-09-05）。理由は他項目のログイン前提との両立と所要時間。**取得エンジンを触る版で消化すること** |
-| 6 | ⚠️ **`sync_url_` のキー体系が2系統に分かれている**（2026-09-07 / 実害は未確認）。`loadSingleYT()` は **`sync_url_<cardId>`**（例 `sync_url_card_17`）へ、`resaveUrlsBasedOnOrder()` は **`sync_url_<index>`（1..N）**へ書き、**両者は同期されない。** URLを読み込んだだけでは連番キーが空のまま。🔴 **v2.8.5 の指示書はこれを取り違えており、`D-Y4` が「空欄どうしの比較」で自明に成立しかけた**（着手前照会で発覚）。**保存URLに触る版では必ず確認すること** |
+| 6 | ⚠️ **`sync_url_` のキー体系が2系統に分かれている**（2026-09-07 / 実害は未確認）。`loadSingleYT()` は **`sync_url_<cardId>`**（例 `sync_url_card_17`）へ、`resaveUrlsBasedOnOrder()` は **`sync_url_<index>`（1..N）**へ書き、**両者は同期されない。** URLを読み込んだだけでは連番キーが空のまま。🔴 **v2.8.5 の指示書はこれを取り違えており、`D-Y4` が「空欄どうしの比較」で自明に成立しかけた**（着手前照会で発覚）。**保存URLに触る版では必ず確認すること**。★2026-10-30: 再読み込みで復元に使うのは `<index>` の方。枠ごとの設定（音量・高音を抑える）は v2.18.1 からこちらに揃えた（v2.18.0 まで枠 ID で、読み直すと別の枠へ移った ─ 鉄則 #56） |
 | 7 | ⚠️ **9枠のピン前の行トラック 299px の説明がつかない**（2026-09-07）。1fr 相当 293.33px を 5.67px 上回るが、**同じ3列3行・同じカード幅 524px の「6枠＋ピン」は 293.33px ちょうど**で矛盾する。🔴 **切り分けられなかったので「9枠はピン無しでも崩れる」とは主張しない。** スパイク 7-A で測り直すこと |
 | 8 | ⚠️ **矩形の収束が同一構成・同一実行内で 100ms 対 2012ms と20倍ぶれる**（2026-09-16 / v2.8.7）。原因は未特定。`LAYOUT_SETTLE_MS` は 3000 なので時間切れではなく実際に2秒動き続けている。2026-10-02 の再測では出なかった。**版数を切らないスパイク向き** |
 | 9 | ⚠️ **6枠・自動以外の構成で、ピン枠の隅の自動判定が無い**（2026-09-16 / v2.8.7）。`D-Y11` / `D-Y12` は 6枠・自動（3×3）のみ。手動2列・1列・3枠で「選べる隅が2つになる」ことは**目視のみ**。`D-Y11` に構成を足すかは未定 |
@@ -1201,6 +1204,7 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 | 14 | **視聴者数の予備経路（watch HTML）が実機で未確認**（v2.13.0 は経路1 `updated_metadata` で取れた）。視聴者数が非公開の配信・メンバー限定配信での動きも未確認 |
 | 15 | **Google ドライブ同期の未確認点**（v2.14.0〜v2.14.1）: OAuth 同意画面の公開ステータス「テスト」での許可の持ち時間（数日後に窓なしで取り直せるか）・2つの環境の同時書き込み（あとが勝つ設計）。`D-W7` は R1 の再読み込みでトークンが消えるとログインし直すまで判定不能（v2.14.1 の R2 で起きた）→ 次に 🎯 に入れるときは PC 不成立の文言に「📂 を開いてから」を添える |
 | 16 | **ライブへの投稿の未確認点**（v2.16.0〜v2.17.0）: ログイン直後の送信（`/live_chat` の HTML の `ytcfg` を使う経路・v2.17.0 は準備まで確認）／タブへ戻ったときの自動のやり直しが `focus` と `visibilitychange` のどちらで効いたか（v2.17.0 の目視は「OK」のみ）／ 投稿できない配信（メンバー限定・登録者限定・低速モード）の実機の文言と送信時のエラーの形／4xx で `params` を取り直して送り直す経路・打ち切りの経路（headless の偽物のみ）／`params` の有効期限／9枠で複数のライブに投稿したとき／ブランドアカウント（`X-Goog-PageId` なし）。出会ったときに記録する |
+| 17 | **高音を抑える（v2.18.0）の未確認点**: 9枠すべてに入れたときの負荷／切り替えでプツッと鳴るか（用紙に回答の欄が無かった）／「少し変わる」音色の中身（境の位相の回り方か・持ち上げの打ち消しの誤差か）／`D-W10` の1回目でメーターの報告が届かなかった理由（2回目は届いた）／ローカル動画の枠（対象外） |
 
 ### 保留（版数を切らない）
 - `relativeSeekReport` の `diff` 欠落（B側が未実装のため現時点で実害なし）

@@ -5,7 +5,7 @@ description: "A側UIの部品仕様（トップメニュー・枠内通知・設
 
 # A側UI 部品仕様書（`controller.html`）
 
-最終更新: 2026-10-26 / 現行リリース **v2.17.0**（15節 ライブの投稿欄・ログインのボタン）
+最終更新: 2026-10-30 / 現行リリース **v2.18.1**（10-7節 高音を抑える・10-1節 枠ごとの値は並び順の番号で保存）
 
 > **成立の経緯**: 1節は `/get-chat-feature-spec` 8-12節 →（v2.7.3）→ `/get-protocol-spec` 12節、
 > 2節は `/get-protocol-spec` 旧13節。**2026-08-07 に「A側UIの部品仕様」として本スキルへ分離した**
@@ -737,12 +737,19 @@ function moveCard(cardId, direction) {
 | 値 | 持ち方 | 保存 |
 | :--- | :--- | :--- |
 | マスター | `#masterVolume`（下部）と `#mixerMasterVolume`（ミキサー）が**同じ値を共有**（`syncMasterVolumeUI()`） | `sync_master_volume` |
-| 枠ごと | `cardVolume[cardId]`（0〜100・既定 100） | 🔴 `sync_card_volume`（JSON）。**保存のたびに消えた枠の値を捨てる**（枠IDは作り直すたびに新しい番号になる） |
+| 枠ごと | `cardVolume[cardId]`（0〜100・既定 100） | 🔴 `sync_card_volume`（JSON）。★v2.18.1: **並び順の番号（`"1"`〜`"N"`）で保存する**（`saveSlotMap` / `readSlotMap`・下の注）。保存のたびに消えた枠の値を捨てる |
 | 実効 | `effectiveVolume(cardId) = round(マスター × 枠ごと / 100)` | 持たない（毎回計算） |
 
 `applyCardVolume(cardId)` が実効値を YouTube の `setVolume()` とローカル動画の `video.volume` に書く。YouTube の `onReady`（新規・セッション復元の2経路）も実効値を使う。
 🔴 **`changeMasterVolume()` は `cardVolume` に触らない。** v2.8.8 までは全枠の音量をマスターの値で上書きしていて、「枠ごとに合わせた差がマスターを触るとリセットされる」原因になっていた。`debug_suite.js` の `D-A2` が検出する。
 ローカル動画の操作バーの音量欄（`localVolume_*`）は**枠ごとの音量**を表す（`changeLocalVideoVolume()` → `setCardVolume()`）。
+
+🔴 **枠ごとの値（音量・高音を抑える）は枠 ID で保存しない**（★v2.18.1・鉄則 #56）。枠 ID は読み直すたびに `card_1` から振り直されるが、枠の削除・マイリストの読み込み（保存したときの ID で作り直す）のあとは並び順とずれる。v2.18.0 までは ID で保存していたので、読み直すと動画は元の枠へ戻るのに設定だけ別の枠へ移った／捨てられた（v2.8.9 から）。保存URL（`sync_url_<番号>`）と同じ番号に揃える。
+
+| 時 | 処理 |
+| :--- | :--- |
+| 読む | `loadSlotSettings()`: `initializeGrid` の**初回**（枠ができてから）と `loadSession` のあと。i 番目の枠に `"i+1"` の値。旧形式（`card_N`）は同じ ID の枠があれば読む |
+| 書く | 値を変えたとき・`resaveUrlsBasedOnOrder`（並べ替え・削除・空にする・動画の読み込み）・`initializeGrid` の終わり（枠数の変更で減った番号を消す）。🔴 読む前は書かない（`slotSettingsLoaded`。空のメモリで保存を消すため） |
 
 ### 10-2. 画面
 
@@ -773,6 +780,15 @@ function moveCard(cardId, direction) {
 ### 10-6. マイリストの再生位置 ★v2.11.2
 
 位置は以前から `getNewSessionState()` が枠ごとの `currentTime` を保存し、読み込みで戻していた（表示だけが無かった）。履歴の2行目の「▸ 再生位置」で枠ごとの「枠N・タイトル（チャンネル名）・位置」を開く（`sessionPositionRows`）。🔴 ボタンは行の読み込み（`onclick`）の内側にあるので `event.stopPropagation()`。マウスを乗せる title にも同じ内容。内部タイマーの ⏱（`globalTime`）は出さない（利用者要望・値は保存し続ける）。タイトルとチャンネル名は HTML として逃がす（`escapeHtmlAttr`）。
+
+### 10-7. 高音を抑える ★v2.18.0 / v2.18.1
+
+- メーターの行の右の「🎚」（`volCompBtn_{cid}`・効いていれば橙）。押すと設定の行（`volComp_{cid}`）: ☑ 高音を抑える・帯域（1000〜12000 Hz・250 刻み・「○kHz より上」）・しきい値（-60〜0 dB）・強さ（2〜20・「○ : 1」）・抑えた量。YouTube の枠だけ（ローカル動画の枠は対象外）。
+- 既定 `COMP_DEFAULTS = { on:false, freq:4000, threshold:-30, ratio:8 }`。値は `cardComp`（`sync_card_comp`・10-1節の注と同じく並び順の番号で保存）。`setCardComp` が範囲に丸めて保存し、すぐ `SYNC_EMBED_COMP` を送る（`/get-protocol-spec` 4-2節）。1秒ごとの `meterTick` でも送る。
+- 🔴 入れた枠はメーターのスイッチを切っていても付け替える（`attach` = メーターがオン **または** 高音を抑えるがオン、かつ BROKEN でない）。
+- 抑えた量の文言: 「高い側を ○ dB 抑えています」（届いた `compDb`）／「効いています」／「準備中（再生すると効きます・アドオン 2.16.0 が要ります）」／BROKEN で付け替えをやめた動画は「⚠ この動画では使えません（音の処理が止まったため）」（`on:false` を送る）。
+- 逃げ道 `COMP_FEATURE = false`（ボタンも出さず何も送らない）。
+- 実測（2026-10-30・Floorp）: 強め（2kHz・-50 dB・20）で 0.2秒で効き、抑えた量の最大 28.3 dB・遅れ 6ms。耳で「キツい高音が和らいだ」・抑えていない部分の音色は「少し変わる」。利用者が気に入った設定 4kHz・-32 dB・8:1。
 
 ## 11. ローカル動画の拡大 ★v2.8.10
 
