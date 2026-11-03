@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>統合テスト用紙 ─ スパイク I1</title>
+<!--
+  統合テスト用紙（エンジン v3.0.0）
+  🔴 ローカル専用。controller.html とは別のポートに置くこと
+     （同一オリジンだと本体の「全設定・保存URLをリセット」で下書きが巻き添えで消える）。
+  使い方: FORM_META と STEPS を差し替えるだけ。骨組み（CSS・描画・自己診断・
+  コピー・下書き保存・3つの照合）は毎回そのまま。
+-->
+<script>
+/* ============================================================
+   ここから下が「この回の中身」。骨組みは触らない。
+   ============================================================ */
+var FORM_META = {
+    defVersion: '2026-11-03.spikeinfo1',
+    work: 'スパイク I1 ─ 動画の概要欄とコメント欄を読めるか（版数を切らない）',
+    base: 'index.html v2.19.2（変更なし）/ アドオン 2.17.0（変更なし）/ 計測コード info-i1-1.0.0（YouTube のページのコンソールに貼る）',
+    expectApp: '(YouTube のページ)',
+    expectSuite: 'info-i1-1.0.0',
+    note: '🔴 本番もアドオンも変えていません。計測は読むだけです（コメントを書き込みません）。結果に本文・投稿者名・リンク先は入りません（件数・種類・形だけ）。'
+};
+
+var STEPS = [
+
+{ sec: '1. 準備', html:
+    '動画の概要欄とコメント欄を、このツールから読めるかを確かめます（読むだけ）。<br>'
+    + '<b>J1 概要欄を読む</b>: 本文とリンク（時刻・外部・別の動画・チャンネル・ハッシュタグ）の形を調べる ／ <b>J2 コメントを読む</b>: 1ページ目・2ページ目・新しい順・返信の形と件数を調べる。<br>'
+    + '🔴 結果には、本文・投稿者名・リンク先・Cookie は入りません。<br>'
+    + "<button type=\"button\" onclick=\"var t=document.getElementById('infoSnip');t.style.display='block';t.select();try{document.execCommand('copy');this.textContent='✅ コピーしました';}catch(e){this.textContent='⚠ 下の枠を全選択してコピー';}\">📋 計測コードをコピー</button>" + "<textarea id=\"infoSnip\" readonly style=\"display:none;height:120px;margin-top:6px;white-space:pre;\">" + "/* ============================================================\n   スパイク I1: 動画の概要欄とコメント欄を読めるか（版数を切らない・本番コードもアドオンも変えない）\n   🔴 https://www.youtube.com/watch?v=… のページで、コンソールの実行先は「Top」のまま貼る。\n   画面の右上に小さなパネルが出る。\n     ▶ J1 概要欄を読む   … next / player を読み、概要欄の本文・リンクの種類・位置を調べる（🔴 読むだけ）\n     ▶ J2 コメントを読む … コメントの1ページ目・2ページ目・新しい順・返信を読み、形と件数を調べる（🔴 読むだけ・書き込まない）\n   🔴 出力には本文・投稿者名・リンク先を載せない（件数・種類・形だけ）。Cookie の値・ハッシュも載せない。\n   🔴 innerHTML は使わない（YouTube は文字列での HTML の書き込みを禁じている）。\n   ============================================================ */\n(function () {\n    &#x27;use strict&#x27;;\n    var SNIP_VERSION = &#x27;info-i1-1.0.0&#x27;;\n    var ORIGIN = &#x27;https://www.youtube.com&#x27;;\n    var AUTH_COOKIE_NAMES = [&#x27;SAPISID&#x27;, &#x27;__Secure-3PAPISID&#x27;, &#x27;__Secure-1PAPISID&#x27;];\n\n    if (location.origin !== ORIGIN || window.top !== window) {\n        console.warn(&#x27;[スパイク I1] ここは &#x27; + location.href + &#x27; です。https://www.youtube.com/watch?v=… のページで、コンソールの実行先を「Top」にして貼ってください。&#x27;);\n        return;\n    }\n    if (window.__infoSpike &amp;&amp; window.__infoSpike.panel) { try { window.__infoSpike.panel.remove(); } catch (e) { } }\n    var S = window.__infoSpike = { reports: [], running: false, next: null, vid: null };\n\n    /* ---------- 共通 ---------- */\n    function videoIdOf(s) {\n        s = String(s || &#x27;&#x27;).trim();\n        var m = s.match(/(?:v=|youtu\\.be\\/|\\/live\\/|\\/embed\\/|\\/shorts\\/)([A-Za-z0-9_-]{11})/);\n        if (m) return m[1];\n        return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;\n    }\n    function cfg() {\n        var y = window.ytcfg &amp;&amp; window.ytcfg.get ? window.ytcfg : null;\n        var g = function (k) { try { return y ? y.get(k) : undefined; } catch (e) { return undefined; } };\n        return {\n            key: g(&#x27;INNERTUBE_API_KEY&#x27;), ctx: g(&#x27;INNERTUBE_CONTEXT&#x27;),\n            clientName: g(&#x27;INNERTUBE_CONTEXT_CLIENT_NAME&#x27;), clientVersion: g(&#x27;INNERTUBE_CONTEXT_CLIENT_VERSION&#x27;),\n            sessionIndex: g(&#x27;SESSION_INDEX&#x27;), loggedIn: g(&#x27;LOGGED_IN&#x27;)\n        };\n    }\n    function pickAuthCookie() {\n        var parts = String(document.cookie || &#x27;&#x27;).split(&#x27;;&#x27;);\n        for (var n = 0; n &lt; AUTH_COOKIE_NAMES.length; n++) {\n            for (var i = 0; i &lt; parts.length; i++) {\n                var p = parts[i], j = p.indexOf(&#x27;=&#x27;);\n                if (j &lt; 0 || p.slice(0, j).trim() !== AUTH_COOKIE_NAMES[n]) continue;\n                var v = p.slice(j + 1).trim();\n                if (v) return { name: AUTH_COOKIE_NAMES[n], value: v };\n            }\n        }\n        return null;\n    }\n    async function sha1Hex(text) {\n        var d = new Uint8Array(await crypto.subtle.digest(&#x27;SHA-1&#x27;, new TextEncoder().encode(text)));\n        var s = &#x27;&#x27;;\n        for (var i = 0; i &lt; d.length; i++) s += (d[i] &lt; 16 ? &#x27;0&#x27; : &#x27;&#x27;) + d[i].toString(16);\n        return s;\n    }\n    /* 取得エンジン（chat_fetcher_main.js の buildAuthHeaders）と同じ作り方。anon なら認証なし・Cookie も送らない */\n    async function headers(c, anon) {\n        var h = { &#x27;content-type&#x27;: &#x27;application/json&#x27; };\n        var hit = anon ? null : pickAuthCookie();\n        if (hit) {\n            var sec = Math.floor(Date.now() / 1000);\n            h[&#x27;Authorization&#x27;] = &#x27;SAPISIDHASH &#x27; + sec + &#x27;_&#x27; + (await sha1Hex(sec + &#x27; &#x27; + hit.value + &#x27; &#x27; + ORIGIN));\n            h[&#x27;X-Origin&#x27;] = ORIGIN;\n            h[&#x27;X-Goog-AuthUser&#x27;] = &#x27;0&#x27;;\n        }\n        return h;\n    }\n    async function api(path, c, body, anon) {\n        var t0 = performance.now(), res, txt = &#x27;&#x27;, j = null;\n        res = await fetch(&#x27;/youtubei/v1/&#x27; + path + &#x27;?&#x27; + (c.key ? &#x27;key=&#x27; + encodeURIComponent(c.key) + &#x27;&amp;&#x27; : &#x27;&#x27;) + &#x27;prettyPrint=false&#x27;,\n            { method: &#x27;POST&#x27;, credentials: anon ? &#x27;omit&#x27; : &#x27;include&#x27;, headers: await headers(c, anon), body: JSON.stringify(Object.assign({ context: c.ctx }, body)) });\n        txt = await res.text();\n        try { j = JSON.parse(txt); } catch (e) { j = null; }\n        return { status: res.status, body: j, ms: Math.round(performance.now() - t0), kb: Math.round(txt.length / 1024) };\n    }\n    function keysOf(o) { return (o &amp;&amp; typeof o === &#x27;object&#x27;) ? Object.keys(o).join(&#x27;,&#x27;) : &#x27;(なし)&#x27;; }\n    function dig(o, path) { var v = o; for (var i = 0; i &lt; path.length; i++) { if (!v) return undefined; v = v[path[i]]; } return v; }\n    /* o の中で key を持つ値をすべて集める（前から順・深さ 30 まで） */\n    function findAll(o, key, max) {\n        var out = [], stack = [[o, 0]];\n        while (stack.length &amp;&amp; out.length &lt; (max || 1e9)) {\n            var top = stack.shift(), v = top[0], d = top[1];\n            if (!v || typeof v !== &#x27;object&#x27; || d &gt; 30) continue;\n            if (Object.prototype.hasOwnProperty.call(v, key)) out.push(v[key]);\n            for (var k in v) if (v[k] &amp;&amp; typeof v[k] === &#x27;object&#x27;) stack.push([v[k], d + 1]);\n        }\n        return out;\n    }\n    function findOne(o, key) { var a = findAll(o, key, 1); return a.length ? a[0] : undefined; }\n    function tally(arr) { var t = {}; arr.forEach(function (k) { t[k] = (t[k] || 0) + 1; }); var ks = Object.keys(t); return ks.length ? ks.map(function (k) { return k + &#x27;×&#x27; + t[k]; }).join(&#x27; / &#x27;) : &#x27;(なし)&#x27;; }\n\n    /* リンク（commandRuns の1つ）の種類。🔴 リンク先そのものは返さない */\n    function runKind(r, vid) {\n        var cmd = dig(r, [&#x27;onTap&#x27;, &#x27;innertubeCommand&#x27;]) || {};\n        if (cmd.watchEndpoint) {\n            var w = cmd.watchEndpoint, t = (typeof w.startTimeSeconds === &#x27;number&#x27;);\n            if (w.videoId === vid) return t ? &#x27;時刻（この動画）&#x27; : &#x27;この動画（時刻なし）&#x27;;\n            return t ? &#x27;別の動画＋時刻&#x27; : &#x27;別の動画&#x27;;\n        }\n        if (cmd.reelWatchEndpoint) return &#x27;ショート&#x27;;\n        if (cmd.urlEndpoint) {\n            var u = String(cmd.urlEndpoint.url || &#x27;&#x27;);\n            if (/^https?:\\/\\/(www\\.)?youtube\\.com\\/redirect/.test(u)) return &#x27;外部（youtube.com/redirect 経由）&#x27;;\n            if (/^https?:\\/\\/(www\\.)?(youtube\\.com|youtu\\.be)\\//.test(u)) return &#x27;YouTube 内の URL&#x27;;\n            if (/^\\//.test(u)) return &#x27;YouTube 内のパス&#x27;;\n            return &#x27;外部（直接）&#x27;;\n        }\n        if (cmd.browseEndpoint) {\n            var b = String(cmd.browseEndpoint.browseId || &#x27;&#x27;);\n            if (/^UC/.test(b)) return &#x27;チャンネル&#x27;;\n            if (b === &#x27;FEhashtag&#x27;) return &#x27;ハッシュタグ&#x27;;\n            return &#x27;browse（&#x27; + b.slice(0, 2) + &#x27;…）&#x27;;\n        }\n        var ks = Object.keys(cmd).filter(function (k) { return k !== &#x27;clickTrackingParams&#x27; &amp;&amp; k !== &#x27;commandMetadata&#x27;; });\n        return ks.length ? ks[0] : &#x27;(onTap なし)&#x27;;\n    }\n    /* 本文と runs の位置の整合（startIndex + length が本文の長さに収まる） */\n    function rangesOk(content, runs) {\n        var n = String(content || &#x27;&#x27;).length;\n        return runs.filter(function (r) { return typeof r.startIndex === &#x27;number&#x27; &amp;&amp; typeof r.length === &#x27;number&#x27; &amp;&amp; r.startIndex &gt;= 0 &amp;&amp; r.startIndex + r.length &lt;= n; }).length;\n    }\n\n    /* ---------- D-J1: 概要欄 ---------- */\n    async function readDesc(input) {\n        var r = { id: &#x27;D-J1&#x27;, name: &#x27;概要欄を読む（🔴 本文・リンク先は載せない）&#x27;, results: [], pcs: [], notes: [] };\n        var c = cfg(), vid = videoIdOf(input) || videoIdOf(location.href);\n        r.pcs.push({ name: &#x27;キーと文脈（INNERTUBE_API_KEY / CONTEXT）がある&#x27;, ok: !!(c.key &amp;&amp; c.ctx), value: (c.key &amp;&amp; c.ctx) ? &#x27;ok&#x27; : &#x27;無い（YouTube のページを開き直してから貼る）&#x27; });\n        r.pcs.push({ name: &#x27;動画 ID を読めた（欄が空ならこのページの動画）&#x27;, ok: !!vid, value: vid || &#x27;(読めない)&#x27; });\n        r.notes.push({ name: &#x27;ログイン（認証用の Cookie）&#x27;, value: pickAuthCookie() ? &#x27;あり&#x27; : &#x27;なし&#x27; });\n        if (!(c.key &amp;&amp; c.ctx) || !vid) { r.verdict = &#x27;判定不能&#x27;; return r; }\n        S.vid = vid;\n        var nx = await api(&#x27;next&#x27;, c, { videoId: vid });\n        S.next = nx.body;\n        r.notes.push({ name: &#x27;next の HTTP・時間・大きさ&#x27;, value: nx.status + &#x27; / &#x27; + nx.ms + &#x27;ms / &#x27; + nx.kb + &#x27;KB&#x27; });\n        r.results.push({ name: &#x27;next が読める（HTTP 200）&#x27;, ok: nx.status === 200 &amp;&amp; !!nx.body, actual: String(nx.status), expected: &#x27;200&#x27; });\n        if (!nx.body) { r.pass = r.results.filter(function (x) { return x.ok; }).length; r.verdict = &#x27;不合格&#x27;; return r; }\n        /* 置き場所の候補（新しい順に） */\n        var cands = [\n            [&#x27;videoSecondaryInfoRenderer.attributedDescription&#x27;, dig(findOne(nx.body, &#x27;videoSecondaryInfoRenderer&#x27;), [&#x27;attributedDescription&#x27;])],\n            [&#x27;expandableVideoDescriptionBodyRenderer.attributedDescriptionBodyText&#x27;, dig(findOne(nx.body, &#x27;expandableVideoDescriptionBodyRenderer&#x27;), [&#x27;attributedDescriptionBodyText&#x27;])],\n            [&#x27;videoSecondaryInfoRenderer.description（runs の古い形）&#x27;, dig(findOne(nx.body, &#x27;videoSecondaryInfoRenderer&#x27;), [&#x27;description&#x27;])]\n        ];\n        r.notes.push({ name: &#x27;本文の置き場所（あり / なし）&#x27;, value: cands.map(function (x) { return x[0] + &#x27;=&#x27; + (x[1] ? &#x27;あり&#x27; : &#x27;なし&#x27;); }).join(&#x27; / &#x27;) });\n        var ad = cands[0][1] || cands[1][1];\n        var content = ad ? String(ad.content || &#x27;&#x27;) : &#x27;&#x27;;\n        var runs = (ad &amp;&amp; Array.isArray(ad.commandRuns)) ? ad.commandRuns : [];\n        r.notes.push({ name: &#x27;本文の長さ / 行数&#x27;, value: content.length + &#x27;字 / &#x27; + (content ? content.split(&#x27;\\n&#x27;).length : 0) + &#x27;行&#x27; });\n        r.notes.push({ name: &#x27;commandRuns / styleRuns / attachmentRuns の数&#x27;, value: runs.length + &#x27; / &#x27; + (ad &amp;&amp; ad.styleRuns ? ad.styleRuns.length : 0) + &#x27; / &#x27; + (ad &amp;&amp; ad.attachmentRuns ? ad.attachmentRuns.length : 0) });\n        r.notes.push({ name: &#x27;🔴 リンクの種類&#x27;, value: tally(runs.map(function (x) { return runKind(x, vid); })) });\n        r.notes.push({ name: &#x27;リンクの onTap 以外の形（commandRuns の中の名前）&#x27;, value: tally(runs.map(function (x) { return keysOf(x); })) });\n        r.results.push({ name: &#x27;🔴 概要欄の本文がある（attributedDescription）&#x27;, ok: !!ad, actual: ad ? &#x27;ある&#x27; : &#x27;無い&#x27;, expected: &#x27;ある&#x27; });\n        r.results.push({ name: &#x27;リンクの位置が本文の中に収まる（startIndex + length）&#x27;, ok: rangesOk(content, runs) === runs.length, actual: rangesOk(content, runs) + &#x27;/&#x27; + runs.length, expected: runs.length + &#x27;/&#x27; + runs.length });\n        /* 見出しに出せるもの（純正の概要欄の上: 視聴回数・日付） */\n        var vp = findOne(nx.body, &#x27;videoPrimaryInfoRenderer&#x27;);\n        r.notes.push({ name: &#x27;見出しの材料（videoPrimaryInfoRenderer の title / viewCount / dateText / relativeDateText）&#x27;, value: vp ? [!!vp.title, !!vp.viewCount, !!vp.dateText, !!vp.relativeDateText].map(function (b) { return b ? &#x27;あり&#x27; : &#x27;なし&#x27;; }).join(&#x27; / &#x27;) : &#x27;(videoPrimaryInfoRenderer なし)&#x27; });\n        /* 予備: player の shortDescription（リンクの情報は無い） */\n        try {\n            var pl = await api(&#x27;player&#x27;, c, { videoId: vid });\n            var sd = dig(pl.body, [&#x27;videoDetails&#x27;, &#x27;shortDescription&#x27;]);\n            r.notes.push({ name: &#x27;予備 player の HTTP・時間・大きさ / shortDescription の長さ&#x27;, value: pl.status + &#x27; / &#x27; + pl.ms + &#x27;ms / &#x27; + pl.kb + &#x27;KB / &#x27; + (typeof sd === &#x27;string&#x27; ? sd.length + &#x27;字&#x27; : &#x27;無い&#x27;) });\n            r.notes.push({ name: &#x27;shortDescription と attributedDescription の長さが同じ&#x27;, value: (typeof sd === &#x27;string&#x27; &amp;&amp; ad) ? (sd.length === content.length ? &#x27;同じ&#x27; : &#x27;違う（&#x27; + sd.length + &#x27; / &#x27; + content.length + &#x27;）&#x27;) : &#x27;-&#x27; });\n        } catch (e) { r.notes.push({ name: &#x27;予備 player&#x27;, value: &#x27;失敗: &#x27; + (e &amp;&amp; e.message) }); }\n        /* ログインなし（Cookie を送らない）でも読めるか */\n        try {\n            var an = await api(&#x27;next&#x27;, c, { videoId: vid }, true);\n            var ad2 = an.body ? (dig(findOne(an.body, &#x27;videoSecondaryInfoRenderer&#x27;), [&#x27;attributedDescription&#x27;]) || dig(findOne(an.body, &#x27;expandableVideoDescriptionBodyRenderer&#x27;), [&#x27;attributedDescriptionBodyText&#x27;])) : null;\n            r.notes.push({ name: &#x27;ログインなし（Cookie を送らない）の next / 本文&#x27;, value: an.status + &#x27; / &#x27; + (ad2 ? &#x27;ある（&#x27; + String(ad2.content || &#x27;&#x27;).length + &#x27;字）&#x27; : &#x27;無い&#x27;) });\n        } catch (e) { r.notes.push({ name: &#x27;ログインなしの next&#x27;, value: &#x27;失敗: &#x27; + (e &amp;&amp; e.message) }); }\n        r.pass = r.results.filter(function (x) { return x.ok; }).length;\n        r.verdict = r.pcs.every(function (p) { return p.ok; }) ? (r.pass === r.results.length ? &#x27;合格&#x27; : &#x27;不合格&#x27;) : &#x27;判定不能&#x27;;\n        return r;\n    }\n\n    /* ---------- D-J2: コメント ---------- */\n    function commentToken(nextBody) {\n        /* ① 動画の下の欄（sectionIdentifier = comment-item-section） ② コメントの引き出し（engagement-panel-comments-section） */\n        var secs = findAll(nextBody, &#x27;itemSectionRenderer&#x27;);\n        for (var i = 0; i &lt; secs.length; i++) {\n            if (secs[i] &amp;&amp; secs[i].sectionIdentifier === &#x27;comment-item-section&#x27;) {\n                var t = findOne(secs[i], &#x27;continuationCommand&#x27;);\n                if (t &amp;&amp; t.token) return { token: t.token, from: &#x27;comment-item-section&#x27; };\n            }\n        }\n        var panels = findAll(nextBody, &#x27;engagementPanelSectionListRenderer&#x27;);\n        for (var p = 0; p &lt; panels.length; p++) {\n            if (panels[p] &amp;&amp; /comment/.test(String(panels[p].panelIdentifier || &#x27;&#x27;))) {\n                var t2 = findOne(panels[p], &#x27;continuationCommand&#x27;);\n                if (t2 &amp;&amp; t2.token) return { token: t2.token, from: &#x27;engagement-panel（&#x27; + panels[p].panelIdentifier + &#x27;）&#x27; };\n            }\n        }\n        return null;\n    }\n    /* コメントの1回分の応答を数える */\n    function parseComments(body, vid) {\n        var o = { threads: 0, vm: 0, oldRenderer: 0, payloads: 0, withContent: 0, withAuthor: 0, withLikes: 0, withReplyCount: 0, replyTokens: 0, nextToken: null, firstReplyToken: null, runs: [], sortItems: [], countText: false, replyLevel1: 0, avatar: 0, creatorHeart: 0, pinned: 0 };\n        var threads = findAll(body, &#x27;commentThreadRenderer&#x27;);\n        o.threads = threads.length;\n        threads.forEach(function (t) {\n            if (t.commentViewModel) o.vm++;\n            if (t.comment &amp;&amp; t.comment.commentRenderer) o.oldRenderer++;\n            var rt = t.replies ? findOne(t.replies, &#x27;continuationCommand&#x27;) : null;\n            if (rt &amp;&amp; rt.token) { o.replyTokens++; if (!o.firstReplyToken) o.firstReplyToken = rt.token; }\n        });\n        var muts = findAll(body, &#x27;commentEntityPayload&#x27;);\n        o.payloads = muts.length;\n        muts.forEach(function (m) {\n            var pr = m.properties || {};\n            if (pr.content &amp;&amp; typeof pr.content.content === &#x27;string&#x27;) o.withContent++;\n            if (pr.replyLevel === 1) o.replyLevel1++;\n            if (m.author &amp;&amp; m.author.displayName) o.withAuthor++;\n            if (m.author &amp;&amp; m.author.avatarThumbnailUrl) o.avatar++;\n            if (m.toolbar &amp;&amp; (m.toolbar.likeCountNotliked !== undefined || m.toolbar.likeCountLiked !== undefined)) o.withLikes++;\n            if (m.toolbar &amp;&amp; m.toolbar.replyCount) o.withReplyCount++;\n            if (m.toolbar &amp;&amp; m.toolbar.creatorThumbnailUrl) o.creatorHeart++;\n            if (pr.content &amp;&amp; Array.isArray(pr.content.commandRuns)) pr.content.commandRuns.forEach(function (x) { o.runs.push(runKind(x, vid)); });\n        });\n        o.pinned = findAll(body, &#x27;pinnedText&#x27;).length + findAll(body, &#x27;pinnedCommentBadge&#x27;).length;\n        /* 次のページ: 一番上の continuationItems の末尾にある continuationItemRenderer だけ。\n           🔴 findAll で探すと、スレッドの中の返信の続きを拾ってしまう */\n        (body.onResponseReceivedEndpoints || []).forEach(function (ep) {\n            var items = dig(ep, [&#x27;reloadContinuationItemsCommand&#x27;, &#x27;continuationItems&#x27;]) || dig(ep, [&#x27;appendContinuationItemsAction&#x27;, &#x27;continuationItems&#x27;]) || [];\n            var last = items[items.length - 1];\n            var t = last &amp;&amp; last.continuationItemRenderer ? dig(findOne(last.continuationItemRenderer, &#x27;continuationCommand&#x27;) || {}, [&#x27;token&#x27;]) : null;\n            if (t) o.nextToken = t;\n        });\n        var sub = findOne(body, &#x27;sortFilterSubMenuRenderer&#x27;);\n        if (sub &amp;&amp; Array.isArray(sub.subMenuItems)) o.sortItems = sub.subMenuItems.map(function (x) { return { hasToken: !!dig(findOne(x, &#x27;continuationCommand&#x27;) || {}, [&#x27;token&#x27;]), token: dig(findOne(x, &#x27;continuationCommand&#x27;) || {}, [&#x27;token&#x27;]), selected: !!x.selected }; });\n        var hdr = findOne(body, &#x27;commentsHeaderRenderer&#x27;);\n        o.countText = !!(hdr &amp;&amp; (hdr.countText || hdr.commentsCount));\n        return o;\n    }\n    function threadsOf(body) { return findAll(body, &#x27;commentThreadRenderer&#x27;).length; }\n    async function readComments() {\n        var r = { id: &#x27;D-J2&#x27;, name: &#x27;コメントを読む（🔴 本文・投稿者名は載せない・書き込まない）&#x27;, results: [], pcs: [], notes: [] };\n        var c = cfg(), vid = S.vid;\n        r.pcs.push({ name: &#x27;先に ▶ J1 概要欄を読む が済んでいる&#x27;, ok: !!S.next, value: S.next ? (vid + &#x27; の next を読んだ&#x27;) : &#x27;まだ&#x27; });\n        if (!S.next) { r.verdict = &#x27;判定不能&#x27;; return r; }\n        var tk = commentToken(S.next);\n        r.pcs.push({ name: &#x27;🔴 コメント欄の入り口（continuation）が next にある&#x27;, ok: !!tk, value: tk ? tk.from : &#x27;無い（コメントが無効の動画・ライブ中など）&#x27; });\n        if (!tk) { r.verdict = &#x27;判定不能&#x27;; return r; }\n        var p1 = await api(&#x27;next&#x27;, c, { continuation: tk.token });\n        r.notes.push({ name: &#x27;1ページ目の HTTP・時間・大きさ&#x27;, value: p1.status + &#x27; / &#x27; + p1.ms + &#x27;ms / &#x27; + p1.kb + &#x27;KB&#x27; });\n        r.notes.push({ name: &#x27;1ページ目の一番上の名前&#x27;, value: keysOf(p1.body) });\n        var a = p1.body ? parseComments(p1.body, vid) : null;\n        r.results.push({ name: &#x27;🔴 1ページ目が読める（HTTP 200・スレッドが1件以上）&#x27;, ok: !!(a &amp;&amp; p1.status === 200 &amp;&amp; a.threads &gt; 0), actual: p1.status + &#x27; / &#x27; + (a ? a.threads : 0) + &#x27;件&#x27;, expected: &#x27;200 / 1件以上&#x27; });\n        if (!a) { r.pass = r.results.filter(function (x) { return x.ok; }).length; r.verdict = &#x27;不合格&#x27;; return r; }\n        r.notes.push({ name: &#x27;スレッド / うち commentViewModel / 古い commentRenderer&#x27;, value: a.threads + &#x27; / &#x27; + a.vm + &#x27; / &#x27; + a.oldRenderer });\n        r.notes.push({ name: &#x27;commentEntityPayload / 本文あり / 投稿者名あり / アイコンあり / 高評価数あり / 返信数あり&#x27;, value: [a.payloads, a.withContent, a.withAuthor, a.avatar, a.withLikes, a.withReplyCount].join(&#x27; / &#x27;) });\n        r.notes.push({ name: &#x27;返信の続き（token）があるスレッド / 固定 / 投稿者のハート&#x27;, value: a.replyTokens + &#x27; / &#x27; + a.pinned + &#x27; / &#x27; + a.creatorHeart });\n        r.notes.push({ name: &#x27;🔴 コメントの中のリンクの種類&#x27;, value: tally(a.runs) });\n        r.notes.push({ name: &#x27;見出しの件数（countText）/ 並べ替えの項目（token あり・選ばれている）&#x27;, value: (a.countText ? &#x27;あり&#x27; : &#x27;なし&#x27;) + &#x27; / &#x27; + (a.sortItems.length ? a.sortItems.map(function (x, i) { return (i + 1) + (x.hasToken ? &#x27;:token&#x27; : &#x27;:なし&#x27;) + (x.selected ? &#x27;(選択中)&#x27; : &#x27;&#x27;); }).join(&#x27; &#x27;) : &#x27;(並べ替えなし)&#x27;) });\n        r.results.push({ name: &#x27;本文が全件にある（commentEntityPayload）&#x27;, ok: a.payloads &gt; 0 &amp;&amp; a.withContent === a.payloads, actual: a.withContent + &#x27;/&#x27; + a.payloads, expected: a.payloads + &#x27;/&#x27; + a.payloads });\n        r.results.push({ name: &#x27;並べ替え（人気順 / 新しい順）が2つあり token がある&#x27;, ok: a.sortItems.length &gt;= 2 &amp;&amp; a.sortItems.every(function (x) { return x.hasToken; }), actual: a.sortItems.length + &#x27;項目&#x27;, expected: &#x27;2項目以上・token あり&#x27; });\n        /* 2ページ目 */\n        if (a.nextToken) {\n            var p2 = await api(&#x27;next&#x27;, c, { continuation: a.nextToken });\n            r.notes.push({ name: &#x27;2ページ目の HTTP・時間・大きさ / スレッド&#x27;, value: p2.status + &#x27; / &#x27; + p2.ms + &#x27;ms / &#x27; + p2.kb + &#x27;KB / &#x27; + (p2.body ? threadsOf(p2.body) : 0) + &#x27;件&#x27; });\n            r.results.push({ name: &#x27;続き（2ページ目）が読める&#x27;, ok: p2.status === 200 &amp;&amp; !!p2.body &amp;&amp; threadsOf(p2.body) &gt; 0, actual: p2.status + &#x27; / &#x27; + (p2.body ? threadsOf(p2.body) : 0) + &#x27;件&#x27;, expected: &#x27;200 / 1件以上&#x27; });\n        } else r.notes.push({ name: &#x27;2ページ目&#x27;, value: &#x27;続きの token なし（コメントが少ない）&#x27; });\n        /* 新しい順 */\n        var newest = a.sortItems[1];\n        if (newest &amp;&amp; newest.token) {\n            var p3 = await api(&#x27;next&#x27;, c, { continuation: newest.token });\n            var b3 = p3.body ? parseComments(p3.body, vid) : null;\n            r.notes.push({ name: &#x27;新しい順の HTTP・時間 / スレッド / 選択中の項目&#x27;, value: p3.status + &#x27; / &#x27; + p3.ms + &#x27;ms / &#x27; + (b3 ? b3.threads : 0) + &#x27;件 / &#x27; + (b3 ? b3.sortItems.map(function (x, i) { return x.selected ? (i + 1) : &#x27;&#x27;; }).join(&#x27;&#x27;) : &#x27;-&#x27;) });\n            r.results.push({ name: &#x27;新しい順が読める&#x27;, ok: !!(b3 &amp;&amp; p3.status === 200 &amp;&amp; b3.threads &gt; 0), actual: p3.status + &#x27; / &#x27; + (b3 ? b3.threads : 0) + &#x27;件&#x27;, expected: &#x27;200 / 1件以上&#x27; });\n        }\n        /* 返信 */\n        if (a.firstReplyToken) {\n            var p4 = await api(&#x27;next&#x27;, c, { continuation: a.firstReplyToken });\n            var b4 = p4.body ? parseComments(p4.body, vid) : null;\n            r.notes.push({ name: &#x27;返信の HTTP・時間 / commentEntityPayload / replyLevel 1 / スレッド&#x27;, value: p4.status + &#x27; / &#x27; + p4.ms + &#x27;ms / &#x27; + (b4 ? b4.payloads + &#x27; / &#x27; + b4.replyLevel1 + &#x27; / &#x27; + b4.threads : &#x27;-&#x27;) });\n            r.results.push({ name: &#x27;返信が読める&#x27;, ok: !!(b4 &amp;&amp; p4.status === 200 &amp;&amp; b4.payloads &gt; 0), actual: p4.status + &#x27; / &#x27; + (b4 ? b4.payloads : 0) + &#x27;件&#x27;, expected: &#x27;200 / 1件以上&#x27; });\n        } else r.notes.push({ name: &#x27;返信&#x27;, value: &#x27;返信のあるコメントが1ページ目に無い&#x27; });\n        /* ログインなし */\n        try {\n            var an = await api(&#x27;next&#x27;, c, { continuation: tk.token }, true);\n            r.notes.push({ name: &#x27;ログインなし（Cookie を送らない）の1ページ目 / スレッド&#x27;, value: an.status + &#x27; / &#x27; + (an.body ? threadsOf(an.body) : 0) + &#x27;件&#x27; });\n        } catch (e) { r.notes.push({ name: &#x27;ログインなしの1ページ目&#x27;, value: &#x27;失敗: &#x27; + (e &amp;&amp; e.message) }); }\n        r.pass = r.results.filter(function (x) { return x.ok; }).length;\n        r.verdict = r.pcs.every(function (p) { return p.ok; }) ? (r.pass === r.results.length ? &#x27;合格&#x27; : &#x27;不合格&#x27;) : &#x27;判定不能&#x27;;\n        return r;\n    }\n\n    /* ---------- 出力（debug_suite.js と同じ書式） ---------- */\n    function toMarkdown() {\n        var L = [];\n        L.push(&#x27;### スパイク I1 計測結果（概要欄とコメント欄）&#x27;);\n        L.push(&#x27;&#x27;);\n        L.push(&#x27;## 1. 事実&#x27;);\n        L.push(&#x27;&#x27;);\n        L.push(&#x27;- debug_suite: `&#x27; + SNIP_VERSION + &#x27;` / APP_VERSION: `(YouTube のページ)`&#x27;);\n        L.push(&#x27;- 実行日時: &#x27; + new Date().toISOString());\n        L.push(&#x27;- 場所: `&#x27; + location.origin + location.pathname + &#x27;`&#x27;);\n        L.push(&#x27;- 動画: `&#x27; + (S.vid || &#x27;-&#x27;) + &#x27;`&#x27;);\n        L.push(&#x27;- UA: `&#x27; + navigator.userAgent + &#x27;`&#x27;);\n        L.push(&#x27;- 🔴 本文・投稿者名・リンク先は載せていない（件数・種類・形だけ）&#x27;);\n        L.push(&#x27;&#x27;);\n        L.push(&#x27;| テスト | 判定 | 合格/項目数 | PC |&#x27;);\n        L.push(&#x27;| :--- | :--: | ---: | :--- |&#x27;);\n        S.reports.forEach(function (r) {\n            var pcOk = r.pcs.filter(function (p) { return p.ok; }).length;\n            L.push(&#x27;| &#x27; + r.id + &#x27; &#x27; + r.name + &#x27; | &#x27; + (r.verdict === &#x27;合格&#x27; ? &#x27;⚪&#x27; : (r.verdict === &#x27;不合格&#x27; ? &#x27;❌&#x27; : &#x27;⚠️&#x27;)) + &#x27; &#x27; + r.verdict\n                + &#x27; | &#x27; + (r.pass || 0) + &#x27;/&#x27; + r.results.length + &#x27; | &#x27; + (pcOk === r.pcs.length ? &#x27;全&#x27; + pcOk + &#x27;件成立&#x27; : pcOk + &#x27;/&#x27; + r.pcs.length + &#x27;成立&#x27;) + &#x27; |&#x27;);\n        });\n        S.reports.forEach(function (r) {\n            L.push(&#x27;&#x27;);\n            L.push(&#x27;#### &#x27; + r.id + &#x27; &#x27; + r.name);\n            L.push(&#x27;&#x27;);\n            L.push(&#x27;| 種別 | 項目 | 実測 | 期待 | 判定 |&#x27;);\n            L.push(&#x27;| :--- | :--- | :--- | :--- | :--: |&#x27;);\n            r.pcs.forEach(function (p) { L.push(&#x27;| PC | &#x27; + p.name + &#x27; | &#x27; + p.value + &#x27; | 成立すること | &#x27; + (p.ok ? &#x27;⚪&#x27; : &#x27;❌&#x27;) + &#x27; |&#x27;); });\n            r.results.forEach(function (x) { L.push(&#x27;| 判定 | &#x27; + x.name + &#x27; | &#x27; + x.actual + &#x27; | &#x27; + x.expected + &#x27; | &#x27; + (x.ok ? &#x27;⚪&#x27; : &#x27;❌&#x27;) + &#x27; |&#x27;); });\n            r.notes.forEach(function (n) { L.push(&#x27;| 観測 | &#x27; + n.name + &#x27; | &#x27; + n.value + &#x27; | （期待値なし） | ─ |&#x27;); });\n        });\n        L.push(&#x27;&#x27;);\n        L.push(&#x27;## 3. 生データJSON&#x27;);\n        L.push(&#x27;&#x27;);\n        L.push(&#x27;```json&#x27;);\n        L.push(JSON.stringify({ snippet: SNIP_VERSION, video: S.vid, report: S.reports }, null, 1));\n        L.push(&#x27;```&#x27;);\n        return L.join(&#x27;\\n&#x27;);\n    }\n\n    /* ---------- パネル ---------- */\n    function mk(tag, text, css) { var e = document.createElement(tag); if (text) e.textContent = text; if (css) e.style.cssText = css; return e; }\n    var panel = mk(&#x27;div&#x27;, &#x27;&#x27;, &#x27;position:fixed;right:8px;top:64px;z-index:2147483647;background:rgba(0,0,0,.9);color:#fff;border:1px solid #0fc;&#x27;\n        + &#x27;border-radius:6px;padding:8px 10px;font:13px/1.5 sans-serif;width:320px;&#x27;);\n    var status = mk(&#x27;div&#x27;, &#x27;&#x27;, &#x27;margin:4px 0;font-weight:bold;&#x27;);\n    var inVid = mk(&#x27;input&#x27;, &#x27;&#x27;, &#x27;width:100%;box-sizing:border-box;margin:6px 0 2px;padding:3px;color:#000;&#x27;);\n    inVid.placeholder = &#x27;動画の URL か ID（空ならこのページの動画）&#x27;;\n    var bDesc = mk(&#x27;button&#x27;, &#x27;▶ J1 概要欄を読む&#x27;, &#x27;margin:2px 0;padding:2px 6px;cursor:pointer;&#x27;);\n    var bCom = mk(&#x27;button&#x27;, &#x27;▶ J2 コメントを読む&#x27;, &#x27;margin:2px 0;padding:2px 6px;cursor:pointer;&#x27;);\n    var bCopy = mk(&#x27;button&#x27;, &#x27;📋 コピー&#x27;, &#x27;margin:2px;padding:2px 6px;cursor:pointer;&#x27;);\n    var bClose = mk(&#x27;button&#x27;, &#x27;×&#x27;, &#x27;margin:2px;padding:2px 6px;cursor:pointer;&#x27;);\n    panel.appendChild(mk(&#x27;div&#x27;, &#x27;スパイク I1（&#x27; + SNIP_VERSION + &#x27;）&#x27;, &#x27;color:#0fc;font-weight:bold;&#x27;));\n    panel.appendChild(status); panel.appendChild(inVid); panel.appendChild(bDesc); panel.appendChild(bCom);\n    panel.appendChild(mk(&#x27;div&#x27;, &#x27;&#x27;, &#x27;height:4px;&#x27;)); panel.appendChild(bCopy); panel.appendChild(bClose);\n    document.body.appendChild(panel);\n    S.panel = panel;\n    function setStatus(t, hot) { status.textContent = t; status.style.color = hot ? &#x27;#ff0&#x27; : &#x27;#fff&#x27;; }\n    setStatus(&#x27;▶ J1 概要欄を読む を押す&#x27;);\n\n    async function run(fn) {\n        if (S.running) return;\n        S.running = true; bDesc.disabled = bCom.disabled = true;\n        try {\n            var r = await fn();\n            S.reports = S.reports.filter(function (x) { return x.id !== r.id; });\n            S.reports.push(r);\n            setStatus(r.id + &#x27;: &#x27; + r.verdict + &#x27;（&#x27; + (r.pass || 0) + &#x27;/&#x27; + r.results.length + &#x27;）。&#x27; + (r.id === &#x27;D-J1&#x27; ? &#x27;次に ▶ J2&#x27; : &#x27;📋 で結果をコピー&#x27;), r.verdict !== &#x27;合格&#x27;);\n        } catch (e) {\n            setStatus(&#x27;⚠ 失敗: &#x27; + (e &amp;&amp; e.message ? e.message : e), true);\n        } finally {\n            S.running = false; bDesc.disabled = bCom.disabled = false;\n        }\n    }\n    bDesc.onclick = function () { setStatus(&#x27;読んでいます…&#x27;); run(function () { return readDesc(inVid.value); }); };\n    bCom.onclick = function () { setStatus(&#x27;読んでいます…（数秒）&#x27;); run(readComments); };\n    bCopy.onclick = function () {\n        var md = toMarkdown();\n        function fallback() {\n            var ta = document.createElement(&#x27;textarea&#x27;);\n            ta.value = md; document.body.appendChild(ta); ta.select();\n            var ok = false;\n            try { ok = document.execCommand(&#x27;copy&#x27;); } catch (e) { }\n            ta.remove();\n            setStatus(ok ? &#x27;コピーしました（予備の方法）&#x27; : &#x27;⚠ コピーできません。コンソールで copy(__infoSpike.md()) と打って Enter&#x27;, !ok);\n        }\n        if (navigator.clipboard &amp;&amp; navigator.clipboard.writeText) {\n            navigator.clipboard.writeText(md).then(function () { setStatus(&#x27;コピーしました&#x27;, false); }, fallback);\n        } else fallback();\n    };\n    bClose.onclick = function () { if (!S.running) panel.remove(); };\n    S.md = toMarkdown;\n    S._t = { videoIdOf: videoIdOf, runKind: runKind, parseComments: parseComments, commentToken: commentToken, rangesOk: rangesOk };\n    console.log(&#x27;[スパイク I1] パネルを出しました（画面の右上）。&#x27;);\n})();\n" + "</textarea>" },
+
+{ ttl: 'T1. 素材を選ぶ',
+  rows: [
+    ['Floorp（普段のプロファイル・YouTube にログイン済み）で、<b>公開されている動画</b>を1本開く', '次の3つがそろうものが理想: ① 概要欄に <b>時刻（0:00 など）と外部リンク</b>がある ② <b>コメントが100件以上</b>ある ③ コメントに <b>時刻（1:23 など）を含むもの</b>がある（音楽ライブ・ゲーム実況のアーカイブなど）'],
+    ['その動画の URL を下に貼る', 'ライブ配信中の動画・メンバー限定は避ける']
+  ],
+  ans: [
+    { id: 'T1', type: 'text', label: '素材の動画の URL' }
+  ] },
+
+{ ttl: 'R1. J1 概要欄を読む → J2 コメントを読む',
+  rows: [
+    ['T1 の動画のタブで <b>F12</b> を押し、「<b>コンソール</b>」タブを開く', '実行先は「Top」のまま（切り替えない）'],
+    ['上の「📋 計測コードをコピー」で写したものをコンソールの入力欄に貼って <b>Enter</b>', '🔴 警告が出たら入力欄に <code>allow pasting</code> と打って Enter してから貼り直す'],
+    ['<b>F12</b> をもう一度押して閉じる', '画面の右上に「スパイク I1」のパネルが出る'],
+    ['パネルの <b>▶ J1 概要欄を読む</b> を押す', '動画の URL の欄は空のままでよい（このページの動画を読む）。数秒で「D-J1: 合格」などと出る'],
+    ['パネルの <b>▶ J2 コメントを読む</b> を押す', '数秒。「D-J2: 合格」などと出る'],
+    ['パネルの <b>📋 コピー</b> を押し、下の R1 の欄へ貼り付ける', 'コピーできないと出たら、F12 → コンソールに <code>copy(__infoSpike.md())</code> と打って Enter し、貼り付ける']
+  ],
+  ans: [
+    { id: 'R1', type: 'suite', label: '📋 コピー の中身をここへ貼り付けてください', expectIds: ['D-J1', 'D-J2'] }
+  ] },
+
+{ ttl: 'R2. 目で見る（素材の概要欄とコメント）',
+  rows: [
+    ['YouTube のページで、概要欄を「もっと見る」で開く', ''],
+    ['概要欄にあるリンクの種類を見る（複数選んでよい・下の欄に書く）', '時刻 / 外部サイト / 別の動画 / チャンネル（@名前）/ ハッシュタグ（#）'],
+    ['コメント欄の時刻のリンク（1:23 など）を1つ押して、どう動くかを見る', '純正の動き（同じ動画のその時刻へ飛ぶはず）']
+  ],
+  ans: [
+    { id: 'R2', type: 'text', label: '概要欄にあったリンクの種類（例: 時刻・外部・チャンネル）' },
+    { id: 'R2b', type: 'radio', label: 'コメントの時刻リンクを押すと（純正）', options: ['同じ動画のその時刻へ飛んだ', '別の動きをした（自由記入へ）'] }
+  ] },
+
+{ ans: { id: 'FREE', type: 'text', label: '自由記入（パネルが出なかった、エラーの文言、純正で気に入っている動き、など。無ければ「なし」）' } }
+
+];
+/* ============================================================
+   ここまでが「この回の中身」。
+   ============================================================ */
+</script>
+
+<style>
+:root { --bg:#14141a; --fg:#e6e6ea; --line:#2e2e3a; --acc:#00ffcc; --ng:#ff5a5a; --warn:#ffb020; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family: "Segoe UI", Meiryo, sans-serif;
+       font-size:14px; line-height:1.7; }
+header { position:sticky; top:0; z-index:5; background:#1b1b24; border-bottom:1px solid var(--line);
+         padding:10px 16px; }
+header h1 { margin:0 0 4px; font-size:1.05rem; color:var(--acc); }
+.meta { font-size:.78rem; color:#9a9aa8; }
+.hstat { margin-top:6px; font-size:.82rem; }
+.hstat b { color:var(--warn); }
+main { max-width:1000px; margin:0 auto; padding:16px; }
+.sec { margin:26px 0 10px; padding:10px 12px; border-left:4px solid var(--acc); background:#1a1a23; }
+.sec h2 { margin:0 0 4px; font-size:.98rem; color:var(--acc); }
+.sec p { margin:0; font-size:.86rem; color:#b9b9c6; }
+.item { border:1px solid var(--line); border-radius:6px; margin:14px 0; background:#171720; }
+.item > h3 { margin:0; padding:8px 12px; font-size:.92rem; background:#20202b;
+             border-bottom:1px solid var(--line); border-radius:6px 6px 0 0; }
+.body { padding:10px 12px; }
+table.steps { width:100%; border-collapse:collapse; margin-bottom:8px; font-size:.86rem; }
+table.steps th, table.steps td { border:1px solid var(--line); padding:5px 8px; vertical-align:top; }
+table.steps th { background:#20202b; color:#b9b9c6; font-weight:normal; text-align:left; }
+table.steps td:first-child { width:58%; }
+table.steps td:last-child { color:#9a9aa8; }
+.note { font-size:.82rem; color:var(--warn); margin:6px 0 8px; }
+.ans { border-top:1px dashed var(--line); margin-top:10px; padding-top:8px; }
+.ans .lbl { font-size:.86rem; color:#cfcfda; margin-bottom:4px; }
+.ans .lbl .aid { color:var(--acc); font-weight:bold; margin-right:6px; }
+label.opt { display:block; padding:2px 0; font-size:.86rem; cursor:pointer; }
+input[type=radio], input[type=checkbox] { margin-right:6px; }
+textarea { width:100%; background:#0f0f15; color:var(--fg); border:1px solid var(--line);
+           border-radius:4px; padding:6px 8px; font-family: Consolas, monospace; font-size:.8rem; }
+textarea.paste { height:180px; max-height:180px; resize:none; overflow:auto; white-space:pre; }
+textarea.free { height:90px; max-height:90px; resize:none; }
+input[type=text] { width:100%; background:#0f0f15; color:var(--fg); border:1px solid var(--line);
+                   border-radius:4px; padding:5px 8px; font-size:.86rem; }
+.blank { border-color:var(--ng) !important; box-shadow:0 0 0 1px var(--ng) inset; }
+.chkbox { border:1px solid transparent; border-radius:4px; padding:2px 4px; }
+.verify { margin-top:6px; font-size:.82rem; border-radius:4px; padding:6px 8px; }
+.verify.ok { background:rgba(0,255,204,.08); color:#8ff3df; }
+.verify.ng { background:rgba(255,90,90,.12); color:#ffb3b3; }
+.verify.warn { background:rgba(255,176,32,.12); color:#ffd98f; }
+.bar { position:sticky; bottom:0; background:#1b1b24; border-top:1px solid var(--line);
+       padding:10px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+button { background:#20202b; color:var(--fg); border:1px solid var(--line); border-radius:4px;
+         padding:6px 12px; cursor:pointer; font-size:.86rem; }
+button.primary { background:var(--acc); color:#000; font-weight:bold; border-color:var(--acc); }
+#status { font-size:.82rem; color:#9a9aa8; }
+code { background:#0f0f15; padding:1px 4px; border-radius:3px; font-size:.82rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="hTitle">統合テスト用紙</h1>
+  <div class="meta" id="hMeta"></div>
+  <div class="meta" id="hNote"></div>
+  <div class="hstat" id="hStat"></div>
+</header>
+<main id="form"></main>
+<div class="bar">
+  <button class="primary" id="btnCopy">📋 報告書用にコピー</button>
+  <button id="btnDl">⬇ .md で保存</button>
+  <button id="btnClear">🗑 下書きを消す</button>
+  <span id="status"></span>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    var FORM_ENGINE_VERSION = '3.0.1';
+    var LS_KEY = 'test_form_draft';
+    var EXTRA_CHOICES = ['該当なし', '測れなかった（理由は自由記入へ）', '未実施'];
+    var RUNAT_MAX_H = 24;          /* 照合③のしきい値（時間） */
+
+    /* ---------------------------------------------------------------
+       項目の正規化
+       --------------------------------------------------------------- */
+    function normalize(a) {
+        var it = {
+            id: a.id, type: a.type || 'text', label: a.label || '',
+            options: a.options ? a.options.slice() : null,
+            expectIds: a.expectIds ? a.expectIds.slice() : null,
+            secret: !!a.secret, optional: !!a.optional
+        };
+        /* 🔴 認証情報は「ある / ない」の radio に強制する。値の入力欄を作らない。 */
+        if (it.secret) { it.type = 'radio'; it.options = ['ある', 'ない']; }
+        if (it.type === 'radio') {
+            it.options = it.options || [];
+            EXTRA_CHOICES.forEach(function (c) {
+                if (it.options.indexOf(c) < 0) it.options.push(c);
+            });
+        }
+        return it;
+    }
+
+    /* STEPS を「描画順の並び」と「回答項目の並び」に分ける。 */
+    var ITEMS = [];
+    var BLOCKS = [];
+    (function build() {
+        STEPS.forEach(function (s, i) {
+            if (s.sec) { BLOCKS.push({ kind: 'sec', sec: s.sec, html: s.html || '' }); return; }
+            var list = [];
+            if (s.ans) list = (Object.prototype.toString.call(s.ans) === '[object Array]') ? s.ans : [s.ans];
+            var norm = list.map(normalize);
+            norm.forEach(function (n) { ITEMS.push(n); });
+            BLOCKS.push({ kind: s.ttl ? 'step' : 'ansonly', ttl: s.ttl || '', rows: s.rows || [],
+                          note: s.note || '', items: norm, idx: i });
+        });
+        var seen = {};
+        ITEMS.forEach(function (it) {
+            if (!it.id) throw new Error('id の無い回答欄があります');
+            if (seen[it.id]) throw new Error('id が重複しています: ' + it.id);
+            seen[it.id] = 1;
+        });
+    })();
+
+    var answers = {};
+    ITEMS.forEach(function (it) { answers[it.id] = { choice: '', text: '', done: false }; });
+
+    function ans(id) { return answers[id]; }
+    function isBlank(it) {
+        if (it.optional) return false;
+        var a = ans(it.id);
+        if (it.type === 'radio') return !a.choice;
+        if (it.type === 'check') return !a.done;
+        return !(a.text && a.text.trim());
+    }
+    function blankItems() { return ITEMS.filter(isBlank); }
+
+    /* ---------------------------------------------------------------
+       3つの照合（/get-debug-suite 9-3節）
+       --------------------------------------------------------------- */
+    /* 🔴 テストIDは出力の一覧表の行頭から取る。ログの文言からは拾わない。 */
+    function extractIds(text) {
+        var out = [], re = /^\|\s*(D-[A-Z]+\d+)\b/gm, m;
+        while ((m = re.exec(text || ''))) { if (out.indexOf(m[1]) < 0) out.push(m[1]); }
+        return out;
+    }
+    function extractVersions(text) {
+        var t = text || '';
+        var d = /debug_suite:\s*`([^`]*)`/.exec(t);
+        var a = /APP_VERSION:\s*`([^`]*)`/.exec(t);
+        var b = /版数バッジ:\s*`([^`]*)`/.exec(t);
+        return { suite: d ? d[1] : null, app: a ? a[1] : null, badge: b ? b[1] : null };
+    }
+    function extractRunAt(text) {
+        var m = /実行日時:\s*([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z)/.exec(text || '');
+        return m ? m[1] : null;
+    }
+    /* 戻り値: { level:'ok'|'warn'|'ng', msg:'...' } の配列 */
+    function verifyPaste(it, text) {
+        var out = [];
+        if (!text || !text.trim()) return out;
+
+        /* 照合① 要求したテストIDが揃っているか */
+        if (it.expectIds) {
+            var got = extractIds(text);
+            var miss = it.expectIds.filter(function (x) { return got.indexOf(x) < 0; });
+            var extra = got.filter(function (x) { return it.expectIds.indexOf(x) < 0; });
+            if (got.length === 0) {
+                out.push({ level: 'ng', msg: '照合① テストIDを1つも読み取れません。'
+                    + '「📋 報告書用にコピー」の中身をそのまま貼っているか確認してください。' });
+            } else if (miss.length) {
+                out.push({ level: 'ng', msg: '照合① 欠けているテストID: ' + miss.join(', ')
+                    + '（ボタンの押し忘れ、または測定が途中で止まっています）' });
+            } else {
+                out.push({ level: 'ok', msg: '照合① 要求した ' + it.expectIds.length + '件のIDが揃っています。' });
+            }
+            if (extra.length) {
+                out.push({ level: 'warn', msg: '照合① この回で要求していないIDも入っています: '
+                    + extra.join(', ') + '（⚠️ 欠落ではありません。'
+                    + '「🗑 ログを消す」を押さずに2回目を回すと前回の記録が残ります）' });
+            }
+        }
+        /* 照合② 版数 */
+        var v = extractVersions(text);
+        if (v.suite === null && v.app === null) {
+            out.push({ level: 'warn', msg: '照合② 版数の行を読み取れませんでした。' });
+        } else {
+            var bad = [];
+            if (v.suite !== FORM_META.expectSuite) bad.push('debug_suite = ' + v.suite + '（期待 ' + FORM_META.expectSuite + '）');
+            if (v.app !== FORM_META.expectApp) bad.push('APP_VERSION = ' + v.app + '（期待 ' + FORM_META.expectApp + '）');
+            if (v.badge && /warn|ng|未検出|⇔|権限なし/.test(v.badge)) bad.push('版数バッジ = ' + v.badge);
+            if (bad.length) out.push({ level: 'ng', msg: '照合② 版数が期待と違います: ' + bad.join(' / ') });
+            else out.push({ level: 'ok', msg: '照合② 版数は期待どおりです（suite ' + v.suite + ' / app ' + v.app + '）。' });
+        }
+        /* 照合③ 実行日時 */
+        var at = extractRunAt(text);
+        if (!at) {
+            out.push({ level: 'warn', msg: '照合③ 実行日時を読み取れませんでした。' });
+        } else {
+            var h = (Date.now() - new Date(at).getTime()) / 3600000;
+            if (!isFinite(h)) out.push({ level: 'warn', msg: '照合③ 実行日時を解釈できません: ' + at });
+            else if (h > RUNAT_MAX_H) out.push({ level: 'ng', msg: '照合③ 出力が古すぎます（'
+                + h.toFixed(1) + '時間前）。前のラウンドの出力を貼っていませんか。' });
+            else out.push({ level: 'ok', msg: '照合③ 実行日時は ' + h.toFixed(1) + '時間前です。' });
+        }
+        return out;
+    }
+
+    /* ---------------------------------------------------------------
+       描画（🔴 画面の並び ＝ 手順の順 ＝ 出力の順。節でまとめ直さない）
+       --------------------------------------------------------------- */
+    function el(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined && text !== null) e.textContent = text;
+        return e;
+    }
+
+    function render() {
+        document.getElementById('hTitle').textContent = '統合テスト用紙 ─ ' + FORM_META.work;
+        document.getElementById('hMeta').textContent =
+            'エンジン ' + FORM_ENGINE_VERSION + ' / 項目定義 ' + FORM_META.defVersion
+            + ' / 基点: ' + FORM_META.base
+            + ' / 期待版数: app ' + FORM_META.expectApp + ' ・ suite ' + FORM_META.expectSuite;
+        document.getElementById('hNote').textContent = FORM_META.note || '';
+        var host = document.getElementById('form');
+        host.textContent = '';
+        BLOCKS.forEach(function (b) {
+            if (b.kind === 'sec') {
+                var s = el('div', 'sec');
+                s.appendChild(el('h2', null, b.sec));
+                var p = el('p'); p.innerHTML = b.html; s.appendChild(p);
+                host.appendChild(s);
+                return;
+            }
+            var box = el('div', 'item');
+            if (b.ttl) box.appendChild(el('h3', null, b.ttl));
+            var body = el('div', 'body');
+            if (b.rows && b.rows.length) {
+                var t = el('table', 'steps');
+                var hr = document.createElement('tr');
+                hr.appendChild(el('th', null, 'やること'));
+                hr.appendChild(el('th', null, 'これで何をしたいか'));
+                t.appendChild(hr);
+                b.rows.forEach(function (r) {
+                    var tr = document.createElement('tr');
+                    var td1 = document.createElement('td'); td1.innerHTML = r[0];
+                    var td2 = document.createElement('td'); td2.innerHTML = r[1] || '';
+                    tr.appendChild(td1); tr.appendChild(td2); t.appendChild(tr);
+                });
+                body.appendChild(t);
+            }
+            if (b.note) body.appendChild(el('div', 'note', b.note));
+            b.items.forEach(function (it) { body.appendChild(renderAns(it)); });
+            box.appendChild(body);
+            host.appendChild(box);
+        });
+        updateBlank();
+    }
+
+    function renderAns(it) {
+        var wrap = el('div', 'ans');
+        wrap.id = 'ans_' + it.id;
+        var lbl = el('div', 'lbl');
+        var aid = el('span', 'aid', it.id); lbl.appendChild(aid);
+        lbl.appendChild(document.createTextNode(it.label));
+        wrap.appendChild(lbl);
+        var a = ans(it.id);
+
+        if (it.type === 'radio') {
+            it.options.forEach(function (opt, i) {
+                var lab = el('label', 'opt');
+                var inp = document.createElement('input');
+                inp.type = 'radio'; inp.name = 'r_' + it.id; inp.value = opt;
+                inp.addEventListener('change', function () { a.choice = opt; save(); updateBlank(); });
+                lab.appendChild(inp);
+                lab.appendChild(document.createTextNode(opt));
+                wrap.appendChild(lab);
+            });
+        } else if (it.type === 'check') {
+            var lab2 = el('label', 'opt');
+            var chk = document.createElement('input');
+            chk.type = 'checkbox'; chk.id = 'c_' + it.id;
+            chk.addEventListener('change', function () { a.done = chk.checked; save(); updateBlank(); });
+            lab2.appendChild(chk);
+            lab2.appendChild(document.createTextNode(' 確認した'));
+            wrap.appendChild(lab2);
+        } else if (it.type === 'suite' || it.type === 'paste') {
+            var ta = document.createElement('textarea');
+            ta.className = 'paste'; ta.id = 't_' + it.id;
+            ta.placeholder = 'ここへ貼り付けてください';
+            var vbox = el('div');
+            ta.addEventListener('input', function () {
+                a.text = ta.value; save(); updateBlank(); drawVerify(it, vbox, ta.value);
+            });
+            wrap.appendChild(ta);
+            wrap.appendChild(vbox);
+        } else {
+            var ta2 = document.createElement('textarea');
+            ta2.className = 'free'; ta2.id = 't_' + it.id;
+            ta2.addEventListener('input', function () { a.text = ta2.value; save(); updateBlank(); });
+            wrap.appendChild(ta2);
+        }
+        return wrap;
+    }
+
+    function drawVerify(it, host, text) {
+        host.textContent = '';
+        verifyPaste(it, text).forEach(function (v) {
+            host.appendChild(el('div', 'verify ' + v.level, v.msg));
+        });
+    }
+
+    function updateBlank() {
+        ITEMS.forEach(function (it) {
+            var bad = isBlank(it);
+            var w = document.getElementById('ans_' + it.id);
+            if (!w) return;
+            var f = w.querySelector('textarea') || w.querySelector('input[type=checkbox]');
+            if (f) { if (bad) f.classList.add('blank'); else f.classList.remove('blank'); }
+            if (it.type === 'radio') {
+                if (bad) w.classList.add('blank'); else w.classList.remove('blank');
+            }
+        });
+        var b = blankItems();
+        document.getElementById('hStat').innerHTML = b.length
+            ? ('未記入 <b>' + b.length + '件</b>（' + b.map(function (x) { return x.id; }).join(', ') + '）')
+            : '未記入はありません。';
+    }
+
+    /* ---------------------------------------------------------------
+       下書き（localStorage / 回が変われば混ざらない）
+       --------------------------------------------------------------- */
+    function draftKey() { return LS_KEY + ':' + FORM_META.defVersion; }
+    var saveTimer = null;
+    function save() {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(function () {
+            try {
+                localStorage.setItem(draftKey(), JSON.stringify({
+                    engine: FORM_ENGINE_VERSION, def: FORM_META.defVersion,
+                    at: Date.now(), answers: answers
+                }));
+                setStatus('下書きを保存しました（' + new Date().toLocaleTimeString() + '）');
+            } catch (e) { setStatus('⚠ 下書きを保存できません: ' + (e && e.message)); }
+        }, 250);
+    }
+    function load() {
+        var raw = null;
+        try { raw = localStorage.getItem(draftKey()); } catch (e) { }
+        if (!raw) return false;
+        try {
+            var o = JSON.parse(raw);
+            if (!o || o.def !== FORM_META.defVersion) return false;
+            /* ★3.0.1: 入れ物ごと差し替えない。回答欄の入力処理は描いたときの入れ物を持っているので、
+               差し替えると下書きを読んだあとの入力が答えに届かず、赤枠のまま・出力も空になる（2026-10-26 v2.17.0 の用紙で発生） */
+            Object.keys(o.answers || {}).forEach(function (k) {
+                var src = o.answers[k], dst = answers[k];
+                if (!dst || !src) return;
+                dst.choice = src.choice || ''; dst.text = src.text || ''; dst.done = !!src.done;
+            });
+            return true;
+        } catch (e) { return false; }
+    }
+    function applyToDom() {
+        ITEMS.forEach(function (it) {
+            var a = ans(it.id);
+            if (it.type === 'radio') {
+                var list = document.getElementsByName('r_' + it.id);
+                for (var i = 0; i < list.length; i++) list[i].checked = (list[i].value === a.choice);
+            } else if (it.type === 'check') {
+                var c = document.getElementById('c_' + it.id); if (c) c.checked = !!a.done;
+            } else {
+                var t = document.getElementById('t_' + it.id); if (t) t.value = a.text || '';
+                if (it.type === 'suite' || it.type === 'paste') {
+                    var w = document.getElementById('ans_' + it.id);
+                    if (w) drawVerify(it, w.lastChild, a.text || '');
+                }
+            }
+        });
+        updateBlank();
+    }
+    function setStatus(s) { document.getElementById('status').textContent = s; }
+
+    /* ---------------------------------------------------------------
+       出力
+       --------------------------------------------------------------- */
+    function valueText(it) {
+        var a = ans(it.id);
+        if (it.type === 'radio') return a.choice || '（未記入）';
+        if (it.type === 'check') return a.done ? '確認した' : '（未記入）';
+        return (a.text && a.text.trim()) ? a.text : '（未記入）';
+    }
+    function isLong(it) { return it.type === 'suite' || it.type === 'paste'; }
+
+    function fence(body) {
+        var m = body.match(/`+/g) || [];
+        var max = 0;
+        m.forEach(function (s) { if (s.length > max) max = s.length; });
+        var n = Math.max(3, max + 1), f = '';
+        for (var i = 0; i < n; i++) f += '`';
+        return f;
+    }
+
+    function buildBody() {
+        var L = [];
+        ITEMS.forEach(function (it) {
+            L.push('### ' + it.id + ' ' + it.label);
+            if (isLong(it)) {
+                var v = valueText(it);
+                var f = fence(v);
+                L.push(f);
+                L.push(v);
+                L.push(f);
+                verifyPaste(it, ans(it.id).text).forEach(function (x) {
+                    L.push('- ' + (x.level === 'ok' ? '⚪ ' : (x.level === 'ng' ? '❌ ' : '⚠ ')) + x.msg);
+                });
+            } else {
+                L.push(valueText(it));
+            }
+            L.push('');
+        });
+        return L.join('\n');
+    }
+
+    /* ---------------------------------------------------------------
+       自己診断（🔴 本文を先に組み立ててから、その文字列を検査する）
+       --------------------------------------------------------------- */
+    function chk(list, name, actual, expected) {
+        var ok = String(actual) === String(expected);
+        list.push({ ok: ok, name: name, actual: String(actual), expected: String(expected) });
+        return ok;
+    }
+
+    function runSelfCheck(bodyText) {
+        var L = [];
+
+        /* 項目数と種別 */
+        chk(L, '描画された回答欄の数が定義と一致',
+            document.querySelectorAll('#form .ans').length, ITEMS.length);
+        var kinds = {};
+        ITEMS.forEach(function (it) { kinds[it.type] = (kinds[it.type] || 0) + 1; });
+        chk(L, 'suite 欄が1つ以上ある', (kinds.suite || 0) > 0, true);
+        chk(L, 'radio 欄が1つ以上ある', (kinds.radio || 0) > 0, true);
+        chk(L, 'check 欄が1つ以上ある', (kinds.check || 0) > 0, true);
+        chk(L, 'text 欄が1つ以上ある', (kinds.text || 0) > 0, true);
+        ITEMS.forEach(function (it) {
+            if (!document.getElementById('ans_' + it.id)) {
+                L.push({ ok: false, name: '描画されていない回答欄', actual: it.id, expected: '描画済み' });
+            }
+        });
+
+        /* 🔴 画像を扱わないこと */
+        chk(L, '画像・ファイル入力の要素が無い',
+            document.querySelectorAll('img, canvas, svg, input[type=file]').length, 0);
+
+        /* secret の強制（この回には secret 項目が無いので正規化関数で確かめる） */
+        var s = normalize({ id: '__pc_secret__', type: 'text', secret: true });
+        chk(L, 'PC: secret を付けると radio「ある / ない」に強制される',
+            s.type + ':' + s.options.slice(0, 2).join('/'), 'radio:ある/ない');
+
+        /* 選択肢の自動追加 */
+        var okExtra = true;
+        ITEMS.forEach(function (it) {
+            if (it.type !== 'radio') return;
+            EXTRA_CHOICES.forEach(function (c) { if (it.options.indexOf(c) < 0) okExtra = false; });
+        });
+        chk(L, 'すべての radio に「該当なし / 測れなかった / 未実施」が足されている', okExtra, true);
+
+        /* 1万文字を入れても欄の高さが変わらない */
+        (function () {
+            var ta = document.querySelector('textarea.paste');
+            if (!ta) { L.push({ ok: false, name: '貼り付け欄が見つからない', actual: 'なし', expected: 'あり' }); return; }
+            var h0 = ta.offsetHeight, keep = ta.value, big = new Array(10001).join('x');
+            ta.value = big;
+            var h1 = ta.offsetHeight;
+            ta.value = keep;
+            chk(L, '1万文字を入れても貼り付け欄の高さが変わらない', h1, h0);
+        })();
+
+        /* 未記入と赤枠の一致 */
+        (function () {
+            var reds = 0;
+            ITEMS.forEach(function (it) {
+                var w = document.getElementById('ans_' + it.id);
+                if (!w) return;
+                var f = w.querySelector('textarea') || w.querySelector('input[type=checkbox]');
+                if ((f && f.classList.contains('blank')) || w.classList.contains('blank')) reds++;
+            });
+            chk(L, '赤枠の数と未記入の数が一致', reds, blankItems().length);
+        })();
+
+        /* 「（未記入）」の表記 */
+        chk(L, '未記入があるとき出力に「（未記入）」が入る',
+            blankItems().length > 0 ? (bodyText.indexOf('（未記入）') >= 0) : true, true);
+
+        /* 出力の並び順 ＝ 画面の並び順 */
+        (function () {
+            var pos = -1, ok = true;
+            ITEMS.forEach(function (it) {
+                var p = bodyText.indexOf('### ' + it.id + ' ');
+                if (p < 0 || p < pos) ok = false;
+                pos = p;
+            });
+            chk(L, '出力の並び順が画面の並び順と一致', ok, true);
+        })();
+
+        /* 下書きの往復 */
+        (function () {
+            var keep = JSON.stringify(answers);
+            save();
+            var raw = null;
+            try {
+                localStorage.setItem(draftKey(), JSON.stringify({
+                    engine: FORM_ENGINE_VERSION, def: FORM_META.defVersion, at: Date.now(), answers: answers
+                }));
+                raw = localStorage.getItem(draftKey());
+            } catch (e) { }
+            var ok = false;
+            try { ok = (JSON.stringify(JSON.parse(raw).answers) === keep); } catch (e) { }
+            chk(L, '下書きの保存と読み出しが往復する', ok, true);
+        })();
+
+        /* ★3.0.1: 下書きを読んだあとも、回答欄の入力が答えに届く（入れ物が描いたときと同じ） */
+        (function () {
+            var moved = ITEMS.filter(function (it) { return boxesAtRender[it.id] !== answers[it.id]; }).map(function (it) { return it.id; });
+            chk(L, '下書きを読んだあとも入力が答えに届く（差し替えた回答欄）', moved.length ? moved.join(',') : 'なし', 'なし');
+        })();
+
+        /* 🔴 照合そのものの positive control（鉄則 #22） */
+        (function () {
+            var fake = '| D-Z9 にせもの | ⚪ | 1/1 | |\n- debug_suite: `0.0.0` / APP_VERSION: `0.0.0`\n'
+                + '- 版数バッジ: `v0.0.0 / アドオン未検出`\n- 実行日時: 2000-01-01T00:00:00.000Z';
+            var r = verifyPaste({ id: '__pc__', type: 'suite', expectIds: ['D-Y1'] }, fake);
+            var txt = r.map(function (x) { return x.level + ':' + x.msg; }).join(' | ');
+            chk(L, 'PC: 偽のIDを与えると照合①が「欠けている」と言う',
+                /ng.*照合①/.test(txt), true);
+            chk(L, 'PC: 偽の版数を与えると照合②が落ちる', /ng.*照合②/.test(txt), true);
+            chk(L, 'PC: 古い日時を与えると照合③が落ちる', /ng.*照合③/.test(txt), true);
+            chk(L, 'PC: 要求していないIDがあると照合①が警告する', /warn.*照合①/.test(txt), true);
+            var good = '| D-Y1 ほんもの | ⚪ | 1/1 | |\n- debug_suite: `' + FORM_META.expectSuite
+                + '` / APP_VERSION: `' + FORM_META.expectApp + '`\n- 版数バッジ: `v'
+                + FORM_META.expectApp + '`\n- 実行日時: ' + new Date().toISOString();
+            var r2 = verifyPaste({ id: '__pc2__', type: 'suite', expectIds: ['D-Y1'] }, good);
+            var ng2 = r2.filter(function (x) { return x.level !== 'ok'; }).length;
+            chk(L, 'PC: 正しい出力では3つの照合がすべて ⚪', ng2, 0);
+        })();
+
+        /* 各 suite 欄の照合結果 */
+        ITEMS.forEach(function (it) {
+            if (it.type !== 'suite') return;
+            var r = verifyPaste(it, ans(it.id).text);
+            var ng = r.filter(function (x) { return x.level === 'ng'; }).length;
+            var wn = r.filter(function (x) { return x.level === 'warn'; }).length;
+            L.push({ ok: ng === 0, name: '照合の結果（' + it.id + '）',
+                actual: 'NG ' + ng + ' / 警告 ' + wn, expected: 'NG 0' });
+        });
+
+        return L;
+    }
+
+    function buildMarkdown() {
+        var body = buildBody();
+        var diag = runSelfCheck(body);
+        var L = [];
+        var blanks = blankItems();
+        L.push('# 統合テスト用紙 出力 ─ ' + FORM_META.work);
+        L.push('');
+        L.push('## 0. この用紙について');
+        L.push('');
+        L.push('- エンジン: `' + FORM_ENGINE_VERSION + '` / 項目定義: `' + FORM_META.defVersion + '`');
+        L.push('- 基点コード: ' + FORM_META.base);
+        L.push('- 期待版数: app `' + FORM_META.expectApp + '` / suite `' + FORM_META.expectSuite + '`');
+        L.push('- 提出日時: ' + new Date().toISOString());
+        L.push('- 未記入: ' + blanks.length + '件'
+            + (blanks.length ? '（' + blanks.map(function (b) { return b.id; }).join(', ') + '）' : ''));
+        L.push('');
+        L.push('### 用紙の自己診断');
+        L.push('');
+        L.push('| 検査 | 結果 | 実測 | 期待 |');
+        L.push('| :--- | :--: | :--- | :--- |');
+        diag.forEach(function (d) {
+            L.push('| ' + d.name + ' | ' + (d.ok ? '⚪' : '❌') + ' | ' + d.actual + ' | ' + d.expected + ' |');
+        });
+        var ng = diag.filter(function (d) { return !d.ok; }).length;
+        L.push('');
+        L.push('❌ の件数: **' + ng + '**');
+        L.push('');
+        L.push('## 1. 回答');
+        L.push('');
+        L.push(body);
+        return L.join('\n');
+    }
+
+    /* ---------------------------------------------------------------
+       操作
+       --------------------------------------------------------------- */
+    function copyOut() {
+        var md = buildMarkdown();
+        var done = function () { setStatus('コピーしました（' + md.length + '文字）'); };
+        var fail = function () {
+            /* 退路: 画面外テキストエリア + execCommand。display:none にすると選択できず失敗する。 */
+            var ta = document.createElement('textarea');
+            ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0';
+            ta.value = md; document.body.appendChild(ta); ta.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            document.body.removeChild(ta);
+            setStatus(ok ? 'コピーしました（退路 / ' + md.length + '文字）'
+                : '⚠ コピーできませんでした。「⬇ .md で保存」を使ってください。');
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(md).then(done, fail);
+        } else { fail(); }
+    }
+    function download() {
+        var md = buildMarkdown();
+        var b = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'test_' + FORM_META.defVersion.replace(/[^0-9a-zA-Z.]/g, '_') + '.md';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setStatus('.md を保存しました。');
+    }
+
+    render();
+    var boxesAtRender = {};
+    ITEMS.forEach(function (it) { boxesAtRender[it.id] = answers[it.id]; });
+    var had = load();
+    applyToDom();
+    setStatus(had ? '前回の下書きを読み込みました。' : '新しい用紙です。');
+
+    document.getElementById('btnCopy').addEventListener('click', copyOut);
+    document.getElementById('btnDl').addEventListener('click', download);
+    document.getElementById('btnClear').addEventListener('click', function () {
+        if (!window.confirm('この回の下書きを消します。よろしいですか。')) return;
+        try { localStorage.removeItem(draftKey()); } catch (e) { }
+        ITEMS.forEach(function (it) { var a = answers[it.id]; a.choice = ''; a.text = ''; a.done = false; });   /* ★3.0.1: 入れ物は差し替えない */
+        applyToDom();
+        setStatus('下書きを消しました。');
+    });
+})();
+</script>
+</body>
+</html>
