@@ -1,11 +1,11 @@
 ---
 name: get-ui-spec
-description: "A側UIの部品仕様（トップメニュー・枠内通知・設定の解説・更新履歴・ピン留め配置・レイアウトの高さ・一括コントローラー・音量・ローカル動画の拡大・境界線ドラッグ・上部メニューの出し入れ・マイリストの同期と自動保存・ライブの投稿欄・最近使った動画の切り替え）。画面構成を触るときに読む。"
+description: "A側UIの部品仕様（トップメニュー・枠内通知・設定の解説・更新履歴・ピン留め配置・レイアウトの高さ・一括コントローラー・音量・ローカル動画の拡大・境界線ドラッグ・上部メニューの出し入れ・マイリストの同期と自動保存・ライブの投稿欄・最近使った動画の切り替え・概要欄とコメント欄）。画面構成を触るときに読む。"
 ---
 
 # A側UI 部品仕様書（`controller.html`）
 
-最終更新: 2026-11-04 / 現行リリース **v2.19.4**（16節 「最近使った動画」の切り替えとタイルの大きさ・16-4節 自動）
+最終更新: 2026-11-04 / 現行リリース **v2.20.1**（16節 「最近使った動画」・17節 概要欄とコメント欄のタブ）
 
 > **成立の経緯**: 1節は `/get-chat-feature-spec` 8-12節 →（v2.7.3）→ `/get-protocol-spec` 12節、
 > 2節は `/get-protocol-spec` 旧13節。**2026-08-07 に「A側UIの部品仕様」として本スキルへ分離した**
@@ -965,7 +965,7 @@ Google Drive API を有効化・OAuth 同意画面は対象「外部」・公開
 
 | 部品 | 中身 |
 | :--- | :--- |
-| `.chat-post`（`#chatPost_{cardId}`） | チャット欄（`.chat-container`）の最下段・`.chat-body` の下。`flex: 0 0 auto`・既定 `display:none`。取得中のライブでチャット欄を開いているときだけ `flex`（`updateChatPostUI`） |
+| `.chat-post`（`#chatPost_{cardId}`） | チャット欄（`.chat-container`）の最下段・`.chat-body` の下。`flex: 0 0 auto`・既定 `display:none`。取得中のライブでチャット欄を開いているときだけ `flex`（`updateChatPostUI`）。★v2.20.0: 💬 のタブのときだけ（17節） |
 | 入力欄 `#chatPostInput_` | `maxlength=200`・`autocomplete=off`。🔴 `flex: 1 1 0; width: 0; min-width: 0`（`flex: 1 1 auto` では細いチャット欄で送るボタンが2行目へ落ちた ─ headless 2枠で確認）。案内は準備の結果で「準備中…」/ YouTube の案内文＋「（Enter で送信）」/「投稿できません」 |
 | 送るボタン `#chatPostBtn_` | 「送信」。止まっている間は薄く |
 | 知らせ `#chatPostMsg_` | 2行目いっぱい（`flex: 1 0 100%`）・空なら出さない。`ok` 緑・`ng` 橙 |
@@ -1028,3 +1028,25 @@ Google Drive API を有効化・OAuth 同意画面は対象「外部」・公開
 | 900px（1〜2枠） | 225 | 240 |
 
 - 実測（v2.19.3・2026-11-04 / Floorp / 1465×967）: 付いてくる・－／＋ と「自動」と読み直しは期待どおり・「1・2枠はよいが、それ以外は少し小さい」→ v2.19.4（実機の測定なし）。
+
+## 17. 概要欄とコメント欄のタブ ★v2.20.0 / v2.20.1
+
+チャット欄（`.chat-container`）の見出しの下にタブを置き、`.chat-body`（チャット）と `.info-pane`（概要欄・コメント）を排他で見せる。取得の経路とエンジンは `/get-chat-feature-spec` 1-9節。
+
+| 部品 | 中身 |
+| :--- | :--- |
+| タブ `.chat-tabs`（`#chatTabs_{cardId}`） | 左から `#chatTab_desc_`「📝概要欄」・`#chatTab_comments_`「🗨コメント」・`#chatTab_chat_`「💬チャット」（★v2.20.1 で並べ替え ─ v2.20.0 は 💬 が先頭）。既定は 💬。`infoTab[cardId]`（`desc` / `comments`・💬 は持たない）・枠ごと・🔴 保存しない（読み直すと 💬）。選択中は `.on` |
+| `.info-pane`（`#infoPane_{cardId}`） | `.chat-body` と `.chat-post` の間。`flex:1 1 auto; overflow-y:auto`・既定 `display:none`。文字は `--chat-font-scale` を共有（A- / A+） |
+| 見出しの 🔄（`#chatReloadBtn_`） | `onChatReloadBtn`: 💬 は `reloadChat`、📝 は概要欄、🗨 はコメントを読み直す。title も変わる（`D-L` 群は title「コメントを取得し直す」でこのボタンを探す ─ 💬 のときの title を変えない） |
+| 上位／全（`#chatModeBtn_`） | 💬 のときだけ見せる |
+| 投稿欄 | 💬 のときだけ（`updateChatPostUI` の条件に `infoTabOf(cardId) === 'chat'`） |
+
+- 🔴 **チャットの取得・流しには触らない。** タブを替えても 💬 の中身は裏で動く。💬 に戻したら `updateChatContent(cardId, true)` で描き直す。
+- 動画が替わったら（`updateChatContent` の入口で `getChatVideoId` が `infoShownVid` と違えば）描き直す。チャット欄を作り直したとき（`generateChatPaneHTML`）も、💬 以外なら描き直す。
+- 状態は `infoStore[videoId]`（最大20本・見ている動画は捨てない）: `desc`（`idle` / `loading` / `ok` / `noaddon` / `error`）・`cm`（`idle` / `waitDesc` / `loading` / `ok` / `off` / `noaddon` / `error`・`gen` で並べ替えの古い答えを捨てる・`items`・`next`・`more`・`threads[key]`）。要求は `infoReqs[requestId]`（知らない答えは捨てる）・25秒で `noaddon`（`infoTimeoutMs`）。
+- 🔴 **本文は DOM の文字として組み立てる**（`infoRich` ─ `textContent` とテキストノード。`innerHTML` を使わない）。リンクは `<a target="_blank" rel="noopener noreferrer">` で http / https だけ。時刻は `href="#"` でクリックを横取りして `infoSeek`（その枠の `ytPlayers[cardId].seekTo`・`isLiveCard` ならしない）。別の動画の横の ➕ は `infoAddVideo` → `addOrFillVideoSlot`（空いている枠・無ければ枠を足す・9枠なら案内）。
+- 概要欄: 見出し（視聴回数 · 日付（○日前））・本文（`white-space: pre-wrap`）。
+- コメント: 件数（1行）・並べ替えのボタン（選択中は白地）・アバター 24px（返信 18px・`referrerPolicy=no-referrer`・`loading=lazy`）・投稿者・いつ・本文・👍・「▼ 返信 N件」→ 字下げで返信・「返信をさらに表示」・「▲ 返信を閉じる」。下端は「さらに読み込む」／「読み込み中…」／「（ここまで）」。
+- 下までスクロール（残り 200px 以内・`onInfoScroll`）で次の20件。読み込み中は重ねない（`cm.more`）。続きを足しても位置を保つ（描き直しの前後で `scrollTop` を戻す）。
+- 実測（v2.20.0・2026-11-04 / Floorp / 1465×967）: 概要欄は純正と同じ・時刻で枠1だけ動く・外部リンクとハッシュタグは新しいタブ・下までスクロールで増える・返信と ➕ も期待どおり・見やすい。「概要・コメント・チャットの順に」→ v2.20.1（実機の測定なし）。
+- 細い欄（約 220px）でタブの文字が切れたので、空白を詰めて文字を 0.58rem にした（headless のスクリーンショット）。
