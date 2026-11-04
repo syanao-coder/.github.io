@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.31.0';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.31.1';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.20.0';
+    var EXPECT_APP_VERSION = '2.20.1';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.18.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.20.0', ids: ['D-V1', 'D-V2', 'D-I1', 'D-F1'] };
+    var VERSION_FOCUS = { v: '2.20.1', ids: ['D-V1', 'D-V2', 'D-I1', 'D-F1'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -2005,13 +2005,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.31.0: 61 → 62（v2.20.0）。★v1.30.4: 60 → 61（v2.19.4）。★v1.30.3: 59 → 60（v2.19.3）。★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.31.1: 62 → 63（v2.20.1）。★v1.31.0: 61 → 62（v2.20.0）。★v1.30.4: 60 → 61（v2.19.4）。★v1.30.3: 59 → 60（v2.19.3）。★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 62);
+        expect('配列の件数', hist ? hist.length : 0, 63);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -9621,6 +9621,9 @@
             var tabs = ['chat', 'desc', 'comments'].map(function (t) { return document.getElementById('chatTab_' + t + '_' + cid); });
             expect('🔴 タブが3つある（💬 チャット｜📝 概要欄｜🗨 コメント）', tabs.every(Boolean) ? tabs.map(function (b) { return b.textContent; }).join('｜') : '無い', '💬チャット｜📝概要欄｜🗨コメント');
             if (!tabs.every(Boolean)) return;
+            /* ★v1.31.1（v2.20.1）: 画面の並びは 📝 概要欄｜🗨 コメント｜💬 チャット（利用者要望） */
+            var tabsBox = document.getElementById('chatTabs_' + cid);
+            expect('🔴 タブの並び（画面の左から）', tabsBox ? Array.prototype.map.call(tabsBox.querySelectorAll('button'), function (b) { return b.textContent; }).join('｜') : '無い', '📝概要欄｜🗨コメント｜💬チャット');
             expect('既定は 💬（概要欄の欄は隠れている）', (tabs[0].classList.contains('on') ? 'on' : 'off') + ' / ' + (pane() && getComputedStyle(pane()).display === 'none' ? '隠れている' : '見えている'), 'on / 隠れている');
             tabs[1].click(); await wait(50);
             var dReqs = reqs.filter(function (r) { return r.op === 'desc'; });
