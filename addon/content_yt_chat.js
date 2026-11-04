@@ -52,7 +52,7 @@
   chrome.runtime.onMessage.addListener(function (message) {
     if (!message || !message.type) return;
 
-    const PASS_CMD = ['CHAT_ENQUEUE', 'CHAT_CANCEL', 'CHAT_CONFIG', 'CHAT_POST', 'CHAT_HISTORY'];   /* ★v2.16.0: CHAT_POST / ★v2.19.0: CHAT_HISTORY（視聴履歴） */
+    const PASS_CMD = ['CHAT_ENQUEUE', 'CHAT_CANCEL', 'CHAT_CONFIG', 'CHAT_POST', 'CHAT_HISTORY', 'CHAT_INFO'];   /* ★v2.16.0: CHAT_POST / ★v2.19.0: CHAT_HISTORY（視聴履歴）/ ★v2.20.0: CHAT_INFO（概要欄・コメント） */
     if (PASS_CMD.indexOf(message.type) < 0) {
       /* ★v2.6.5: チャット関連の命令だけ警告する。
          他機能の runtime message もここへ流れてくるので、
@@ -72,7 +72,9 @@
       mode: message.mode,   /* ★v2.10.0 */
       config: message.config,
       text: message.text,       /* ★v2.16.0: 投稿の本文（利用者が手で打ったもの） */
-      dryRun: message.dryRun    /* ★v2.16.0: true なら準備だけ（送らない） */
+      dryRun: message.dryRun,   /* ★v2.16.0: true なら準備だけ（送らない） */
+      op: message.op,           /* ★v2.20.0: 'desc' / 'page' */
+      token: message.token      /* ★v2.20.0: コメントの continuation */
     }, location.origin);
   });
 })();
