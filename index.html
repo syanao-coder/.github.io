@@ -945,7 +945,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.20.0';
+        const APP_VERSION = '2.20.1';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1920,6 +1920,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.20.1', d: '2026-11-04', t: [
+                'チャット欄のタブの並びを「📝概要欄｜🗨コメント｜💬チャット」にした（開いたときはこれまでどおり 💬 チャット）'] },
             { v: '2.20.0', d: '2026-11-04', t: [
                 'チャット欄の上に「💬 チャット｜📝 概要欄｜🗨 コメント」のタブを足し、動画の概要欄とコメント欄をチャット欄の場所に出せるようにした',
                 '概要欄・コメントの時刻はその枠だけをその時刻へ動かす。外部リンク・チャンネル・ハッシュタグ・別の動画は新しいタブで開き、別の動画には ➕（空いている枠へ読み込む）を付けた',
@@ -4863,11 +4865,11 @@
                         '<button onclick="openWatchPageAt(\'' + cardId + '\')" title="YouTubeの視聴ページを現在位置で開く">⧉</button>' +
                         '<button onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を閉じる">✕</button>' +
                     '</div>' +
-                    /* ★v2.20.0: 💬 チャット｜📝 概要欄｜🗨 コメント */
+                    /* ★v2.20.0: 💬 チャット｜📝 概要欄｜🗨 コメント。★v2.20.1: 並びを 📝 概要欄｜🗨 コメント｜💬 チャット に（利用者要望・既定は 💬 のまま） */
                     '<div class="chat-tabs" id="chatTabs_' + cardId + '">' +
-                        '<button id="chatTab_chat_' + cardId + '" class="' + (infoTabOf(cardId) === 'chat' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'chat\')" title="ライブのチャット・アーカイブのチャット">💬チャット</button>' +
                         '<button id="chatTab_desc_' + cardId + '" class="' + (infoTabOf(cardId) === 'desc' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'desc\')" title="動画の概要欄">📝概要欄</button>' +
                         '<button id="chatTab_comments_' + cardId + '" class="' + (infoTabOf(cardId) === 'comments' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'comments\')" title="動画のコメント欄">🗨コメント</button>' +
+                        '<button id="chatTab_chat_' + cardId + '" class="' + (infoTabOf(cardId) === 'chat' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'chat\')" title="ライブのチャット・アーカイブのチャット">💬チャット</button>' +
                     '</div>' +
                     '<div class="chat-body" id="chatBody_' + cardId + '"' + (infoTabOf(cardId) === 'chat' ? '' : ' style="display:none"') + '>' +
                         '<div class="chat-list" id="chatList_' + cardId + '"' +
