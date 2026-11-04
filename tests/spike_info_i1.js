@@ -9,7 +9,7 @@
    ============================================================ */
 (function () {
     'use strict';
-    var SNIP_VERSION = 'info-i1-1.0.0';
+    var SNIP_VERSION = 'info-i1-1.1.0';   /* 1.1.0: 返信の置き場所を探す（名前だけ・2026-11-04） */
     var ORIGIN = 'https://www.youtube.com';
     var AUTH_COOKIE_NAMES = ['SAPISID', '__Secure-3PAPISID', '__Secure-1PAPISID'];
 
@@ -230,6 +230,31 @@
         o.countText = !!(hdr && (hdr.countText || hdr.commentsCount));
         return o;
     }
+    /* ★1.1.0: 名前（キー）の道筋だけを出す。値は出さない。配列は先頭だけ見る */
+    function keyPaths(o, depth, prefix, out) {
+        out = out || [];
+        if (!o || typeof o !== 'object' || depth < 0 || out.length > 80) return out;
+        if (Array.isArray(o)) { if (o.length) keyPaths(o[0], depth, prefix + '[0]', out); return out; }
+        Object.keys(o).forEach(function (k) {
+            if (k === 'trackingParams' || k === 'clickTrackingParams' || k === 'loggingDirectives' || k === 'accessibility') return;
+            var v = o[k], p = prefix ? prefix + '.' + k : k;
+            if (v && typeof v === 'object') keyPaths(v, depth - 1, p, out); else out.push(p);
+        });
+        return out;
+    }
+    /* ★1.1.0: 名前に repl / Repl を含むキーを全部数える（どこにあるかの手がかり） */
+    function replKeys(o) {
+        var t = {}, stack = [[o, 0]];
+        while (stack.length) {
+            var top = stack.pop(), v = top[0], d = top[1];
+            if (!v || typeof v !== 'object' || d > 40) continue;
+            for (var k in v) {
+                if (/repl/i.test(k)) t[k] = (t[k] || 0) + 1;
+                if (v[k] && typeof v[k] === 'object') stack.push([v[k], d + 1]);
+            }
+        }
+        return t;
+    }
     function threadsOf(body) { return findAll(body, 'commentThreadRenderer').length; }
     async function readComments() {
         var r = { id: 'D-J2', name: 'コメントを読む（🔴 本文・投稿者名は載せない・書き込まない）', results: [], pcs: [], notes: [] };
@@ -273,6 +298,17 @@
             r.notes.push({ name: '返信の HTTP・時間 / commentEntityPayload / replyLevel 1 / スレッド', value: p4.status + ' / ' + p4.ms + 'ms / ' + (b4 ? b4.payloads + ' / ' + b4.replyLevel1 + ' / ' + b4.threads : '-') });
             r.results.push({ name: '返信が読める', ok: !!(b4 && p4.status === 200 && b4.payloads > 0), actual: p4.status + ' / ' + (b4 ? b4.payloads : 0) + '件', expected: '200 / 1件以上' });
         } else r.notes.push({ name: '返信', value: '返信のあるコメントが1ページ目に無い' });
+        /* ★1.1.0: 返信の置き場所の手がかり（名前だけ） */
+        var rk = replKeys(p1.body);
+        r.notes.push({ name: '★ 名前に repl を含むキーと数（1ページ目全体）', value: Object.keys(rk).length ? Object.keys(rk).map(function (k) { return k + '×' + rk[k]; }).join(' / ') : '(なし)' });
+        var th0 = findAll(p1.body, 'commentThreadRenderer')[0];
+        r.notes.push({ name: '★ 1件目の commentThreadRenderer の道筋（深さ7）', value: th0 ? keyPaths(th0, 7, '').join(' , ') : '-' });
+        var thR = findAll(p1.body, 'commentThreadRenderer').filter(function (t) { return t && t.replies; })[0];
+        r.notes.push({ name: '★ replies を持つスレッドの数 / その replies の道筋（深さ9）', value: findAll(p1.body, 'commentThreadRenderer').filter(function (t) { return t && t.replies; }).length + ' / ' + (thR ? keyPaths(thR.replies, 9, 'replies').join(' , ') : '-') });
+        var py0 = findAll(p1.body, 'commentEntityPayload')[0];
+        r.notes.push({ name: '★ 1件目の commentEntityPayload の toolbar と properties の名前', value: py0 ? ('toolbar: ' + keysOf(py0.toolbar) + ' ／ properties: ' + keysOf(py0.properties)) : '-' });
+        var mut0 = dig(p1.body, ['frameworkUpdates', 'entityBatchUpdate', 'mutations']) || [];
+        r.notes.push({ name: '★ mutations の payload の種類と数', value: tally(mut0.map(function (m) { return keysOf(m && m.payload); })) });
         /* ログインなし */
         try {
             var an = await api('next', c, { continuation: tk.token }, true);
