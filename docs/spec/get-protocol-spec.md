@@ -5,7 +5,7 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 # A↔B 通信プロトコル詳細仕様書（実装検証済み）
 
-最終検証日: 2026-10-30 / 現行リリース **v2.18.1**（実機検証済み / 枠ごとの設定を並び順の番号で保存）/ アドオン **2.16.0**
+最終検証日: 2026-11-04 / 現行リリース **v2.19.2**（実機検証済み / 「最近使った動画」に YouTube の視聴履歴・タイルの大きさ）/ アドオン **2.17.0**
 
 > **構成は A（controller.html）と B（Firefoxアドオン）の2層のみ。**
 > C側（ヘルパー）は v2.6.2 で撤去した。C に関する記述はすべて撤去記録である。
@@ -67,6 +67,9 @@ description: "A↔B（コントローラー / アドオン）の通信プロト�
 
 | 版数 | 内容 |
 | :--- | :--- |
+| **v2.19.2** | **履歴のタイルを大きくし、大きさを変えるボタン（－／＋）**（`/get-ui-spec` 16-3節）。幅 100 / **140（既定）** / 180 / 240px の4段階・全枠共通・`sync_hist_tile` に保存・文字も幅に合わせて大きくする・両端でボタンを押せなくする。🕒 このツールのタイルにも効く（利用者要望 2026-10-30「小さすぎる」）。A側のみ・プロトコル変更なし・パッチ。`APP_HISTORY` **59件**・`debug_suite.js` **v1.30.2**（`D-F1` 27判定）。実機合格（そろっている・期待どおり）。R3c（使いやすい大きさ）は「枠の縦の 1/4 くらい」→ 自動の大きさを v2.19.3 で足す。記録 `report_v2_19_2.md` |
+| **v2.19.1** | **履歴のタイルの幅をそろえる**（`flex:0 0 Wpx; width:Wpx; min-width:0`）。🔴 v2.19.0 の R4e「大きさがバラバラ」: チャンネル名の行が `white-space:nowrap` で、flex の項目が中身の幅（min-content）まで広がった。`D-F1` に長いチャンネル名での幅の判定を足した（旧版で不合格）。A側のみ・パッチ。`APP_HISTORY` **58件**・`debug_suite.js` **v1.30.1**。v2.19.2 と一緒に測った（記録 `report_v2_19_2.md`） |
+| **v2.19.0** | **枠の「最近使った動画」に YouTube の視聴履歴を切り替えで出す**（「🕒 このツール ／ ▶ YouTube」─ `/get-ui-spec` 16節・`/get-chat-feature-spec` 1-8節）。取得タブ（MAIN world）が `browse`（`FEhistory`）を読み、ショートを除き・同じ動画をまとめ・30件に絞って `{id,title,channel,len,pct}` だけを返す（1ページ 3.4MB を A側へ流さない）。A側は全枠で1つの結果を10分使い回し・🔄 で読み直し・ログインしていなければ案内・答えが無ければ25秒で「アドオン 2.17.0 が要ります」。🔴 **A↔B に1組追加＝マイナー**: `YT_HISTORY_REQUEST`（A→B）/ `state:'ytHistory'`（B→A）。🔴 ページを開いた直後はアドオンの名乗り（`addonInfo`）を最大10秒待ってから送る（`content_controller.js` は `document_end` で、起動の順は決まらない）。あわせて **デバッグのログの扱い**（測定を始めると自動で消し、直前の結果を最大3件残して名前つきの 📋 ─ `/get-debug-suite` 9-B-21節）。🔴 **アドオン 2.17.0**（`v2.17.0.zip`）。`APP_HISTORY` **57件**・`debug_suite.js` **v1.30.0**（`D-F1` / `D-W11`）。実機合格（4.2秒・30件・チャンネル名／長さ／再生位置 30/30・ショート 3）。🔴 タイルの大きさがバラバラ → v2.19.1。記録 `report_v2_19_0.md`。🔴 履歴の中身は記録しない |
 | **v2.18.1** | **枠ごとの設定（高音を抑える・音量）を並び順の番号（1..N）で保存する**（`saveSlotMap` / `readSlotMap`・`/get-ui-spec` 10-1節）。🔴 v2.18.0 の R4d「読み直したら消えていた」: 枠 ID で保存していたので、枠の削除・マイリストの読み込みで ID と並び順がずれたあと読み直すと別の枠へ移る／捨てられた。**v2.8.9 の音量（`sync_card_volume`）も同じ不具合**。読むのは枠ができてから（`initializeGrid` の初回・`loadSession`）、保存は値を変えたとき・`resaveUrlsBasedOnOrder`・枠数の変更。旧形式（`card_N`）は同じ ID の枠があれば読む。あわせて `debug_suite.js` のパネルを整頓（利用者要望）。A側のみ・プロトコル変更なし・パッチ。`APP_HISTORY` **56件**・`debug_suite.js` **v1.29.0**（`D-A9`）。実機合格。記録 `report_v2_18_1.md` |
 | **v2.18.0** | **枠ごとの「🎚 高音を抑える」**（境より上だけのコンプレッサー ─ `/get-ui-spec` 10-7節）。枠の中のアドオン（`content_yt_embed.js`）が音量メーターと同じ付け替えに乗せ、Linkwitz-Riley 4次で上下に分け、高い側だけ `DynamicsCompressor`（knee 0・attack 3ms・release 120ms）→ 自動の持ち上げを打ち消す減衰 → 足し戻す。🔴 **Web Audio の lowpass / highpass の Q は dB**（線形 0.7071 を入れると境で +3.3 dB）・🔴 **コンプレッサーは約 6ms 遅らせる**ので低い側を測った分だけ遅らせる（`compLatency`）。🔴 **A→枠に `SYNC_EMBED_COMP` を追加＝マイナー**（4-2節）・`SYNC_EMBED_LEVEL` に `compOn` / `compDb` / `compLatencyMs`。入れた枠はメーターのスイッチを切っていても付け替える。逃げ道 `COMP_FEATURE`。アドオン **2.16.0**（`v2.16.0.zip`）・`APP_HISTORY` **55件**・`debug_suite.js` **v1.28.0**（`D-A8` / `D-W10`）。実機合格（0.2秒・抑えた量 28.3 dB・遅れ 6ms・耳で「和らいだ」・音色は「少し変わる」）。🔴 保存の不具合 → v2.18.1。記録 `report_v2_18_0.md`。先立つスパイク H1（YouTube の視聴履歴 ─ 11節・`spike_hist_h1.md`）は版数なし |
 | **v2.17.0** | **ログインしていないときに投稿欄からログイン画面を開く**（「🔑 YouTube にログイン」→ 新しいタブで Google のログイン画面 → このタブへ戻ると準備をやり直す ─ `/get-chat-feature-spec` 1-7-6節・`/get-ui-spec` 15節）。あわせて 🔄 で投稿の準備をやり直す（v2.16.0 は一度止まると同じ配信ではページを読み直すまで止まったまま）。🔴 **`chatPost` に `needLogin` を足した＝マイナー**。エンジンは認証の Cookie が無ければ `/live_chat` を読まずに `needLogin`・`ytcfg` は `/live_chat` の HTML を先に使う。🔴 **アドオン 2.15.0**（`v2.15.0.zip`）。`APP_HISTORY` **54件**・`debug_suite.js` **v1.27.0**（`D-L13` / `D-W9`）。実機合格（ログアウトで 0.2秒でボタン・ボタンからログインしたあと `ready`）。同じ測定で用紙エンジンの不具合を直した（3.0.1）。記録 `report_v2_17_0.md` |
@@ -270,6 +273,19 @@ controller.html
 
 詳細は `/get-chat-feature-spec` 1-7節。`background.js` で失敗した（タブ・注入）ときも `ev:'post', ok:false` を返す。
 
+### A → B（YouTube の視聴履歴）★v2.19.0（アドオン 2.17.0）
+
+```
+controller.html
+  └─ window.postMessage({ type:'YT_HISTORY_REQUEST', requestId })
+       └─ content_controller.js → runtime 'FETCH_YT_HISTORY'
+            └─ background.js startYtHistory（取得と同じタブ・注入を確かめる）→ tabs.sendMessage 'CHAT_HISTORY'
+                 └─ content_yt_chat.js（PASS_CMD）→ MAIN chat_fetcher_main.js ytHistory
+                      └─ 結果は ev:'history' → 取得と同じ中継 → state:'ytHistory'
+```
+
+詳細は `/get-chat-feature-spec` 1-8節。🔴 `items` / `shorts` / `dups` は `background.js` の `sendChatStreamEvent` と `content_controller.js` の両方で列挙して転送する（7-4節）。
+
 ### B → A（配信サイト・YouTube・チャットの報告）
 
 ```
@@ -328,6 +344,7 @@ content_video.js / content_youtube_scrape.js / background.js
 | **chatDone** | requestId, videoId, total, complete, truncated, reqs, elapsed, **view**（★v2.10.0）, **endReason / endBy / liveRecovers / liveExits / recoverError**（★v2.11.0・ライブのみ。`endReason` = `ENDED` / `RECOVERY_FAILED` / `MAX_REQUESTS`）, **+最終チャンク** | 取得完了 | ✅ | ✅ |
 | **chatPing** | active[], waiting[] | 5秒ごとの心拍。順番待ちの位置も含む。★v2.11.1: ライブの `active` に `live` / `livePolls` / `liveRecovers` / `liveExits` / `liveChecks` / `lastCheck` / `livePhase`（`poll` / `recover`）/ `lastOkAgoMs` / `lastCommentAgoMs` / `recoverError`（中継は `active` を丸ごと転送するので中継の変更は不要）。★v2.13.0: `viewers`（数 / 取れていなければ `null`）/ `viewersText`（YouTube の文字）/ `viewersAgoMs` / `viewersBy`（`updated_metadata` / `watch`）/ `viewersError` / `viewersOk` / `viewersFails` | ✅ | ✅ |
 | **chatPost** ★v2.16.0 | requestId, videoId, ok, error, **canPost, reason, placeholder, httpStatus, echo**, **needLogin**（★v2.17.0） | ライブへの投稿の結果（エンジンの `ev:'post'`）。`dryRun` の要求には準備の結果（投稿できるか・理由・入力欄の案内文）だけを返す。🔴 5項目は `background.js` と `content_controller.js` の両方で列挙して転送（7-4節）。経路は `/get-chat-feature-spec` 1-7-2節 | ✅ | ✅ |
+| **ytHistory** ★v2.19.0 | requestId, ok, needLogin, **items[]**（`{id,title,channel,len,pct}`・最大30件）, **shorts, dups**（エンジンで除いた数）, error, httpStatus | YouTube の視聴履歴（エンジンの `ev:'history'`）。要求は `YT_HISTORY_REQUEST`（A→B の window メッセージ）。経路は `/get-chat-feature-spec` 1-8節 | ✅ | ✅ |
 | relativeSeekReport | diff または time | 手動シークの差分 | ❌ 未実装 | ✅ |
 | youtubeScrapeReport | items[] | 検索結果の一括取得 | ❌ 未実装 | △ |
 
@@ -1149,7 +1166,8 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 
 | 版数 | 内容 | 主な対象 | ライブ素材 |
 | :--- | :--- | :--- | :--: |
-| **v2.19.0（2026-10-30 合意）** | **枠の「最近使った動画」に YouTube の視聴履歴を切り替えで出す**（「🕒 このツール ／ ▶ YouTube」）。⚪ スパイク H1（2026-10-30・`spike_hist_h1.md`）: InnerTube `POST /youtubei/v1/browse`（`browseId: 'FEhistory'`）が取得エンジンと同じ認証（`SAPISIDHASH`）で読める・1ページ **199件・3.4MB・0.6秒**・続きも読める・ID とタイトルは全件、チャンネル・長さ・再生位置の印はショート以外。🔴 **枠（埋め込み）で見た動画は YouTube の履歴に載らない** → 中身が別物なので置き換えずに共存。決めたこと: 30件・同じ動画はまとめる・ショートは除く・切り替えたときに取得タブで読み、10分は全枠で使い回す・🔄 で読み直す・ログインしていなければ「YouTube にログインすると表示されます」。取得タブで必要な項目だけに絞って A側へ送る。あわせて **デバッグのログの扱い**（測定を始めたら自動で消し、直前の結果を最大3件残して名前つきのコピーボタン ─ 利用者「個別テストは行わない」）。マイナー（アドオンを上げる見込み） | アドオン・A側・`debug_suite.js` | ─ |
+| **v2.19.3（2026-11-04 合意）** | **履歴のタイルの大きさに「自動」を足す**（v2.19.2 の R3c: 利用者「枠の縦の大きさの 1/4 くらい・1〜2枠でブラウザの縦いっぱいのときはその限りではない」）。枠ごとに枠の高さの約 1/4 になる幅を決め（100〜240px に丸める）・－／＋ で手動の4段階へ・「自動」のボタンで戻す・`sync_hist_tile` に `auto`。A側のみ・パッチ | A側・`debug_suite.js` | ─ |
+| **v2.20.0（2026-11-03 合意）** | **動画の概要欄とコメント欄（チャットではない）をチャット欄の場所に排他で出す**。チャット欄の上にタブ「💬 チャット｜📝 概要欄｜🗨 コメント」（ヘッダーの 💬 は今どおり欄の開け閉め）。時刻のリンクはその枠だけシーク・外部リンクと YouTube の中のリンク（チャンネル・ハッシュタグ・別の動画）は別タブ・別の動画のリンクの横に ➕（空いている枠へ読み込む）。コメントは純正に近く（人気順／新しい順・返信を開く・下までスクロールで続き・高評価数・投稿者）。⚪ スパイク I1（2026-11-03〜04・3回・`spike_info_i1.md`）: 概要欄は `next` の `attributedDescription`（表示の本文では長い URL が省略される → リンク先は `commandRuns`）・コメントは `comment-item-section` の continuation → 1ページ20件・続き・並べ替え・返信（`commentRepliesRenderer.subThreads`）・どちらもログインなしで読める。🔴 1回の応答が 300〜750KB → 取得タブで必要な項目だけにして送る。🔴 本文・投稿者名はテストの出力に載せない。マイナー（アドオンを上げる） | アドオン・A側・`debug_suite.js` | ─ |
 | **未定** | リアルタイム同時視聴対応 + **COLD再生の同期**（点呼メッセージ追加＝プロトコル変更） | 全般 | ─ |
 
 ⚪ **v2.11.0 の注記（ライブの出口3つ）は v2.11.0 / v2.11.1 で解消した。** 経緯と実測は `/get-chat-feature-spec` 1-6-7節。
@@ -1205,6 +1223,7 @@ ffmpeg -i 入力.mp4 -c:v libx264 -preset fast -crf 20 -g 60 -keyint_min 60 -sc_
 | 15 | **Google ドライブ同期の未確認点**（v2.14.0〜v2.14.1）: OAuth 同意画面の公開ステータス「テスト」での許可の持ち時間（数日後に窓なしで取り直せるか）・2つの環境の同時書き込み（あとが勝つ設計）。`D-W7` は R1 の再読み込みでトークンが消えるとログインし直すまで判定不能（v2.14.1 の R2 で起きた）→ 次に 🎯 に入れるときは PC 不成立の文言に「📂 を開いてから」を添える |
 | 16 | **ライブへの投稿の未確認点**（v2.16.0〜v2.17.0）: ログイン直後の送信（`/live_chat` の HTML の `ytcfg` を使う経路・v2.17.0 は準備まで確認）／タブへ戻ったときの自動のやり直しが `focus` と `visibilitychange` のどちらで効いたか（v2.17.0 の目視は「OK」のみ）／ 投稿できない配信（メンバー限定・登録者限定・低速モード）の実機の文言と送信時のエラーの形／4xx で `params` を取り直して送り直す経路・打ち切りの経路（headless の偽物のみ）／`params` の有効期限／9枠で複数のライブに投稿したとき／ブランドアカウント（`X-Goog-PageId` なし）。出会ったときに記録する |
 | 17 | **高音を抑える（v2.18.0）の未確認点**: 9枠すべてに入れたときの負荷／切り替えでプツッと鳴るか（用紙に回答の欄が無かった）／「少し変わる」音色の中身（境の位相の回り方か・持ち上げの打ち消しの誤差か）／`D-W10` の1回目でメーターの報告が届かなかった理由（2回目は届いた）／ローカル動画の枠（対象外） |
+| 18 | **YouTube の視聴履歴（v2.19.0〜v2.19.2）の未確認点**: 取得タブが開いた直後（`ytcfg` が無い）に `/` の HTML から読む経路／ページを開いた直後に ▶ YouTube を覚えていたときの名乗り待ち／ログインしていない実機の案内（`needLogin`）／ブランドアカウント・複数アカウント（いずれも headless のみ）／9枠・薄い枠で 240px にしたときの実機の見た目（`D-Y5` / `D-Y7` は headless で合格） |
 
 ### 保留（版数を切らない）
 - `relativeSeekReport` の `diff` 欠落（B側が未実装のため現時点で実害なし）
