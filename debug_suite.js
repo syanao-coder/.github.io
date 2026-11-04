@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.30.3';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.30.4';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.19.3';
+    var EXPECT_APP_VERSION = '2.19.4';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
     var EXPECT_ADDON_REQUIRED = '2.17.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.19.3', ids: ['D-V1', 'D-V2', 'D-F1', 'D-Z2'] };
+    var VERSION_FOCUS = { v: '2.19.4', ids: ['D-V1', 'D-V2', 'D-F1', 'D-Z2'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -2005,13 +2005,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.30.3: 59 → 60（v2.19.3）。★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.30.4: 60 → 61（v2.19.4）。★v1.30.3: 59 → 60（v2.19.3）。★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 60);
+        expect('配列の件数', hist ? hist.length : 0, 61);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -9349,7 +9349,7 @@
        ★v1.30.0（v2.19.0）。アドオンへの要求は postMessage を差し替えて捕まえ、偽の答えを handleYtHistory に渡す。
        🔴 読み込み（loadHistoryYt）も差し替えて数えるだけ。利用者の「最近使った動画」・見せ方・保存URLは元へ戻す。 */
     async function testF1() {
-        log('  [目的] 空の枠の「最近使った動画」で YouTube の視聴履歴に切り替えられ、全枠で1つの結果を使い回し、ログインしていない・答えが無い・読めないを出し分けること。タイルの大きさ（手動の4段階・★v2.19.3 自動＝枠の高さ ÷ 4）。');
+        log('  [目的] 空の枠の「最近使った動画」で YouTube の視聴履歴に切り替えられ、全枠で1つの結果を使い回し、ログインしていない・答えが無い・読めないを出し分けること。タイルの大きさ（手動の4段階・★v2.19.3 自動＝枠の高さ ÷ 4・★v2.19.4 ÷ 3）。');
         var has = (typeof setHistView === 'function' && typeof handleYtHistory === 'function' && typeof ytHist !== 'undefined');
         expect('🔴 A側の切り替え（setHistView / handleYtHistory / ytHist）がある', has ? 'あり' : '無い', 'あり');
         if (!has) return;
@@ -9445,8 +9445,9 @@
             if (tiles[0]) tiles[0].click();
             expect('🔴 押すとその動画をこの枠に読み込む', loads.length ? (loads[0].cid === cid ? '同じ枠 / ' : '別の枠 / ') + loads[0].url : '(読み込まない)', '同じ枠 / https://www.youtube.com/watch?v=dbgF1aaaa00');
             expect('YouTube の履歴には ✕（消す）を付けない', tiles[0] && tiles[0].querySelector('button') ? 'ある' : '無い', '無い');
-            /* ★v1.30.3（v2.19.3）: 自動（枠の高さ ÷ 4 を 100〜240px に収める） */
-            function f1Exp(h) { return String(Math.max(100, Math.min(240, Math.round(h / 4)))); }
+            /* ★v1.30.3（v2.19.3）: 自動（枠の高さ ÷ N を 100〜240px に収める）。★v1.30.4（v2.19.4）: ÷4 → ÷3 */
+            var F1_DIV = 3;
+            function f1Exp(h) { return String(Math.max(100, Math.min(240, Math.round(h / F1_DIV)))); }
             var hasParse = (typeof parseHistTile === 'function');
             expect('🔴 大きさの読み取り（値なし / auto / 2 / 9）', hasParse ? [null, 'auto', '2', '9'].map(function (v) { var t = parseHistTile(v); return t.auto ? '自動' : String(HIST_TILE_SIZES[t.idx]); }).join(' / ') : '(無い)', '自動 / 自動 / 180 / 自動');
             var autoB = document.getElementById('histSizeAuto_' + cid);
@@ -9460,29 +9461,29 @@
                     var autoOn = document.getElementById('histSizeAuto_' + cid);
                     expect('自動のときは「自動」が明るい', (autoOn && autoOn.classList.contains('on')) ? '明るい' : '暗い', '明るい');
                     var hN = cardEl.getBoundingClientRect().height;
-                    expect('🔴 自動の幅は枠の高さ ÷ 4（' + Math.round(hN) + 'px の枠）', String(f1W()), f1Exp(hN));
+                    expect('🔴 自動の幅は枠の高さ ÷ ' + F1_DIV + '（' + Math.round(hN) + 'px の枠）', String(f1W()), f1Exp(hN));
                     var f1At = async function (h) { cardEl.style.height = h + 'px'; await wait(200); return cardEl.getBoundingClientRect().height; };
-                    var h560 = await f1At(560), w560 = f1W();
-                    var h800 = await f1At(800), w800 = f1W();
-                    pc('🔴 枠の高さを 560px と 800px にできる（付いてくるかを見る土俵）', function () { return (Math.abs(h560 - 560) < 2 && Math.abs(h800 - 800) < 2) ? (Math.round(h560) + 'px / ' + Math.round(h800) + 'px') : false; });
-                    expect('🔴 枠の高さを変えるとタイルの幅が付いてくる（560px → / 800px →）', w560 + ' / ' + w800, f1Exp(h560) + ' / ' + f1Exp(h800));
+                    var h560 = await f1At(450), w560 = f1W();
+                    var h800 = await f1At(600), w800 = f1W();
+                    pc('🔴 枠の高さを 450px と 600px にできる（付いてくるかを見る土俵）', function () { return (Math.abs(h560 - 450) < 2 && Math.abs(h800 - 600) < 2) ? (Math.round(h560) + 'px / ' + Math.round(h800) + 'px') : false; });
+                    expect('🔴 枠の高さを変えるとタイルの幅が付いてくる（450px → / 600px →）', w560 + ' / ' + w800, f1Exp(h560) + ' / ' + f1Exp(h800));
                     var h300 = await f1At(300), w300 = f1W();
                     var h1200 = await f1At(1200), w1200 = f1W();
                     expect('100〜240px に収める（300px → / 1200px →）', w300 + ' / ' + w1200, f1Exp(h300) + ' / ' + f1Exp(h1200));
                     var upA = document.getElementById('histSizeUp_' + cid);
                     expect('自動で 240px のとき ＋ は押せない', upA && upA.disabled ? '押せない' : '押せる', '押せない');
-                    await f1At(400);
+                    await f1At(300);
                     var dnA = document.getElementById('histSizeDown_' + cid);
                     expect('自動で 100px のとき － は押せない', String(f1W()) + ' / ' + (dnA && dnA.disabled ? '押せない' : '押せる'), '100 / 押せない');
-                    await f1At(800);
+                    await f1At(540);
                     f1Click('Up'); await wait(100);
-                    expect('🔴 自動（200px）から ＋ で一つ大きい段の手動へ（幅 / 保存）', f1W() + ' / ' + localStorage.getItem('sync_hist_tile') + ' / ' + (histTileAuto ? '自動' : '手動'), '240 / 3 / 手動');
+                    expect('🔴 自動（180px）から ＋ で一つ大きい段の手動へ（幅 / 保存）', f1W() + ' / ' + localStorage.getItem('sync_hist_tile') + ' / ' + (histTileAuto ? '自動' : '手動'), '240 / 3 / 手動');
                     document.getElementById('histSizeAuto_' + cid).click(); await wait(100);
                     f1Click('Down'); await wait(100);
-                    expect('自動（200px）から － で一つ小さい段の手動へ', f1W() + ' / ' + localStorage.getItem('sync_hist_tile'), '180 / 2');
+                    expect('自動（180px）から － で一つ小さい段の手動へ', f1W() + ' / ' + localStorage.getItem('sync_hist_tile'), '140 / 1');
                     document.getElementById('histSizeAuto_' + cid).click(); await wait(100);
                     expect('「自動」で戻る（幅 / 保存）', f1W() + ' / ' + localStorage.getItem('sync_hist_tile'), f1Exp(cardEl.getBoundingClientRect().height) + ' / auto');
-                    note('自動の幅（枠 ' + Math.round(hN) + ' / 560 / 800 / 300 / 1200px）', [f1Exp(hN), w560, w800, w300, w1200].join(' / ') + 'px');
+                    note('自動の幅（枠 ' + Math.round(hN) + ' / 450 / 600 / 300 / 1200px）', [f1Exp(hN), w560, w800, w300, w1200].join(' / ') + 'px');
                 } finally {
                     cardEl.style.height = hStyle0; cardEl.style.transition = tr0; cardEl.style.boxSizing = bs0;
                     histTileAuto = false; histTileIdx = 1; refreshHistGalleries(); await wait(50);

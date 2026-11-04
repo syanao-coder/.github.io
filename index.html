@@ -907,7 +907,7 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.19.3';
+        const APP_VERSION = '2.19.4';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
@@ -1880,6 +1880,8 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.19.4', d: '2026-11-04', t: [
+                '「最近使った動画」のタイルの自動の大きさを少し大きくした（枠の高さの約 1/4 → 約 1/3・100〜240px）'] },
             { v: '2.19.3', d: '2026-11-04', t: [
                 '「最近使った動画」のタイルの大きさに「自動」を足した（既定）。枠ごとに枠の高さの約 1/4 の幅（100〜240px）にし、枠の数や境界線で高さが変わると付いてくる。「－」「＋」で手動の大きさへ、「自動」で戻る'] },
             { v: '2.19.2', d: '2026-10-30', t: [
@@ -2866,6 +2868,8 @@
            🔴 sync_hist_tile は 'auto' または '0'〜'3'。値が無い・読めないときは自動。 */
         const HIST_TILE_SIZES = [100, 140, 180, 240];
         const HIST_TILE_MIN = 100, HIST_TILE_MAX = 240;
+        /* ★v2.19.4: ÷4 → ÷3（v2.19.3 の R3c「1・2枠はよいが、それ以外の枠数では少し小さい」） */
+        const HIST_AUTO_DIV = 3;
         function parseHistTile(v) {
             const n = parseInt(v, 10);
             if (v != null && String(v) === String(n) && n >= 0 && n < HIST_TILE_SIZES.length) return { auto: false, idx: n };
@@ -2876,7 +2880,7 @@
         /* 枠の高さ（px）から自動の幅。高さが取れない（まだ置かれていない）ときは 140 */
         function histAutoW(h) {
             if (!(h > 0)) return 140;
-            return Math.max(HIST_TILE_MIN, Math.min(HIST_TILE_MAX, Math.round(h / 4)));
+            return Math.max(HIST_TILE_MIN, Math.min(HIST_TILE_MAX, Math.round(h / HIST_AUTO_DIV)));
         }
         function histCardH(cardId) {
             const c = cardId ? document.getElementById(cardId) : null;
@@ -2912,7 +2916,7 @@
                 return '<button id="histSize' + (d < 0 ? 'Down' : 'Up') + '_' + cardId + '" onclick="setHistTileSize(' + d + ', \'' + cardId + '\')" title="' + tip + '"' + (off ? ' disabled' : '') +
                     ' style="background:transparent; border:1px solid #444; color:' + (off ? '#555' : '#ccc') + '; font-size:0.7rem; width:20px; height:18px; padding:0; border-radius:3px; cursor:' + (off ? 'default' : 'pointer') + '; margin-left:4px;">' + label + '</button>';
             };
-            const auto = '<button id="histSizeAuto_' + cardId + '" class="hist-size-auto' + (histTileAuto ? ' on' : '') + '" onclick="setHistTileAuto()" title="枠の高さに合わせる（高さの約 1/4）"' +
+            const auto = '<button id="histSizeAuto_' + cardId + '" class="hist-size-auto' + (histTileAuto ? ' on' : '') + '" onclick="setHistTileAuto()" title="枠の高さに合わせる（高さの約 1/3）"' +
                 ' style="background:' + (histTileAuto ? '#2a2a3a' : 'transparent') + '; border:1px solid ' + (histTileAuto ? '#666' : '#444') + '; color:' + (histTileAuto ? '#fff' : '#888') + '; font-size:0.65rem; height:18px; padding:0 4px; border-radius:3px; cursor:pointer;">自動</button>';
             return auto + b(-1, '－', 'タイルを小さく（手動）') + b(1, '＋', 'タイルを大きく（手動）');
         }
