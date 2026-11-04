@@ -529,6 +529,44 @@
         .chat-post-msg.ng { color: #ffb020; }
         /* ★v2.17.0: ログインしていないときだけ出す */
         .chat-post .chat-post-login { display: none; flex: 1 0 100%; background: #3a2a10; color: #ffcc66; padding: 3px 8px; }
+        /* ★v2.20.0: 💬 チャット｜📝 概要欄｜🗨 コメント（チャット欄の場所に排他で出す） */
+        .chat-tabs { flex: 0 0 auto; display: flex; gap: 2px; padding: 2px 4px; background: #101018; border-bottom: 1px solid var(--border-color); }
+        .chat-tabs button {
+            flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            background: transparent; border: 1px solid #2a2a36; color: #8a8a9a; border-radius: 3px; cursor: pointer;
+            font-size: calc(0.58rem * var(--ui-scale)); padding: 1px 0; letter-spacing: -0.02em;
+        }
+        .chat-tabs button.on { background: #2a2a3a; color: #fff; border-color: #666; }
+        .info-pane {
+            flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: none; padding: 6px 8px; box-sizing: border-box;
+            font-size: calc(0.68rem * var(--ui-scale) * var(--chat-font-scale, 1)); line-height: 1.5; color: #d5d5de;
+            scrollbar-width: thin; scrollbar-color: #33333f #0c0c10;
+        }
+        .info-rich { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+        .info-msg { color: #7a7a88; text-align: center; padding: 12px 4px; }
+        .info-meta { color: #9a9aa8; font-weight: bold; margin-bottom: 6px; }
+        .info-link { color: #3ea6ff; text-decoration: none; }
+        .info-link:hover { text-decoration: underline; }
+        .info-add { background: transparent; border: 1px solid #444; color: #ccc; border-radius: 3px; font-size: 0.85em; padding: 0 3px; margin: 0 2px; cursor: pointer; line-height: 1.2; }
+        .info-add:hover { background: #2a2a38; }
+        .info-cm-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+        .info-cm-count { flex: 1 0 100%; font-weight: bold; color: #9a9aa8; }
+        .info-sort, .info-rep-btn, .info-rep-more, .info-cm-foot button {
+            background: transparent; border: 1px solid #333; color: #aaa; border-radius: 10px; cursor: pointer; font-size: 0.9em; padding: 0 8px;
+        }
+        .info-sort.on { background: #e8e8f0; color: #000; border-color: #e8e8f0; }
+        .info-cmt { display: flex; gap: 6px; margin-bottom: 8px; }
+        .info-cmt.reply { margin-bottom: 6px; }
+        .info-av { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; object-fit: cover; background: #222; }
+        .info-cmt.reply .info-av { width: 18px; height: 18px; }
+        .info-cmt-main { flex: 1 1 auto; min-width: 0; }
+        .info-cmt-top { display: flex; gap: 6px; align-items: baseline; }
+        .info-author { color: #c8c8d4; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        .info-pub { color: #6a6a78; font-size: 0.9em; flex: 0 0 auto; }
+        .info-cmt-bar { display: flex; gap: 8px; align-items: center; color: #8a8a98; font-size: 0.9em; margin-top: 2px; }
+        .info-rep-btn { color: #3ea6ff; border-color: transparent; padding: 0 4px; }
+        .info-replies { margin-top: 4px; }
+        .info-cm-foot { text-align: center; color: #6a6a78; padding: 6px 0 10px; }
         .chat-toggle-btn.active { opacity: 1; background-color: #00ffcc; color: #000; }
         .chat-toggle-btn.active:hover { background-color: #55ffdd; }
         /* ★v2.7.0: コメント流し。
@@ -907,12 +945,12 @@
              { state:'addonInfo', version:'x.y.z' }
            を自己申告してくる。一定時間届かなければ「アドオン未検出」。
            ============================================================ */
-        const APP_VERSION = '2.19.4';
+        const APP_VERSION = '2.20.0';
         /* ★v2.8.8: このページが必要とするアドオンの版数。
            🔴 アドオンの .js を1バイトでも変えた版でだけ上げる。それ以外は据え置く
               （アドオンを触らない版で再登録させないため）。
            🔴 照合は完全一致のまま。>= や範囲にしない（アドオンを変えた版で古いアドオンが緑になる）。 */
-        const ADDON_REQUIRED_VERSION = '2.17.0';
+        const ADDON_REQUIRED_VERSION = '2.18.0';
         let addonVersion = null;
         /* ★v2.7.0: YouTube の実行許可の有無。true / false / null（未応答）。
            null のあいだはバッジを緑のままにする（判定できないことを異常として出さない）。 */
@@ -1284,6 +1322,8 @@
                     handleChatPost(event.data);   /* ★v2.16.0 */
                 } else if (newState === 'ytHistory') {
                     handleYtHistory(event.data);   /* ★v2.19.0 */
+                } else if (newState === 'ytInfo') {
+                    handleYtInfo(event.data);   /* ★v2.20.0 */
                 }
             }
             /* ★v2.9.0: 枠の中の YouTube（アドオンの content_yt_embed.js）から直接届く */
@@ -1880,6 +1920,10 @@
            🔴 ❌ v2.4.1（欠番）は消さないこと。番号を再利用しないための記録である。
            ------------------------------------------------------------ */
         const APP_HISTORY = [
+            { v: '2.20.0', d: '2026-11-04', t: [
+                'チャット欄の上に「💬 チャット｜📝 概要欄｜🗨 コメント」のタブを足し、動画の概要欄とコメント欄をチャット欄の場所に出せるようにした',
+                '概要欄・コメントの時刻はその枠だけをその時刻へ動かす。外部リンク・チャンネル・ハッシュタグ・別の動画は新しいタブで開き、別の動画には ➕（空いている枠へ読み込む）を付けた',
+                'コメントは人気順／新しい順・返信を開く・下までスクロールで続きを読む。🔴 アドオン 2.18.0 が要る'] },
             { v: '2.19.4', d: '2026-11-04', t: [
                 '「最近使った動画」のタイルの自動の大きさを少し大きくした（枠の高さの約 1/4 → 約 1/3・100〜240px）'] },
             { v: '2.19.3', d: '2026-11-04', t: [
@@ -4806,6 +4850,7 @@
         }
 
         function generateChatPaneHTML(cardId) {
+            if (infoTabOf(cardId) !== 'chat') setTimeout(function () { applyInfoTab(cardId); delete infoShownVid[cardId]; renderInfo(cardId, true); }, 0);
             return '<div class="chat-splitter" id="splitter_' + cardId + '" title="ドラッグでチャット欄の幅を変更"></div>' +
                 '<div class="chat-container" id="chatContainer_' + cardId + '">' +
                     '<div class="chat-head">' +
@@ -4814,11 +4859,17 @@
                         '<button class="chat-size-btn" id="chatFontUp_' + cardId + '" onclick="changeChatFontScale(\'' + cardId + '\', 1)" title="文字を大きく">A+</button>' +
                         /* ★v2.10.0: 上位のチャット / すべてのチャット（文言と title は updateChatModeBtn が書く） */
                         '<button class="chat-mode-btn' + (getChatMode(cardId) === 'top' ? ' active' : '') + '" id="chatModeBtn_' + cardId + '" onclick="toggleChatMode(\'' + cardId + '\')">' + (getChatMode(cardId) === 'top' ? '上位' : '全') + '</button>' +
-                        '<button onclick="reloadChat(\'' + cardId + '\')" title="コメントを取得し直す">🔄</button>' +
+                        '<button id="chatReloadBtn_' + cardId + '" onclick="onChatReloadBtn(\'' + cardId + '\')" title="コメントを取得し直す">🔄</button>' +
                         '<button onclick="openWatchPageAt(\'' + cardId + '\')" title="YouTubeの視聴ページを現在位置で開く">⧉</button>' +
                         '<button onclick="toggleChatVisibility(\'' + cardId + '\')" title="チャット欄を閉じる">✕</button>' +
                     '</div>' +
-                    '<div class="chat-body" id="chatBody_' + cardId + '">' +
+                    /* ★v2.20.0: 💬 チャット｜📝 概要欄｜🗨 コメント */
+                    '<div class="chat-tabs" id="chatTabs_' + cardId + '">' +
+                        '<button id="chatTab_chat_' + cardId + '" class="' + (infoTabOf(cardId) === 'chat' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'chat\')" title="ライブのチャット・アーカイブのチャット">💬チャット</button>' +
+                        '<button id="chatTab_desc_' + cardId + '" class="' + (infoTabOf(cardId) === 'desc' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'desc\')" title="動画の概要欄">📝概要欄</button>' +
+                        '<button id="chatTab_comments_' + cardId + '" class="' + (infoTabOf(cardId) === 'comments' ? 'on' : '') + '" onclick="setInfoTab(\'' + cardId + '\', \'comments\')" title="動画のコメント欄">🗨コメント</button>' +
+                    '</div>' +
+                    '<div class="chat-body" id="chatBody_' + cardId + '"' + (infoTabOf(cardId) === 'chat' ? '' : ' style="display:none"') + '>' +
                         '<div class="chat-list" id="chatList_' + cardId + '"' +
                             ' onscroll="onChatScroll(\'' + cardId + '\')"' +
                             ' onwheel="markChatUserScroll(\'' + cardId + '\')"' +
@@ -4831,6 +4882,7 @@
                         '<button class="chat-jump" id="chatJump_' + cardId + '" onclick="chatScrollToBottom(\'' + cardId + '\')">▼ 最新へ</button>' +
                         '<div class="chat-note" id="chatNote_' + cardId + '"></div>' +
                     '</div>' +
+                    '<div class="info-pane" id="infoPane_' + cardId + '" onscroll="onInfoScroll(\'' + cardId + '\')"' + (infoTabOf(cardId) === 'chat' ? '' : ' style="display:block"') + '></div>' +
                     /* ★v2.16.0: 配信中のライブへの投稿欄。取得中のライブのときだけ出す（updateChatPostUI）。
                        🔴 文面は利用者が毎回手で打つ。value を外から入れない */
                     '<div class="chat-post" id="chatPost_' + cardId + '">' +
@@ -4841,6 +4893,383 @@
                         '<button class="chat-post-login" id="chatPostLogin_' + cardId + '" onclick="openChatPostLogin(\'' + cardId + '\')" title="新しいタブで Google のログイン画面を開く（ログインしたらこのタブへ戻ってください）">🔑 YouTube にログイン</button>' +
                     '</div>' +
                 '</div>';
+        }
+
+        /* ------------------------------------------------------------
+           ★v2.20.0 動画の概要欄とコメント欄（チャット欄の場所にタブで排他 ─ 2026-11-03 利用者と合意）
+           取得タブ（アドオン 2.18.0）が next を読み、必要な項目だけにして返す（スパイク I1）。
+           🔴 本文・名前は DOM の文字として入れる（HTML として解釈しない）。リンクは http / https だけ。
+           🔴 時刻のリンクはその枠だけシークする。別の動画のリンクの横に ➕（空いている枠へ）。
+           🔴 チャットの取得・流しには触らない（タブを替えても 💬 の中身はそのまま裏で動く）。
+           ------------------------------------------------------------ */
+        const INFO_TABS = ['chat', 'desc', 'comments'];
+        const INFO_STORE_MAX = 20;          // 動画の数（古いものから捨てる）
+        let infoTimeoutMs = 25000;          // debug_suite が縮める
+        let infoTab = {};                   // cardId → 'desc' / 'comments'（'chat' は持たない）。保存しない
+        let infoStore = {};                 // videoId → { desc:{state,data,error}, cm:{state,gen,header,items,next,more,error,threads} }
+        let infoReqs = {};                  // requestId → { cid, vid, kind, gen, key }
+        let infoSendLog = [];               // debug_suite 用（送った要求）
+        let infoShownVid = {};              // cardId → いま描いている videoId
+        function infoTabOf(cardId) { return infoTab[cardId] || 'chat'; }
+        function infoEntry(vid) {
+            if (!infoStore[vid]) {
+                const keys = Object.keys(infoStore);
+                if (keys.length >= INFO_STORE_MAX) {
+                    const shown = {}; Object.keys(infoShownVid).forEach(function (c) { shown[infoShownVid[c]] = 1; });
+                    for (let i = 0; i < keys.length && Object.keys(infoStore).length >= INFO_STORE_MAX; i++) if (!shown[keys[i]]) delete infoStore[keys[i]];
+                }
+                infoStore[vid] = { desc: { state: 'idle' }, cm: { state: 'idle', gen: 0, header: null, items: [], next: null, more: false, error: '', threads: {} } };
+            }
+            return infoStore[vid];
+        }
+        function setInfoTab(cardId, tab) {
+            if (INFO_TABS.indexOf(tab) < 0) tab = 'chat';
+            if (tab === 'chat') delete infoTab[cardId]; else infoTab[cardId] = tab;
+            applyInfoTab(cardId);
+            if (tab === 'chat') { delete infoShownVid[cardId]; updateChatContent(cardId, true); }
+            else renderInfo(cardId, true);
+        }
+        /* タブの見た目・どちらの中身を見せるか */
+        function applyInfoTab(cardId) {
+            const tab = infoTabOf(cardId);
+            INFO_TABS.forEach(function (t) {
+                const b = document.getElementById('chatTab_' + t + '_' + cardId);
+                if (b) b.classList.toggle('on', t === tab);
+            });
+            const body = document.getElementById('chatBody_' + cardId);
+            const pane = document.getElementById('infoPane_' + cardId);
+            if (body) body.style.display = (tab === 'chat') ? '' : 'none';
+            if (pane) pane.style.display = (tab === 'chat') ? 'none' : 'block';
+            const mode = document.getElementById('chatModeBtn_' + cardId);
+            if (mode) mode.style.display = (tab === 'chat') ? '' : 'none';
+            const rl = document.getElementById('chatReloadBtn_' + cardId);
+            if (rl) rl.title = (tab === 'chat') ? 'コメントを取得し直す' : (tab === 'desc' ? '概要欄を読み直す' : 'コメント欄を読み直す');
+            updateChatPostUI(cardId);
+        }
+        function onChatReloadBtn(cardId) {
+            const tab = infoTabOf(cardId);
+            if (tab === 'chat') { reloadChat(cardId); return; }
+            const vid = getChatVideoId(cardId);
+            if (!vid) return;
+            const e = infoEntry(vid);
+            if (tab === 'desc') { e.desc = { state: 'idle' }; }
+            else { e.desc = { state: 'idle' }; e.cm = { state: 'idle', gen: e.cm.gen + 1, header: null, items: [], next: null, more: false, error: '', threads: {} }; }
+            renderInfo(cardId, true);
+        }
+        function sendInfoRequest(req, op, token) {
+            const requestId = 'yi_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            req.at = Date.now();
+            infoReqs[requestId] = req;
+            setTimeout(function () {
+                if (!infoReqs[requestId]) return;
+                delete infoReqs[requestId];
+                infoApply(req, { ok: false, noaddon: true });
+            }, infoTimeoutMs);
+            infoSendLog.push({ requestId: requestId, op: op, token: token || null, kind: req.kind, vid: req.vid, at: Date.now() });
+            if (infoSendLog.length > 100) infoSendLog.shift();
+            window.postMessage({ type: 'YT_INFO_REQUEST', requestId: requestId, videoId: req.vid, op: op, token: token || null }, '*');
+            return requestId;
+        }
+        function handleYtInfo(d) {
+            if (!d || !infoReqs[d.requestId]) return;   // 古い・知らない要求の答えは捨てる
+            const req = infoReqs[d.requestId];
+            delete infoReqs[d.requestId];
+            infoApply(req, d);
+        }
+        function infoApply(req, d) {
+            const e = infoEntry(req.vid);
+            const why = d.noaddon ? 'noaddon' : 'error';
+            const err = String(d.error || '不明').slice(0, 200);
+            if (req.kind === 'desc') {
+                if (d.ok && d.desc) e.desc = { state: 'ok', data: d.desc };
+                else e.desc = { state: why, error: err };
+                if (e.cm.state === 'waitDesc') {
+                    if (e.desc.state !== 'ok') { e.cm.state = why; e.cm.error = err; }
+                    else if (!e.desc.data.commentsToken) e.cm.state = 'off';
+                    else infoStartComments(req.vid, e.desc.data.commentsToken);
+                }
+            } else if (req.kind === 'first') {
+                if (req.gen !== e.cm.gen) return;
+                if (d.ok && d.page) {
+                    e.cm.state = 'ok';
+                    if (d.page.header) e.cm.header = d.page.header;
+                    e.cm.items = (d.page.items || []).slice(0, 200);
+                    e.cm.next = d.page.next || null;
+                } else { e.cm.state = why; e.cm.error = err; }
+            } else if (req.kind === 'more') {
+                if (req.gen !== e.cm.gen) return;
+                e.cm.more = false;
+                if (d.ok && d.page) {
+                    e.cm.items = e.cm.items.concat(d.page.items || []).slice(0, 2000);
+                    e.cm.next = d.page.next || null;
+                } else e.cm.moreError = err;
+            } else if (req.kind === 'replies') {
+                if (req.gen !== e.cm.gen) return;
+                const th = e.cm.threads[req.key];
+                if (!th) return;
+                th.loading = false;
+                if (d.ok && d.page) { th.items = th.items.concat(d.page.items || []).slice(0, 1000); th.next = d.page.next || null; th.error = ''; }
+                else th.error = d.noaddon ? '答えがありません' : err;
+            }
+            infoRefreshVid(req.vid);
+        }
+        function infoStartComments(vid, token) {
+            const e = infoEntry(vid);
+            e.cm.state = 'loading';
+            sendInfoRequest({ vid: vid, kind: 'first', gen: e.cm.gen }, 'page', token);
+        }
+        /* その動画を見せている枠を描き直す（スクロールの位置は保つ） */
+        function infoRefreshVid(vid) {
+            activeCardIds.forEach(function (id) {
+                if (infoTabOf(id) !== 'chat' && infoShownVid[id] === vid) renderInfo(id, false);
+            });
+        }
+        function renderInfo(cardId, reset) {
+            const pane = document.getElementById('infoPane_' + cardId);
+            const tab = infoTabOf(cardId);
+            if (!pane || tab === 'chat') return;
+            const vid = getChatVideoId(cardId);
+            const keep = (!reset && infoShownVid[cardId] === vid) ? pane.scrollTop : 0;
+            infoShownVid[cardId] = vid;
+            pane.innerHTML = '';
+            if (!vid) { pane.appendChild(infoMsg('この枠にYouTube動画が読み込まれていません。')); return; }
+            const e = infoEntry(vid);
+            if (tab === 'desc') {
+                if (e.desc.state === 'idle') { e.desc.state = 'loading'; sendInfoRequest({ vid: vid, kind: 'desc' }, 'desc'); }
+                renderDesc(pane, cardId, e);
+            } else {
+                if (e.cm.state === 'idle') {
+                    if (e.desc.state === 'ok') {
+                        if (e.desc.data.commentsToken) infoStartComments(vid, e.desc.data.commentsToken); else e.cm.state = 'off';
+                    } else {
+                        e.cm.state = 'waitDesc';
+                        if (e.desc.state !== 'loading') { e.desc.state = 'loading'; sendInfoRequest({ vid: vid, kind: 'desc' }, 'desc'); }
+                    }
+                }
+                renderComments(pane, cardId, vid, e);
+            }
+            pane.scrollTop = keep;
+        }
+        function infoMsg(text, cls) {
+            const d = document.createElement('div');
+            d.className = 'info-msg' + (cls ? ' ' + cls : '');
+            d.textContent = text;
+            return d;
+        }
+        function infoStateMsg(state, error, what) {
+            if (state === 'noaddon') return infoMsg('答えがありません（アドオン 2.18.0 が要ります）。🔄 でもう一度');
+            if (state === 'error') return infoMsg('読めませんでした（' + error + '）。🔄 でもう一度');
+            return infoMsg(what + 'を読み込み中…');
+        }
+        function renderDesc(pane, cardId, e) {
+            const st = e.desc.state;
+            if (st !== 'ok') { pane.appendChild(infoStateMsg(st, e.desc.error, '概要欄')); return; }
+            const d = e.desc.data;
+            const meta = document.createElement('div');
+            meta.className = 'info-meta';
+            meta.textContent = [d.views, d.date ? d.date + (d.rel ? '（' + d.rel + '）' : '') : d.rel].filter(Boolean).join(' · ');
+            if (meta.textContent) pane.appendChild(meta);
+            const body = document.createElement('div');
+            body.className = 'info-desc info-rich';
+            infoRich(body, d.content || '', d.runs, cardId);
+            if (!d.content) body.textContent = '（概要欄はありません）';
+            pane.appendChild(body);
+        }
+        /* 本文＋リンクを DOM で組み立てる。🔴 文字は textContent。リンク先は http / https だけ */
+        function infoRich(el, text, runs, cardId) {
+            text = String(text || '');
+            let pos = 0;
+            const rs = Array.isArray(runs) ? runs : [];
+            for (let i = 0; i < rs.length; i++) {
+                const r = rs[i];
+                if (!r || typeof r.s !== 'number' || typeof r.l !== 'number' || r.s < pos || r.s + r.l > text.length) continue;
+                if (r.s > pos) el.appendChild(document.createTextNode(text.slice(pos, r.s)));
+                const label = text.slice(r.s, r.s + r.l);
+                const a = infoLink(r, label, cardId);
+                el.appendChild(a);
+                if (r.k === 'video' && /^[A-Za-z0-9_-]{11}$/.test(String(r.v || ''))) {
+                    const add = document.createElement('button');
+                    add.className = 'info-add';
+                    add.textContent = '➕';
+                    add.title = 'この動画を空いている枠に読み込む';
+                    add.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); infoAddVideo(r.v, r.t); });
+                    el.appendChild(add);
+                }
+                pos = r.s + r.l;
+            }
+            if (pos < text.length) el.appendChild(document.createTextNode(text.slice(pos)));
+        }
+        function infoLink(r, label, cardId) {
+            let href = null;
+            if (r.k === 'seek') {
+                const a = document.createElement('a');
+                a.className = 'info-link info-seek';
+                a.href = '#';
+                a.textContent = label;
+                a.title = 'この枠を ' + label + ' へ';
+                a.setAttribute('data-t', String(r.t));
+                a.addEventListener('click', function (ev) { ev.preventDefault(); infoSeek(cardId, r.t); });
+                return a;
+            }
+            if (r.k === 'video' && /^[A-Za-z0-9_-]{11}$/.test(String(r.v || ''))) href = 'https://www.youtube.com/watch?v=' + r.v + (r.t ? '&t=' + r.t + 's' : '');
+            else if (typeof r.u === 'string' && /^https?:\/\//i.test(r.u)) href = r.u;
+            if (!href) return document.createTextNode(label);
+            const a = document.createElement('a');
+            a.className = 'info-link info-' + r.k;
+            a.href = href;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = label;
+            return a;
+        }
+        let infoSeekLog = [];   // debug_suite 用
+        function infoSeek(cardId, sec) {
+            sec = Math.max(0, Math.floor(Number(sec) || 0));
+            infoSeekLog.push({ cid: cardId, t: sec });
+            if (infoSeekLog.length > 50) infoSeekLog.shift();
+            if (isLiveCard(cardId)) return;   // 🔴 ライブの枠はシークしない（既存の決まり）
+            const yt = ytPlayers[cardId];
+            if (yt && typeof yt.seekTo === 'function') { try { yt.seekTo(sec, true); } catch (e) { } }
+        }
+        function infoAddVideo(v, t) {
+            if (!/^[A-Za-z0-9_-]{11}$/.test(String(v || ''))) return;
+            addOrFillVideoSlot('https://www.youtube.com/watch?v=' + v + (t ? '&t=' + Math.floor(t) + 's' : ''), '', null);
+        }
+        function renderComments(pane, cardId, vid, e) {
+            const cm = e.cm;
+            if (cm.state === 'off') { pane.appendChild(infoMsg('コメントはオフになっているか、ありません。')); return; }
+            if (cm.state !== 'ok') { pane.appendChild(infoStateMsg(cm.state === 'waitDesc' ? 'loading' : cm.state, cm.error, 'コメント')); return; }
+            const head = document.createElement('div');
+            head.className = 'info-cm-head';
+            const cnt = document.createElement('span');
+            cnt.className = 'info-cm-count';
+            cnt.textContent = (cm.header && cm.header.count) ? cm.header.count : '';
+            head.appendChild(cnt);
+            const sorts = (cm.header && cm.header.sort) || [];
+            sorts.forEach(function (s, i) {
+                if (!s || !s.token) return;
+                const b = document.createElement('button');
+                b.className = 'info-sort' + (s.selected ? ' on' : '');
+                b.id = 'infoSort' + i + '_' + cardId;
+                b.textContent = s.title || (i === 0 ? '人気順' : '新しい順');
+                b.addEventListener('click', function () { setInfoSort(vid, i); });
+                head.appendChild(b);
+            });
+            pane.appendChild(head);
+            if (!cm.items.length) { pane.appendChild(infoMsg('コメントはありません。')); return; }
+            const list = document.createElement('div');
+            list.className = 'info-cm-list';
+            cm.items.forEach(function (c) { list.appendChild(infoCommentEl(c, cardId, vid, e)); });
+            pane.appendChild(list);
+            const foot = document.createElement('div');
+            foot.className = 'info-cm-foot';
+            if (cm.more) foot.textContent = '読み込み中…';
+            else if (cm.next) {
+                const b = document.createElement('button');
+                b.id = 'infoMore_' + cardId;
+                b.textContent = cm.moreError ? '読めませんでした。もう一度' : 'さらに読み込む';
+                b.addEventListener('click', function () { loadMoreComments(cardId); });
+                foot.appendChild(b);
+            } else foot.textContent = '（ここまで）';
+            pane.appendChild(foot);
+        }
+        function infoCommentEl(c, cardId, vid, e) {
+            const box = document.createElement('div');
+            box.className = 'info-cmt' + (c.level ? ' reply' : '');
+            if (c.avatar && /^https:\/\//.test(c.avatar)) {
+                const img = document.createElement('img');
+                img.className = 'info-av';
+                img.src = c.avatar; img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+                box.appendChild(img);
+            }
+            const main = document.createElement('div');
+            main.className = 'info-cmt-main';
+            const top = document.createElement('div');
+            top.className = 'info-cmt-top';
+            const au = document.createElement('span'); au.className = 'info-author'; au.textContent = c.author || '';
+            const pub = document.createElement('span'); pub.className = 'info-pub'; pub.textContent = c.published || '';
+            top.appendChild(au); top.appendChild(pub);
+            main.appendChild(top);
+            const tx = document.createElement('div');
+            tx.className = 'info-cmt-text info-rich';
+            infoRich(tx, c.text || '', c.runs, cardId);
+            main.appendChild(tx);
+            const bar = document.createElement('div');
+            bar.className = 'info-cmt-bar';
+            const lk = document.createElement('span'); lk.className = 'info-likes'; lk.textContent = '👍 ' + (c.likes || '0');
+            bar.appendChild(lk);
+            const th = e.cm.threads[c.key];
+            if (c.repliesToken && !c.level) {
+                const rb = document.createElement('button');
+                rb.className = 'info-rep-btn';
+                rb.textContent = (th && th.open) ? '▲ 返信を閉じる' : ('▼ 返信' + (c.replies ? ' ' + c.replies + '件' : ''));
+                rb.addEventListener('click', function () { toggleInfoReplies(vid, c.key, c.repliesToken); });
+                bar.appendChild(rb);
+            }
+            main.appendChild(bar);
+            if (th && th.open) {
+                const rl = document.createElement('div');
+                rl.className = 'info-replies';
+                th.items.forEach(function (r) { rl.appendChild(infoCommentEl(r, cardId, vid, e)); });
+                if (th.loading) rl.appendChild(infoMsg('返信を読み込み中…'));
+                else if (th.error) rl.appendChild(infoMsg('読めませんでした（' + th.error + '）'));
+                if (!th.loading && th.next) {
+                    const mb = document.createElement('button');
+                    mb.className = 'info-rep-more';
+                    mb.textContent = '返信をさらに表示';
+                    mb.addEventListener('click', function () { moreInfoReplies(vid, c.key); });
+                    rl.appendChild(mb);
+                }
+                main.appendChild(rl);
+            }
+            box.appendChild(main);
+            return box;
+        }
+        function setInfoSort(vid, idx) {
+            const e = infoEntry(vid);
+            const sorts = (e.cm.header && e.cm.header.sort) || [];
+            const s = sorts[idx];
+            if (!s || !s.token || s.selected) return;
+            sorts.forEach(function (x, i) { x.selected = (i === idx); });
+            e.cm.gen++;
+            e.cm.items = []; e.cm.next = null; e.cm.more = false; e.cm.threads = {}; e.cm.state = 'loading';
+            sendInfoRequest({ vid: vid, kind: 'first', gen: e.cm.gen }, 'page', s.token);
+            infoRefreshVid(vid);
+        }
+        function loadMoreComments(cardId) {
+            const vid = infoShownVid[cardId];
+            if (!vid || infoTabOf(cardId) !== 'comments') return false;
+            const e = infoEntry(vid);
+            if (e.cm.state !== 'ok' || !e.cm.next || e.cm.more) return false;
+            e.cm.more = true; e.cm.moreError = '';
+            sendInfoRequest({ vid: vid, kind: 'more', gen: e.cm.gen }, 'page', e.cm.next);
+            infoRefreshVid(vid);
+            return true;
+        }
+        function onInfoScroll(cardId) {
+            const pane = document.getElementById('infoPane_' + cardId);
+            if (!pane || infoTabOf(cardId) !== 'comments') return;
+            if (pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 200) loadMoreComments(cardId);
+        }
+        function toggleInfoReplies(vid, key, token) {
+            const e = infoEntry(vid);
+            let th = e.cm.threads[key];
+            if (th && th.open) { th.open = false; infoRefreshVid(vid); return; }
+            if (!th) th = e.cm.threads[key] = { open: true, items: [], next: null, loading: false, error: '' };
+            th.open = true;
+            if (!th.items.length && !th.loading) {
+                th.loading = true;
+                sendInfoRequest({ vid: vid, kind: 'replies', gen: e.cm.gen, key: key }, 'page', token);
+            }
+            infoRefreshVid(vid);
+        }
+        function moreInfoReplies(vid, key) {
+            const e = infoEntry(vid);
+            const th = e.cm.threads[key];
+            if (!th || th.loading || !th.next) return;
+            th.loading = true;
+            sendInfoRequest({ vid: vid, kind: 'replies', gen: e.cm.gen, key: key }, 'page', th.next);
+            infoRefreshVid(vid);
         }
 
         // この枠で現在チャットを出せる videoId。プレイリストは再生中の動画IDを使う。
@@ -5029,7 +5458,7 @@
             if (!box) return;
             const key = chatLoadedVideoId[cardId];
             const store = key ? chatStore[key] : null;
-            const show = CHAT_POST_FEATURE && !!chatVisible[cardId] && !!store && !!store.live && chatState[key] === 'streaming';
+            const show = CHAT_POST_FEATURE && !!chatVisible[cardId] && !!store && !!store.live && chatState[key] === 'streaming' && infoTabOf(cardId) === 'chat';   /* ★v2.20.0: 概要欄・コメントのタブでは出さない */
             box.style.display = show ? 'flex' : 'none';
             if (!show) return;
             const videoId = videoIdOfChatKey(key);
@@ -5273,6 +5702,8 @@
            ------------------------------------------------------------ */
         function updateChatContent(cardId, force) {
             if (!chatVisible[cardId]) return;
+            /* ★v2.20.0: 概要欄・コメントのタブで動画が替わったら描き直す（チャットの処理はそのまま続ける） */
+            if (infoTabOf(cardId) !== 'chat' && infoShownVid[cardId] !== getChatVideoId(cardId)) renderInfo(cardId, true);
 
             const videoId = getChatKey(cardId);   /* ★v2.10.0: 取得結果のキー（すべては videoId のまま） */
             if (!videoId) {
@@ -6211,6 +6642,7 @@
             delete chatUserScrollAt[cardId];
             delete chatFontScale[cardId];
             delete chatMode[cardId];       // ★v2.10.0
+            delete infoTab[cardId]; delete infoShownVid[cardId];   // ★v2.20.0
             clearFlowState(cardId);        // ★v2.7.0
             saveChatState();
         }

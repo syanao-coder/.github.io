@@ -39,16 +39,16 @@
        ブロック1: 有効化判定
        ====================================================================== */
 
-    var DEBUG_SUITE_VERSION = '1.30.4';   /* 本体の APP_VERSION とは別系統 */
+    var DEBUG_SUITE_VERSION = '1.31.0';   /* 本体の APP_VERSION とは別系統 */
     /* ★v1.4.3: D-V1 の期待値。本体の版を上げたら🔴ここも上げる。
        v1.4.2 では 2.7.4 のまま残っていて、正しい 2.7.5 を不合格と報告した。 */
-    var EXPECT_APP_VERSION = '2.19.4';
+    var EXPECT_APP_VERSION = '2.20.0';
     /* ★v1.10.0: 本体の ADDON_REQUIRED_VERSION の期待値（v2.8.8 で導入）。
        🔴 アドオンの .js を変えた版でだけ上げる。版数連動の固定値はこれで3か所
           （EXPECT_APP_VERSION / これ / D-N3 の件数）。 */
-    var EXPECT_ADDON_REQUIRED = '2.17.0';
+    var EXPECT_ADDON_REQUIRED = '2.18.0';
     /* ★v1.10.0: 「🎯 この版の回帰」ボタンで流すテスト。版ごとに差し替える（ボタンを版ごとに増やさない）。 */
-    var VERSION_FOCUS = { v: '2.19.4', ids: ['D-V1', 'D-V2', 'D-F1', 'D-Z2'] };
+    var VERSION_FOCUS = { v: '2.20.0', ids: ['D-V1', 'D-V2', 'D-I1', 'D-F1'] };
     var LS_ENABLE = 'sync_debug';        /* '1' のときだけ有効 */
     var LS_RESUME = 'sync_debug_resume'; /* 再読み込みをまたぐテストの引き継ぎ用（一時キー） */
     var RESUME_TTL_MS = 10 * 60 * 1000;  /* 古い引き継ぎは捨てる */
@@ -2005,13 +2005,13 @@
 
         expect('先頭の版数が APP_VERSION と一致',
             hist && hist.length ? hist[0].v : '(空)', appVersion());
-        /* 🔴 ★v1.30.4: 60 → 61（v2.19.4）。★v1.30.3: 59 → 60（v2.19.3）。★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
+        /* 🔴 ★v1.31.0: 61 → 62（v2.20.0）。★v1.30.4: 60 → 61（v2.19.4）。★v1.30.3: 59 → 60（v2.19.3）。★v1.30.2: 58 → 59（v2.19.2）。★v1.30.1: 57 → 58（v2.19.1）。★v1.30.0: 56 → 57（v2.19.0）。★v1.29.0: 55 → 56（v2.18.1）。★v1.28.0: 54 → 55（v2.18.0）。★v1.27.0: 53 → 54（v2.17.0）。★v1.26.0: 52 → 53（v2.16.0）。★v1.21.0: 42 → 43（v2.12.1）。★v1.20.0: 41 → 42（v2.12.0）。★v1.19.0: 40 → 41（v2.11.2）。★v1.18.1: 39 → 40（v2.11.1）。★v1.15.0: 35 → 36（v2.8.13）。★v1.14.0: 34 → 35（v2.8.12）。★v1.13.0: 33 → 34（v2.8.11）。★v1.12.0: 32 → 33（v2.8.10）。★v1.11.0: 31 → 32（v2.8.9）。★v1.10.0: 30 → 31（v2.8.8）。★v1.9.0: 29 → 30（v2.8.7 で1件増えた）。★v1.8.1: 28 → 29（v2.8.6）。★v1.8.0: 27 → 28（v2.8.5）。
            v1.7.0 は本体の APP_HISTORY に足しておきながらこの固定値を上げ忘れ、
            正しい 26 件を不合格として報告した（2026-08-31 実測）。
            ⚠️ 本体の版を上げたら、基盤側の固定値を必ず「機械で」洗うこと。
               2026-09-07 に洗った結果、版数連動の固定値は
               EXPECT_APP_VERSION と この件数 の2か所だけだった。 */
-        expect('配列の件数', hist ? hist.length : 0, 61);
+        expect('配列の件数', hist ? hist.length : 0, 62);
         expect('描画された行数が配列と一致',
             document.querySelectorAll('#historyBody .history-entry').length, hist ? hist.length : -1);
         expect('❌ v2.4.1（欠番）の行がある',
@@ -9574,6 +9574,251 @@
         note('エンジンで除いたショート / 重複', String(ytHist.shorts) + ' / ' + String(ytHist.dups));
     }
 
+    /* --- D-I1: A側だけ。概要欄・コメント欄のタブ（偽の答え）---------------------------
+       ★v1.31.0（v2.20.0）。アドオンへの要求（YT_INFO_REQUEST）を捕まえて偽の答えを返す。
+       🔴 偽の本文に HTML・長い URL・改行・絵文字・javascript: を入れる（鉄則 #53）。 */
+    async function testI1() {
+        log('  [目的] チャット欄の場所に 📝 概要欄・🗨 コメントをタブで出し、時刻はその枠だけシーク・リンクは別タブ・別の動画に ➕・コメントの並べ替え・返信・下までスクロールで続きを読むこと。');
+        var has = (typeof setInfoTab === 'function' && typeof handleYtInfo === 'function' && typeof infoStore !== 'undefined');
+        expect('🔴 A側の概要欄・コメント（setInfoTab / handleYtInfo / infoStore）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        await closeAllMenus();
+        var started = cardCount(), backup = urlSnapshot(), backupText = urlSnapText(backup);
+        var VID = 'dbgI1aaaaaa', VID2 = 'dbgI1bbbbbb', OTHER = 'dbgI1zzzzzz';
+        var origPost = window.postMessage, origAdd = window.addOrFillVideoSlot, tmo0 = infoTimeoutMs;
+        var reqs = [], adds = [], seeks = [], seeks2 = [];
+        var cid = null, cid2 = null, saved = null, saved2 = null, key1, key2;
+        function pane() { return document.getElementById('infoPane_' + cid); }
+        function lastReq() { return reqs[reqs.length - 1]; }
+        function answer(r, obj) { handleYtInfo(Object.assign({ requestId: r.requestId, videoId: r.videoId, op: r.op, ok: true }, obj)); }
+        function cmItems() { return pane() ? pane().querySelectorAll('.info-cm-list > .info-cmt') : []; }
+        function mkPage(prefix, n, next, withHdr, rep, sel) {
+            var items = [];
+            for (var i = 0; i < n; i++) items.push({ key: prefix + i, text: prefix + i + ' コメント 1:23 です', runs: [{ k: 'seek', t: 83, s: prefix.length + String(i).length + 6, l: 4 }], author: '@dbg' + i, avatar: 'https://yt3.ggpht.com/dbg', published: '2 日前', likes: String(i), replies: (rep && i === 0) ? '3' : '', repliesToken: (rep && i === 0) ? 'R1' : null, level: 0 });
+            /* 🔴 実機の見出しは選んだ並べ替えに印が付く（スパイク I1: 新しい順では選択中が2番目） */
+            return { header: withHdr ? { count: '1,234 件のコメント', sort: [{ title: '人気順', selected: !sel, token: 'S1' }, { title: '新しい順', selected: !!sel, token: 'S2' }] } : null, items: items, next: next };
+        }
+        try {
+            window.postMessage = function (m) {
+                if (m && typeof m.type === 'string' && (m.type === 'YT_INFO_REQUEST' || m.type.indexOf('CHAT_STREAM_') === 0 || m.type === 'DBG_I1_PING')) { if (m.type !== 'CHAT_STREAM_REQUEST' && m.type !== 'CHAT_STREAM_CANCEL') reqs.push(m); return; }
+                return origPost.apply(window, arguments);
+            };
+            window.addOrFillVideoSlot = function (url, title, rid) { adds.push(url); };
+            window.postMessage({ type: 'DBG_I1_PING' }, '*');
+            pc('🔴 アドオンへの要求を捕まえられる（差し替えが効く）', function () { return reqs.length === 1 ? '捕まえた' : false; });
+            reqs = [];
+            delete infoStore[VID]; delete infoStore[VID2];
+            await setCardCount(started + 2);
+            var ids = sortedCardIds();
+            cid = ids[ids.length - 2]; cid2 = ids[ids.length - 1];
+            saved = ytPlayers[cid]; saved2 = ytPlayers[cid2]; key1 = cardVideoKeys[cid]; key2 = cardVideoKeys[cid2];
+            var fp = fakeYtPlayer({ video_id: VID, title: 'I1', author: '' }); fp.seekTo = function (t) { seeks.push(t); };
+            var fp2 = fakeYtPlayer({ video_id: VID2, title: 'I1b', author: '' }); fp2.seekTo = function (t) { seeks2.push(t); };
+            ytPlayers[cid] = fp; ytPlayers[cid2] = fp2; cardVideoKeys[cid] = VID; cardVideoKeys[cid2] = VID2;
+            if (!chatVisible[cid]) toggleChatVisibility(cid);
+            await wait(150);
+            pc('🔴 枠のチャット欄が開いている（土俵）', function () { var c = document.getElementById('chatContainer_' + cid); return (c && c.getBoundingClientRect().height > 50) ? Math.round(c.getBoundingClientRect().height) + 'px' : false; });
+            var tabs = ['chat', 'desc', 'comments'].map(function (t) { return document.getElementById('chatTab_' + t + '_' + cid); });
+            expect('🔴 タブが3つある（💬 チャット｜📝 概要欄｜🗨 コメント）', tabs.every(Boolean) ? tabs.map(function (b) { return b.textContent; }).join('｜') : '無い', '💬チャット｜📝概要欄｜🗨コメント');
+            if (!tabs.every(Boolean)) return;
+            expect('既定は 💬（概要欄の欄は隠れている）', (tabs[0].classList.contains('on') ? 'on' : 'off') + ' / ' + (pane() && getComputedStyle(pane()).display === 'none' ? '隠れている' : '見えている'), 'on / 隠れている');
+            tabs[1].click(); await wait(50);
+            var dReqs = reqs.filter(function (r) { return r.op === 'desc'; });
+            expect('🔴 📝 で概要欄を1回だけ頼む（op desc・この枠の動画）', dReqs.length + ' / ' + (dReqs[0] ? dReqs[0].videoId : '-'), '1 / ' + VID);
+            expect('📝 に切り替わる（チャットは隠れる・読み込み中）', [tabs[1].classList.contains('on') ? 'on' : 'off', document.getElementById('chatBody_' + cid).style.display === 'none' ? '隠れる' : '見える', /読み込み中/.test(pane().textContent) ? '読み込み中' : pane().textContent].join(' / '), 'on / 隠れる / 読み込み中');
+            var longUrl = 'https://store.steampowered.com/app/46...';
+            var content = '見どころ 🎉 <img src=x onerror="window.__i1xss=1">\n0:00 はじめ\n12:34 サビ\n' + longUrl + '\n@someone #tag\n関連 1:05\nbad\n<img src=y onerror="window.__i1xss=2">';   /* 🔴 リンクの前と後ろの両方に HTML */
+            var at = function (s) { return content.indexOf(s); };
+            window.__i1xss = undefined;
+            answer(dReqs[0], { desc: { content: content, views: '200,000 回視聴', date: '2026/11/01', rel: '3 日前', commentsToken: 'C1', commentsOff: false, runs: [
+                { k: 'seek', t: 0, s: at('0:00'), l: 4 }, { k: 'seek', t: 754, s: at('12:34'), l: 5 },
+                { k: 'url', u: 'https://www.youtube.com/redirect?q=https%3A%2F%2Fstore.steampowered.com%2Fapp%2F460000', s: at('https'), l: longUrl.length },
+                { k: 'channel', u: 'https://www.youtube.com/@someone', s: at('@someone'), l: 8 }, { k: 'hashtag', u: 'https://www.youtube.com/hashtag/tag', s: at('#tag'), l: 4 },
+                { k: 'video', v: OTHER, t: 65, s: at('1:05'), l: 4 }, { k: 'url', u: 'javascript:alert(1)', s: at('bad'), l: 3 }] } });
+            await wait(80);
+            var p = pane();
+            var imgs = p.querySelectorAll('img').length;
+            expect('🔴 本文の HTML を解釈しない（文字のまま・画像なし・スクリプトが走らない）', [(p.textContent.indexOf('<img src=x') >= 0 && p.textContent.indexOf('<img src=y') >= 0) ? '文字のまま' : '消えた', imgs, window.__i1xss === undefined ? '走らない' : '走った'].join(' / '), '文字のまま / 0 / 走らない');
+            expect('見出し（視聴回数・日付）', (p.querySelector('.info-meta') || {}).textContent || '(無い)', '200,000 回視聴 · 2026/11/01（3 日前）');
+            var bodyEl = p.querySelector('.info-desc');
+            expect('改行を保つ（white-space: pre-wrap）', bodyEl ? getComputedStyle(bodyEl).whiteSpace : '(無い)', 'pre-wrap');
+            var seekA = p.querySelectorAll('a.info-seek');
+            expect('🔴 時刻のリンクが2つ（0:00 / 12:34）', Array.prototype.map.call(seekA, function (a) { return a.textContent; }).join(' / '), '0:00 / 12:34');
+            if (seekA[1]) seekA[1].click();
+            await wait(30);
+            expect('🔴 時刻を押すとその枠だけシーク（この枠 / ほかの枠）', seeks.join(',') + ' / ' + (seeks2.length ? seeks2.join(',') : 'なし'), '754 / なし');
+            var ext = Array.prototype.filter.call(p.querySelectorAll('a'), function (a) { return a.target === '_blank'; });
+            expect('🔴 外部・チャンネル・ハッシュタグ・別の動画は別タブ（target=_blank・noopener）', ext.length + ' / ' + (ext.every(function (a) { return /noopener/.test(a.rel) && /^https:\/\//.test(a.getAttribute('href')); }) ? 'すべて https・noopener' : 'ちがうものがある'), '4 / すべて https・noopener');
+            var jsA = Array.prototype.filter.call(p.querySelectorAll('a'), function (a) { return /^javascript:/i.test(a.getAttribute('href') || ''); }).length;
+            expect('🔴 javascript: はリンクにしない（文字のまま）', jsA + ' / ' + (/\nbad\n/.test(bodyEl.textContent) ? '文字はある' : '文字が無い'), '0 / 文字はある');
+            var vA = p.querySelector('a.info-video');
+            expect('別の動画のリンク先（時刻つき）', vA ? vA.getAttribute('href') : '(無い)', 'https://www.youtube.com/watch?v=' + OTHER + '&t=65s');
+            var addB = p.querySelector('button.info-add');
+            expect('🔴 別の動画の横に ➕ がある', addB ? addB.textContent : '(無い)', '➕');
+            if (addB) addB.click();
+            await wait(30);
+            expect('🔴 ➕ で空いている枠へ読み込む（addOrFillVideoSlot に渡る）', adds.join(' , ') || '(渡らない)', 'https://www.youtube.com/watch?v=' + OTHER + '&t=65s');
+            /* コメント */
+            reqs = [];
+            tabs[2].click(); await wait(50);
+            expect('🔴 🗨 で入り口の token のページを頼む（概要欄を読み直さない）', reqs.map(function (r) { return r.op + ':' + (r.token || '-'); }).join(','), 'page:C1');
+            answer(lastReq(), { page: mkPage('a', 20, 'P2', true, true) });
+            await wait(80);
+            expect('🔴 20件を出す', cmItems().length, 20);
+            expect('件数と並べ替え（人気順が選ばれている）', [(p.querySelector('.info-cm-count') || {}).textContent, Array.prototype.map.call(p.querySelectorAll('.info-sort'), function (b) { return b.textContent + (b.classList.contains('on') ? '●' : ''); }).join(' ')].join(' / '), '1,234 件のコメント / 人気順● 新しい順');
+            var c0 = cmItems()[0];
+            expect('投稿者・いつ・👍・アイコン（https）', c0 ? [(c0.querySelector('.info-author') || {}).textContent, (c0.querySelector('.info-pub') || {}).textContent, (c0.querySelector('.info-likes') || {}).textContent, (c0.querySelector('img.info-av') || {}).src].join(' / ') : '(無い)', '@dbg0 / 2 日前 / 👍 0 / https://yt3.ggpht.com/dbg');
+            var cs = c0 && c0.querySelector('a.info-seek');
+            if (cs) cs.click();
+            await wait(30);
+            expect('コメントの時刻もその枠だけシーク', seeks.join(',') + ' / ' + (seeks2.length ? seeks2.join(',') : 'なし'), '754,83 / なし');
+            /* 返信 */
+            reqs = [];
+            var rb = c0 && c0.querySelector('.info-rep-btn');
+            expect('返信のボタン（件数つき）', rb ? rb.textContent : '(無い)', '▼ 返信 3件');
+            if (rb) rb.click();
+            await wait(50);
+            expect('🔴 返信を頼む（その token）', reqs.map(function (r) { return r.op + ':' + r.token; }).join(','), 'page:R1');
+            var rp = { header: null, items: [{ key: 'r1', text: 'reply 1', runs: [], author: '@r1', avatar: null, published: '1 日前', likes: '1', replies: '', repliesToken: null, level: 1 }, { key: 'r2', text: 'reply 2', runs: [], author: '@r2', avatar: null, published: '1 日前', likes: '0', replies: '', repliesToken: null, level: 1 }], next: 'RM' };
+            if (lastReq()) answer(lastReq(), { page: rp });
+            await wait(50);
+            expect('🔴 返信を出す（2件・さらに表示がある）', p.querySelectorAll('.info-cmt.reply').length + ' / ' + (p.querySelector('.info-rep-more') ? 'ある' : '無い'), '2 / ある');
+            var mb = p.querySelector('.info-rep-more'); if (mb) mb.click();
+            await wait(30);
+            expect('返信の続きを頼む', lastReq() ? lastReq().token : '-', 'RM');
+            if (lastReq()) answer(lastReq(), { page: { header: null, items: [{ key: 'r3', text: 'reply 3', runs: [], author: '@r3', avatar: null, published: '', likes: '', replies: '', repliesToken: null, level: 1 }], next: null } });
+            await wait(50);
+            expect('返信の続きを足す（3件・さらに表示は消える）', p.querySelectorAll('.info-cmt.reply').length + ' / ' + (p.querySelector('.info-rep-more') ? 'ある' : '無い'), '3 / 無い');
+            rb = cmItems()[0] && cmItems()[0].querySelector('.info-rep-btn'); if (rb) rb.click();
+            await wait(30);
+            expect('返信を閉じる', p.querySelectorAll('.info-cmt.reply').length, 0);
+            /* 下までスクロールで続き */
+            reqs = [];
+            pc('🔴 コメントの欄がスクロールできる（下まで動かす土俵）', function () { return p.scrollHeight > p.clientHeight + 50 ? (p.scrollHeight + 'px > ' + p.clientHeight + 'px') : false; });
+            p.scrollTop = p.scrollHeight; p.dispatchEvent(new Event('scroll'));
+            p.dispatchEvent(new Event('scroll'));
+            await wait(30);
+            expect('🔴 下までスクロールすると次のページを1回だけ頼む', reqs.map(function (r) { return r.token; }).join(','), 'P2');
+            var st0 = p.scrollTop;
+            if (lastReq()) answer(lastReq(), { page: mkPage('b', 20, null, false, false) });
+            await wait(80);
+            expect('🔴 続きを足す（40件・スクロールの位置を保つ・ここまで）', [cmItems().length, Math.abs(p.scrollTop - st0) <= 2 ? '保つ' : (st0 + '→' + p.scrollTop), (p.querySelector('.info-cm-foot') || {}).textContent].join(' / '), '40 / 保つ / （ここまで）');
+            reqs = [];
+            p.scrollTop = p.scrollHeight; p.dispatchEvent(new Event('scroll'));
+            await wait(30);
+            expect('最後のページでは頼まない', reqs.length, 0);
+            /* 並べ替え */
+            var sb = document.getElementById('infoSort1_' + cid);
+            if (sb) sb.click();
+            await wait(50);
+            expect('🔴 新しい順でその token を頼み、作り直す（読み込み中）', (lastReq() ? lastReq().token : '-') + ' / ' + (/読み込み中/.test(p.textContent) ? '読み込み中' : cmItems().length + '件'), 'S2 / 読み込み中');
+            var sReq = lastReq();
+            handleYtInfo({ requestId: 'yi_dbg_unknown', videoId: VID, op: 'page', ok: true, page: mkPage('z', 5, null, false) });
+            await wait(30);
+            expect('知らない要求の答えは捨てる', /読み込み中/.test(p.textContent) ? '捨てた' : cmItems().length + '件', '捨てた');
+            if (sReq) answer(sReq, { page: mkPage('n', 20, 'P9', true, false, 1) });
+            await wait(80);
+            var first = cmItems()[0];
+            expect('新しい順の中身（先頭・選ばれている）', (first ? (first.querySelector('.info-author') || {}).textContent + ' ' + (first.querySelector('.info-cmt-text') || {}).textContent.slice(0, 2) : '-') + ' / ' + (document.getElementById('infoSort1_' + cid) && document.getElementById('infoSort1_' + cid).classList.contains('on') ? '新しい順●' : '-'), '@dbg0 n0 / 新しい順●');
+            /* 🔄・答えなし */
+            var rl = document.getElementById('chatReloadBtn_' + cid);
+            expect('🔄 の説明が変わる・上位のボタンは隠れる', (rl ? rl.title : '-') + ' / ' + (document.getElementById('chatModeBtn_' + cid).style.display === 'none' ? '隠れる' : '見える'), 'コメント欄を読み直す / 隠れる');
+            infoTimeoutMs = 300; reqs = [];
+            if (rl) rl.click();
+            await wait(650);
+            expect('🔴 🔄 で読み直し、答えが無ければアドオンが要ると出す', reqs.map(function (r) { return r.op; }).join(',') + ' / ' + (/アドオン 2\.18\.0/.test(p.textContent) ? 'ok' : p.textContent.slice(0, 40)), 'desc / ok');
+            infoTimeoutMs = tmo0;
+            /* 💬 に戻す */
+            tabs[0].click(); await wait(50);
+            expect('💬 に戻すとチャットが見える（概要欄の欄は隠れる・🔄 の説明も戻る）', [document.getElementById('chatBody_' + cid).style.display === 'none' ? '隠れる' : '見える', getComputedStyle(p).display === 'none' ? '隠れる' : '見える', rl ? rl.title : '-'].join(' / '), '見える / 隠れる / コメントを取得し直す');
+            expect('ほかの枠のタブは 💬 のまま', document.getElementById('chatTab_chat_' + cid2) ? (document.getElementById('chatTab_chat_' + cid2).classList.contains('on') ? 'on' : 'off') : '(チャット欄が無い)', 'on');
+            note('送った要求（D-I1 の間・最後のまとまり）', reqs.length + '回');
+        } finally {
+            window.postMessage = origPost;
+            window.addOrFillVideoSlot = origAdd;
+            infoTimeoutMs = tmo0;
+            try { if (cid) { setInfoTab(cid, 'chat'); } } catch (e) { }
+            try {
+                if (cid) { if (saved) ytPlayers[cid] = saved; else delete ytPlayers[cid]; if (key1 === undefined) delete cardVideoKeys[cid]; else cardVideoKeys[cid] = key1; }
+                if (cid2) { if (saved2) ytPlayers[cid2] = saved2; else delete ytPlayers[cid2]; if (key2 === undefined) delete cardVideoKeys[cid2]; else cardVideoKeys[cid2] = key2; }
+            } catch (e) { }
+            try { delete infoStore[VID]; delete infoStore[VID2]; } catch (e) { }
+            try { await setCardCount(started); } catch (e) { }
+            var restored = restoreUrlSnapshot(backup);
+            note('後始末: 枠数・保存URL', cardCount() + '枠 / ' + (restored === backupText ? '保存URLは元どおり' : '⚠ 差分あり'));
+        }
+    }
+
+    /* --- D-W12: 実機。概要欄とコメントが取得タブ経由で届く（アドオン 2.18.0）-------------
+       ★v1.31.0（v2.20.0）。🔴 本文・投稿者名・リンク先は出力に載せない（数と形だけ）。 */
+    async function testW12() {
+        log('  [目的] アドオン 2.18.0 の取得タブが動画の概要欄とコメント（続き・並べ替え・返信）を読めること（🔴 中身は記録しない）。');
+        var has = (typeof setInfoTab === 'function' && typeof infoStore !== 'undefined');
+        expect('🔴 A側の概要欄・コメント（setInfoTab / infoStore）がある', has ? 'あり' : '無い', 'あり');
+        if (!has) return;
+        var av = (typeof addonVersion !== 'undefined') ? addonVersion : null;
+        pc('アドオンが 2.18.0（版数バッジの値）', function () { return av === '2.18.0' ? av : false; });
+        if (av !== '2.18.0') return;
+        var cid = null, vid = null;
+        sortedCardIds().some(function (id) { var v = getChatVideoId(id); if (v && ytPlayers[id] && !ytPlayers[id].__dbgFake) { cid = id; vid = v; return true; } return false; });
+        pc('動画の入った YouTube の枠がある', function () { return cid ? cid : false; });
+        if (!cid) return;
+        var wasVisible = !!chatVisible[cid], tab0 = infoTabOf(cid);
+        try {
+            delete infoStore[vid];
+            if (!chatVisible[cid]) toggleChatVisibility(cid);
+            var t0 = Date.now();
+            setInfoTab(cid, 'desc');
+            var r = await waitFor(function () { var e = infoStore[vid]; return (e && e.desc.state !== 'loading') ? e.desc.state : null; }, 26000, 200);
+            var e = infoStore[vid] || { desc: {}, cm: {} };
+            var ms = Date.now() - t0;
+            note('概要欄が届くまで', (ms / 1000).toFixed(1) + '秒');
+            expect('🔴 20秒以内に概要欄を読めた（ok）', (r.ok && e.desc.state === 'ok' && ms <= 20000) ? 'ok' : (e.desc.state + (e.desc.error ? '（' + e.desc.error + '）' : '') + ' / ' + (ms / 1000).toFixed(1) + '秒'), 'ok');
+            if (e.desc.state !== 'ok') return;
+            var d = e.desc.data, kinds = {};
+            (d.runs || []).forEach(function (x) { kinds[x.k] = (kinds[x.k] || 0) + 1; });
+            expect('本文がある（字数 > 0）', (d.content || '').length > 0 ? 'ok' : '0字', 'ok');
+            var pn = document.getElementById('infoPane_' + cid);
+            var links = pn ? pn.querySelectorAll('a.info-link').length : 0;
+            expect('🔴 リンクがすべて描かれる（エンジンの数 ＝ 画面の数）', links + ' / ' + (d.runs || []).length, (d.runs || []).length + ' / ' + (d.runs || []).length);
+            note('字数 / リンクの種類', (d.content || '').length + '字 / ' + (Object.keys(kinds).map(function (k) { return k + ' ' + kinds[k]; }).join('・') || 'なし') + ' / 見出し ' + (d.views ? 'あり' : 'なし') + ' / コメントの入り口 ' + (d.commentsToken ? 'あり' : (d.commentsOff ? 'オフ' : 'なし')));
+            if (!d.commentsToken) return;
+            t0 = Date.now();
+            setInfoTab(cid, 'comments');
+            r = await waitFor(function () { var x = infoStore[vid]; return (x && x.cm.state !== 'loading' && x.cm.state !== 'waitDesc') ? x.cm.state : null; }, 26000, 200);
+            e = infoStore[vid]; ms = Date.now() - t0;
+            note('コメントが届くまで', (ms / 1000).toFixed(1) + '秒');
+            expect('🔴 20秒以内にコメントを読めた（ok・1件以上）', (e.cm.state === 'ok' && e.cm.items.length > 0 && ms <= 20000) ? 'ok' : (e.cm.state + (e.cm.error ? '（' + e.cm.error + '）' : '') + ' / ' + e.cm.items.length + '件'), 'ok');
+            if (e.cm.state !== 'ok') return;
+            var n1 = e.cm.items.length;
+            var full = e.cm.items.filter(function (c) { return c.text && c.author; }).length;
+            expect('全件に本文と投稿者', full + '/' + n1, n1 + '/' + n1);
+            expect('並べ替えが2つ（token あり）', ((e.cm.header && e.cm.header.sort) || []).filter(function (s) { return s.token; }).length, 2);
+            note('1ページ目の件数 / 返信のあるスレッド / 時刻リンク', n1 + ' / ' + e.cm.items.filter(function (c) { return c.repliesToken; }).length + ' / ' + e.cm.items.reduce(function (a, c) { return a + (c.runs || []).filter(function (x) { return x.k === 'seek'; }).length; }, 0));
+            if (e.cm.next) {
+                loadMoreComments(cid);
+                await waitFor(function () { return infoStore[vid].cm.more ? null : 'done'; }, 26000, 200);
+                expect('🔴 続き（2ページ目）を読めた', infoStore[vid].cm.items.length > n1 ? 'ok' : (infoStore[vid].cm.moreError || '増えない'), 'ok');
+                note('2ページ目までの件数', String(infoStore[vid].cm.items.length));
+            } else note('2ページ目', 'なし（コメントが少ない）');
+            var withRep = infoStore[vid].cm.items.filter(function (c) { return c.repliesToken; })[0];
+            if (withRep) {
+                toggleInfoReplies(vid, withRep.key, withRep.repliesToken);
+                await waitFor(function () { var th = infoStore[vid].cm.threads[withRep.key]; return (th && !th.loading) ? 'done' : null; }, 26000, 200);
+                var th = infoStore[vid].cm.threads[withRep.key];
+                expect('返信を読めた（level 1）', th && th.items.length && th.items.every(function (x) { return x.level === 1; }) ? 'ok' : (th ? (th.error || th.items.length + '件') : '-'), 'ok');
+                note('返信の件数 / 続き', (th ? th.items.length : 0) + ' / ' + (th && th.next ? 'あり' : 'なし'));
+            } else note('返信', 'このページに返信のあるコメントが無い');
+            setInfoSort(vid, 1);
+            r = await waitFor(function () { var x = infoStore[vid]; return x.cm.state !== 'loading' ? x.cm.state : null; }, 26000, 200);
+            expect('🔴 新しい順を読めた', (infoStore[vid].cm.state === 'ok' && infoStore[vid].cm.items.length > 0) ? 'ok' : infoStore[vid].cm.state, 'ok');
+            note('新しい順の件数', String(infoStore[vid].cm.items.length));
+        } finally {
+            try { setInfoTab(cid, tab0); } catch (e) { }
+            try { if (!wasVisible && chatVisible[cid]) toggleChatVisibility(cid); } catch (e) { }
+        }
+    }
+
     var TESTS = [
         { id: 'D-X1', name: '基盤の自己診断（純関数）', run: testX1 },
         { id: 'D-X2', name: '記録UIの自動検証（ask / メモ）', run: testX2 },
@@ -9671,6 +9916,9 @@
         /* ★v1.30.0: v2.19.0。D-F1 は枠を足す・D-W11 はアドオン 2.17.0 と YouTube のログインが要るので manual */
         { id: 'D-F1', name: '★最近使った動画の切り替え（🕒 このツール ／ ▶ YouTube・使い回し・ログイン・答えなし）', run: testF1, manual: true },
         { id: 'D-W11', name: '★YouTube の視聴履歴（実機・取得タブ経由で届く・🔴 中身は記録しない）', run: testW11, manual: true },
+        /* ★v1.31.0: v2.20.0（概要欄・コメント欄） */
+        { id: 'D-I1', name: '★概要欄・コメント欄のタブ（シーク・別タブ・➕・並べ替え・返信・続き）', run: testI1, manual: true },
+        { id: 'D-W12', name: '★概要欄とコメント（実機・取得タブ経由で届く・🔴 中身は記録しない）', run: testW12, manual: true },
         /* ★v1.7.0: v2.8.3（参照されなくなったコメント配列の破棄）。
            🔴 いずれも manual。動画の取得に数分かかるため「すべて実行」からは外す
               （外さないと ▶ すべて実行 の判定数が版をまたいで比較できなくなる）。 */

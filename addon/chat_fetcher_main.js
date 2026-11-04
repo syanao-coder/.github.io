@@ -1413,6 +1413,194 @@
   }
 
   /* ==============================================================
+     ★v2.20.0 動画の概要欄とコメント欄（スパイク I1 ─ next）
+     🔴 1回の応答が 300〜750KB なので、ここで必要な項目だけにして A側へ送る。
+     🔴 次のページの token は「一番上の continuationItems の末尾」だけを見る（findAll すると返信の続きを拾う）。
+     op:'desc' → 概要欄・見出し・コメントの入り口の token / op:'page' → コメントの1ページ（続き・並べ替え・返信も同じ形）
+     ============================================================== */
+  const INFO_TIMEOUT_MS = 20000;
+  const INFO_DESC_MAX = 10000, INFO_TEXT_MAX = 5000, INFO_RUNS_MAX = 300;
+  function infoFindOne(o, key, depth) {
+    /* o の中で最初に見つかる key を持つ物（その物そのもの）。深さ優先・前から順に */
+    const stack = [[o, 0]], lim = depth || 40;
+    while (stack.length) {
+      const top = stack.pop(), v = top[0], d = top[1];
+      if (!v || typeof v !== 'object' || d > lim) continue;
+      if (!Array.isArray(v) && Object.prototype.hasOwnProperty.call(v, key)) return v;
+      const ks = Object.keys(v);
+      for (let i = ks.length - 1; i >= 0; i--) if (v[ks[i]] && typeof v[ks[i]] === 'object') stack.push([v[ks[i]], d + 1]);
+    }
+    return null;
+  }
+  function infoToken(o) {
+    const h = infoFindOne(o, 'continuationCommand', 12);
+    return (h && h.continuationCommand && typeof h.continuationCommand.token === 'string') ? h.continuationCommand.token : null;
+  }
+  function infoAbsUrl(u) {
+    u = String(u || '');
+    if (u.indexOf('/') === 0 && u.indexOf('//') !== 0) u = 'https://www.youtube.com' + u;
+    return /^https?:\/\//i.test(u) ? u.slice(0, 2000) : null;
+  }
+  /* 1つの run の行き先 → {k, t, v, u} */
+  function infoRunTarget(cmd, videoId) {
+    if (!cmd || typeof cmd !== 'object') return null;
+    const meta = cmd.commandMetadata && cmd.commandMetadata.webCommandMetadata;
+    const metaUrl = meta && meta.url ? infoAbsUrl(meta.url) : null;
+    const w = cmd.watchEndpoint;
+    if (w && typeof w.videoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(w.videoId)) {
+      const t = (typeof w.startTimeSeconds === 'number' && isFinite(w.startTimeSeconds)) ? Math.max(0, Math.floor(w.startTimeSeconds)) : null;
+      if (w.videoId === videoId && t != null) return { k: 'seek', t: t };
+      return { k: 'video', v: w.videoId, t: t };
+    }
+    const ue = cmd.urlEndpoint;
+    if (ue && ue.url) { const u = infoAbsUrl(ue.url); return u ? { k: 'url', u: u } : null; }
+    const b = cmd.browseEndpoint;
+    if (b && typeof b.browseId === 'string') {
+      const u = metaUrl || (b.canonicalBaseUrl ? infoAbsUrl(b.canonicalBaseUrl) : null);
+      if (!u) return null;
+      if (b.browseId === 'FEhashtag') return { k: 'hashtag', u: u };
+      if (b.browseId.indexOf('UC') === 0) return { k: 'channel', u: u };
+      return { k: 'yt', u: u };
+    }
+    if (metaUrl) return { k: 'yt', u: metaUrl };
+    return null;
+  }
+  /* commandRuns → 範囲が本文に収まり、重ならないものだけ（前から） */
+  function infoRuns(commandRuns, len, videoId) {
+    const out = [];
+    if (!Array.isArray(commandRuns)) return out;
+    const rs = commandRuns.slice().sort(function (a, b) { return (a.startIndex || 0) - (b.startIndex || 0); });
+    let end = 0;
+    for (let i = 0; i < rs.length && out.length < INFO_RUNS_MAX; i++) {
+      const r = rs[i], s = r.startIndex || 0, l = r.length || 0;
+      if (!(l > 0) || s < end || s + l > len) continue;
+      const cmd = r.onTap && r.onTap.innertubeCommand;
+      const tg = infoRunTarget(cmd, videoId);
+      if (!tg) continue;
+      tg.s = s; tg.l = l;
+      out.push(tg); end = s + l;
+    }
+    return out;
+  }
+  function infoText(t) { return histText(t); }
+  function infoCut(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) : s; }
+  async function infoNext(body) {
+    let cfg = cfgFromPage();
+    if (!cfg) {
+      const h = await fetchTimed('/', { credentials: 'include' }, INFO_TIMEOUT_MS, 'text');
+      if (h.res.ok) cfg = cfgFromHtml(h.body);
+    }
+    if (!cfg) throw new Error('INNERTUBE_API_KEY / CONTEXT を取得できませんでした');
+    const headers = Object.assign({ 'Content-Type': 'application/json' }, (await buildAuthHeaders()) || {});
+    const r = await fetchTimed('/youtubei/v1/next?key=' + encodeURIComponent(cfg.key) + '&prettyPrint=false', {
+      method: 'POST', credentials: 'include', headers: headers,
+      body: JSON.stringify(Object.assign({ context: cfg.ctx }, body))
+    }, INFO_TIMEOUT_MS, 'json');
+    return r;
+  }
+  function infoDesc(root, videoId) {
+    const sec = infoFindOne(root, 'videoSecondaryInfoRenderer');
+    const pri = infoFindOne(root, 'videoPrimaryInfoRenderer');
+    const ad = sec && sec.videoSecondaryInfoRenderer.attributedDescription;
+    const content = infoCut(ad && typeof ad.content === 'string' ? ad.content : '', INFO_DESC_MAX);
+    const p = pri ? pri.videoPrimaryInfoRenderer : {};
+    const vc = p.viewCount && p.viewCount.videoViewCountRenderer;
+    let commentsToken = null, commentsOff = false;
+    const secs = [];
+    (function walk(o, d) {
+      if (!o || typeof o !== 'object' || d > 30 || secs.length) return;
+      if (o.itemSectionRenderer && o.itemSectionRenderer.sectionIdentifier === 'comment-item-section') { secs.push(o.itemSectionRenderer); return; }
+      for (const k in o) if (o[k] && typeof o[k] === 'object') walk(o[k], d + 1);
+    })(root, 0);
+    if (secs.length) {
+      const cs = secs[0].contents || [];
+      for (let i = cs.length - 1; i >= 0 && !commentsToken; i--) if (cs[i] && cs[i].continuationItemRenderer) commentsToken = infoToken(cs[i].continuationItemRenderer);
+      if (!commentsToken && infoFindOne(secs[0], 'messageRenderer')) commentsOff = true;
+    } else commentsOff = true;
+    return {
+      content: content,
+      runs: infoRuns(ad && ad.commandRuns, content.length, videoId),
+      views: infoCut(vc ? infoText(vc.viewCount || vc.shortViewCount) : infoText(p.viewCount), 80),
+      date: infoCut(infoText(p.dateText), 80),
+      rel: infoCut(infoText(p.relativeDateText), 80),
+      commentsToken: commentsToken,
+      commentsOff: commentsOff
+    };
+  }
+  function infoPage(root, videoId) {
+    const payload = {};
+    const muts = (root.frameworkUpdates && root.frameworkUpdates.entityBatchUpdate && root.frameworkUpdates.entityBatchUpdate.mutations) || [];
+    for (let i = 0; i < muts.length; i++) {
+      const c = muts[i] && muts[i].payload && muts[i].payload.commentEntityPayload;
+      if (c && c.key) payload[c.key] = c;
+    }
+    const eps = Array.isArray(root.onResponseReceivedEndpoints) ? root.onResponseReceivedEndpoints : [];
+    const out = { header: null, items: [], next: null };
+    for (let e = 0; e < eps.length; e++) {
+      const act = eps[e].reloadContinuationItemsCommand || eps[e].appendContinuationItemsAction;
+      const list = act && Array.isArray(act.continuationItems) ? act.continuationItems : [];
+      for (let j = 0; j < list.length; j++) {
+        const it = list[j];
+        if (!it) continue;
+        if (it.commentsHeaderRenderer) {
+          const h = it.commentsHeaderRenderer;
+          const sm = infoFindOne(h, 'sortFilterSubMenuRenderer');
+          const sub = sm ? (sm.sortFilterSubMenuRenderer.subMenuItems || []) : [];
+          out.header = {
+            count: infoCut(infoText(h.countText) || infoText(h.commentsCount), 40),
+            sort: sub.slice(0, 4).map(function (s) { return { title: infoCut(infoText(s.title), 40), selected: !!s.selected, token: infoToken(s.serviceEndpoint || s) }; })
+          };
+          continue;
+        }
+        let vm = null, thr = null;
+        if (it.commentThreadRenderer) { thr = it.commentThreadRenderer; vm = thr.commentViewModel && (thr.commentViewModel.commentViewModel || thr.commentViewModel); }
+        else if (it.commentViewModel) vm = it.commentViewModel.commentKey ? it.commentViewModel : it.commentViewModel.commentViewModel;
+        if (vm && vm.commentKey) {
+          const c = payload[vm.commentKey];
+          if (!c) continue;
+          const pr = c.properties || {}, au = c.author || {}, tb = c.toolbar || {};
+          const ct = pr.content || {};
+          const text = infoCut(typeof ct.content === 'string' ? ct.content : '', INFO_TEXT_MAX);
+          const av = typeof au.avatarThumbnailUrl === 'string' && /^https:\/\//.test(au.avatarThumbnailUrl) ? au.avatarThumbnailUrl.slice(0, 500) : null;
+          out.items.push({
+            key: infoCut(vm.commentKey, 200), text: text, runs: infoRuns(ct.commandRuns, text.length, videoId),
+            author: infoCut(au.displayName, 100), avatar: av, published: infoCut(pr.publishedTime, 40),
+            likes: infoCut(tb.likeCountNotliked, 20), replies: infoCut(tb.replyCount, 20),
+            repliesToken: thr && thr.replies ? infoToken(thr.replies) : null,
+            level: typeof pr.replyLevel === 'number' ? pr.replyLevel : 0
+          });
+          continue;
+        }
+        /* 🔴 次のページは一番上の並びの末尾の continuation だけ */
+        if (j === list.length - 1 && it.continuationItemRenderer) out.next = infoToken(it.continuationItemRenderer);
+      }
+    }
+    return out;
+  }
+  async function ytInfo(d) {
+    const out = { ev: 'info', requestId: d.requestId, videoId: d.videoId, op: d.op, ok: false, desc: null, page: null, error: null, httpStatus: null };
+    cancelIdleClose();
+    try {
+      if (!/^[A-Za-z0-9_-]{11}$/.test(String(d.videoId || ''))) throw new Error('動画 ID が正しくありません');
+      let r;
+      if (d.op === 'desc') r = await infoNext({ videoId: d.videoId });
+      else if (d.op === 'page' && typeof d.token === 'string' && d.token) r = await infoNext({ continuation: d.token });
+      else throw new Error('不明な要求です（op=' + d.op + '）');
+      out.httpStatus = r.res.status;
+      if (!r.res.ok) throw new Error('読めません（HTTP ' + r.res.status + '）');
+      if (d.op === 'desc') out.desc = infoDesc(r.body, d.videoId);
+      else out.page = infoPage(r.body, d.videoId);
+      out.ok = true;
+    } catch (e) {
+      out.error = String(e && e.message ? e.message : e).slice(0, 200);
+    } finally {
+      post(out);
+      if (!jobs.size) scheduleIdleClose();
+    }
+    return out;
+  }
+
+  /* ==============================================================
      ISOLATED からの指示を受ける
      ============================================================== */
   window.addEventListener('message', function (e) {
@@ -1423,6 +1611,7 @@
     else if (d.cmd === 'CHAT_CANCEL') cancel(d.requestId);
     else if (d.cmd === 'CHAT_POST') chatPost(d);   /* ★v2.16.0 */
     else if (d.cmd === 'CHAT_HISTORY') ytHistory(d);   /* ★v2.19.0（アドオン 2.17.0） */
+    else if (d.cmd === 'CHAT_INFO') ytInfo(d);   /* ★v2.20.0（アドオン 2.18.0） */
     else if (d.cmd === 'CHAT_CONFIG' && d.config) {
       /* 段階 1-F の計測用。実行中に束ね方を差し替えられる。 */
       for (const k of Object.keys(d.config)) {

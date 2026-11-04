@@ -81,6 +81,17 @@ if (document.getElementById('playersGrid')) {
       }).catch(() => {});
     }
 
+    // コントローラー ➔ アドオン（動画の概要欄・コメント）★v2.20.0（アドオン 2.18.0）
+    if (event.data && event.data.type === 'YT_INFO_REQUEST') {
+      chrome.runtime.sendMessage({
+        type: "FETCH_YT_INFO",
+        requestId: event.data.requestId,
+        videoId: event.data.videoId,
+        op: event.data.op,
+        token: event.data.token
+      }).catch(() => {});
+    }
+
     // コントローラー ➔ アドオン（取得用タブの扱い方）★v2.6.1
     if (event.data && event.data.type === 'CHAT_TAB_POLICY') {
       chrome.runtime.sendMessage({
@@ -134,7 +145,8 @@ if (document.getElementById('playersGrid')) {
       const CHAT_STREAM_STATE = {
         meta: 'chatMeta', chunk: 'chatChunk', done: 'chatDone', ping: 'chatPing',
         post: 'chatPost',   /* ★v2.16.0 */
-        history: 'ytHistory'   /* ★v2.19.0 */
+        history: 'ytHistory',   /* ★v2.19.0 */
+        info: 'ytInfo'   /* ★v2.20.0 */
       };
       const state = CHAT_STREAM_STATE[message.ev];
       if (state) {
@@ -179,7 +191,11 @@ if (document.getElementById('playersGrid')) {
           /* ★v2.19.0: 視聴履歴。background.js と対で明示転送する。 */
           items: message.items,
           shorts: message.shorts,
-          dups: message.dups
+          dups: message.dups,
+          /* ★v2.20.0: 概要欄・コメント。background.js と対で明示転送する。 */
+          op: message.op,
+          desc: message.desc,
+          page: message.page
         }, '*');
       } else {
         /* ★v2.6.5: 未知の ev は黙って捨てず、必ず痕跡を残す。

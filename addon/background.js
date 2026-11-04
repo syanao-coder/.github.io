@@ -105,6 +105,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
+  // --- コントローラー ➔ 動画の概要欄・コメント ★v2.20.0（アドオン 2.18.0） ---
+  if (message.type === "FETCH_YT_INFO") {
+    startYtInfo(message).catch((err) => {
+      sendChatStreamEvent({
+        ev: "info",
+        requestId: message.requestId,
+        videoId: message.videoId,
+        op: message.op,
+        ok: false,
+        error: String(err && err.message ? err.message : err)
+      });
+    });
+  }
+
   // --- コントローラー ➔ 取得の中止 ★v2.6.0 ---
   if (message.type === "CANCEL_CHAT_STREAM") {
     cancelChatStream(message.requestId);
@@ -685,6 +699,17 @@ async function startYtHistory(m) {
   await chrome.tabs.sendMessage(tabId, { type: "CHAT_HISTORY", requestId: m.requestId });
 }
 
+/* ★v2.20.0: 概要欄・コメントも取得タブ（MAIN world）で読む。視聴履歴と同じく注入を確かめてから渡す。 */
+async function startYtInfo(m) {
+  const tabId = await ensureChatTab();
+  try {
+    await ensureInjected(tabId);
+  } catch (e) {
+    throw new Error("取得スクリプトの注入に失敗しました: " + (e && e.message ? e.message : e));
+  }
+  await chrome.tabs.sendMessage(tabId, { type: "CHAT_INFO", requestId: m.requestId, videoId: m.videoId, op: m.op, token: m.token });
+}
+
 async function cancelChatStream(requestId) {
   try {
     const st = await chrome.storage.local.get(CHAT_TAB_KEY);
@@ -755,7 +780,11 @@ function sendChatStreamEvent(p) {
       /* ★v2.19.0: 視聴履歴（エンジンで30件に絞ったもの）。🔴 content_controller.js と対で書くこと。 */
       items: p.items,
       shorts: p.shorts,
-      dups: p.dups
+      dups: p.dups,
+      /* ★v2.20.0: 概要欄・コメント（エンジンで必要な項目だけにしたもの）。🔴 content_controller.js と対で書くこと。 */
+      op: p.op,
+      desc: p.desc,
+      page: p.page
     };
     for (const tab of tabs) chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
   });
