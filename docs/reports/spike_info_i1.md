@@ -21,6 +21,28 @@
 - ⚠️ **返信はまだ**: 20件すべて「返信の token なし・`replyCount` なし」。人気の配信の上位20件に返信が1件も無いのは不自然 → 計測コードが返信の置き場所を見落としている疑い。→ 1.1.0 で名前（キー）の道筋だけを記録する補足を出す（値・本文は出さない）。
 - 利用者が R2 に概要欄の本文を貼った（2回目も）。記録には写さない。用紙の R2 を「数だけ答える」形に変えた。
 
+## 1-3. 結論（3回目・2026-11-04・計測コード 1.1.0・素材 `3rOrpwf4OMo`）→ 🔴 スパイク完了
+
+- 🔴 **返信の置き場所が分かった**: `commentThreadRenderer.replies.commentRepliesRenderer.subThreads[0].continuationItemRenderer.continuationEndpoint.continuationCommand.token`（1.0.0 の `findOne(t.replies, 'continuationCommand')` でも見つかる形。2回目の素材は**上位20件に本当に返信が無かった**と見るのが正しい ─ 1.0.0 の数え方の誤りではなかった）。返信の要求 HTTP 200・130ms・`commentEntityPayload` の `replyLevel` 1。ボタンの文言は `viewReplies` / `hideReplies`（`buttonRenderer.text.runs`）にある。
+- 返信数は `commentEntityPayload.toolbar.replyCount`（14件すべてにキーがあり、値があるのは返信のある1件だけ）。
+- ⚠️ 「投稿者のハート」の数え方は誤り: `toolbar.creatorThumbnailUrl` は全件にある（14/14）→ ハートの有無は別の場所（`engagementToolbarStateEntityPayload` など・未確認）。実装ではハートを出さない（純正に近づけるのは後回し）。
+- `mutations` には `commentEntityPayload` のほか `commentSurfaceEntityPayload` / `engagementToolbarStateEntityPayload` / `triStateButtonStateEntityPayload` / `engagementToolbarSurfaceEntityPayload` / `commentSharedEntityPayload` がある。スレッドと本文は `commentViewModel.commentKey` ↔ `commentEntityPayload.key`（`entityKey`）で結ぶ。
+- 概要欄: `commandRuns` 8（ハッシュタグ 2・**別の動画＋時刻 2**・**この動画（時刻なし）1**・時刻 3）。`onTapOptions` を持つ run が多い（純正のリンクの開き方の指定と見られる・実装では使わない）。
+- 素材のコメント14件・2ページ目なし（2回目の素材で2ページ目は確認済み）。ログインなしで14件。
+
+### 実装に使う形（まとめ）
+
+| 用途 | 置き場所 |
+| :--- | :--- |
+| 概要欄の本文・リンク | `next`（`videoId`）の `videoSecondaryInfoRenderer.attributedDescription`（`content`・`commandRuns[].{startIndex,length,onTap.innertubeCommand}`・`styleRuns`） |
+| 見出し | `videoPrimaryInfoRenderer` の `viewCount` / `dateText` / `relativeDateText` |
+| リンクの種類 | `watchEndpoint`（`videoId` が同じ＋`startTimeSeconds` → この枠をシーク／別の動画 → 別タブ＋➕）・`urlEndpoint`（`youtube.com/redirect?…q=` → 別タブ）・`browseEndpoint`（`UC…` チャンネル／`FEhashtag` ハッシュタグ → 別タブ・`commandMetadata.webCommandMetadata.url`） |
+| コメントの入り口 | `next` の `itemSectionRenderer`（`sectionIdentifier` = `comment-item-section`）の continuation |
+| コメントの1ページ | `next`（`continuation`）→ `onResponseReceivedEndpoints[].reloadContinuationItemsCommand` / `appendContinuationItemsAction` の `continuationItems`（`commentThreadRenderer`・末尾の `continuationItemRenderer` が次のページ・見出しは `commentsHeaderRenderer`）＋`frameworkUpdates.entityBatchUpdate.mutations[].payload.commentEntityPayload`（`properties.content.{content,commandRuns}`・`properties.publishedTime`・`author.{displayName,avatarThumbnailUrl}`・`toolbar.{likeCountNotliked,replyCount}`） |
+| 並べ替え | `sortFilterSubMenuRenderer.subMenuItems[0/1]`（人気順／新しい順）の continuation |
+| 返信 | `commentThreadRenderer.replies.commentRepliesRenderer.subThreads[]` の continuation → 同じ形（`replyLevel` 1） |
+| 🔴 罠 | 次のページの token は一番上の `continuationItems` の末尾だけを見る（`findAll` すると返信の続きを拾う）。表示用の本文では長い URL が省略されているので、リンク先は `commandRuns` から取る。1回の応答が 300〜750KB → 取得タブで必要な項目だけにして A側へ送る |
+
 ## 2. 実測
 
 | 項目 | 値 |
@@ -54,5 +76,5 @@
 
 ## 7. 次
 
-- 補足の測定（同じ計測コードで J1・J2 をもう一度・素材を変える）。
-- そのあと実装の指示書（v2.20.0・マイナー・アドオンを上げる見込み）。
+- ⚪ スパイク完了（2026-11-04）。→ 実装 v2.20.0（マイナー・アドオンを上げる）。
+- （経緯）1回目のあと補足の測定を2回行った（2回目 `cy1VIGFMR-4`・3回目 1.1.0 `3rOrpwf4OMo`）。
