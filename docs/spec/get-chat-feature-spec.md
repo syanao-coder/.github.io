@@ -5,7 +5,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 
 # チャット / コメント流し機能 実装仕様書
 
-最終更新: 2026-11-04 / 現行リリース **v2.19.2**（実機検証済み・1-7節 ライブへの投稿・1-8節 YouTube の視聴履歴）
+最終更新: 2026-11-04 / 現行リリース **v2.20.1**（実機検証済み・1-7節 ライブへの投稿・1-8節 YouTube の視聴履歴・1-9節 概要欄とコメント）
 関連スキル: `/get-protocol-spec`（A↔B通信プロトコル、バージョン管理規約、既知の不具合）
 関連スキル: `/get-danmaku-spec`（ニコニコ風コメント流しと調整UI ─ 本スキル旧 8-10節・8-11節。★2026-08-15 分離）
 関連スキル: `/get-ui-spec`（A側UIの部品仕様 ─ トップバーのメニュー構造・再生可否の確定と枠内通知）
@@ -38,7 +38,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 | 🔴 **参照されなくなったコメントの破棄** | ✅ **v2.8.3**（8-13節）。中止の判定も同じ参照集合へ統一 |
 | **ライブへのコメント投稿** | ✅ **v2.16.0**（1-7節・アドオン 2.14.0）／ログインの案内 ✅ **v2.17.0**（1-7-6節・アドオン 2.15.0） |
 | **YouTube の視聴履歴の取得**（「最近使った動画」の ▶ YouTube） | ✅ **v2.19.0**（1-8節・アドオン 2.17.0） |
-| 動画の概要欄・コメント欄 | ⬜ v2.20.0 予定（スパイク I1 完了 ─ `/get-protocol-spec` 11節） |
+| **動画の概要欄・コメント欄**（チャット欄の場所のタブ） | ✅ **v2.20.0**（1-9節・アドオン 2.18.0）／並び ✅ v2.20.1 |
 
 🔴 **この表は④のたびに実態と突き合わせること。**
 2026-08-15 まで **v2.7.5 / v2.8.0 で実装済みのものが「⬜ 予定」のまま2版残っていた**
@@ -516,6 +516,22 @@ A  window.postMessage({ type:'CHAT_POST_REQUEST', requestId, videoId, text, dryR
 | 🔴 大きさ | 1ページ 3.4MB・199件をそのまま中継しない（3-3節 ─ 中継は fetch より重い）。返すのは30件の5項目だけ |
 | 実測（2026-10-30・Floorp） | 4.2秒・30件・チャンネル名／長さ／再生位置 30/30・ショート 3・重複 0 |
 | 🔴 記録 | 履歴のタイトル・ID・チャンネル名は記録・テストの出力に載せない（`D-W11` は数と形だけ） |
+
+### 1-9. 動画の概要欄とコメント ★v2.20.0（アドオン 2.18.0）
+
+画面は `/get-ui-spec` 17節。経路は `/get-protocol-spec` 2節（`YT_INFO_REQUEST` → `FETCH_YT_INFO` → `CHAT_INFO` → `ev:'info'` → `state:'ytInfo'`）。先立つスパイク I1（`spike_info_i1.md` 1-3節の「実装に使う形」）。
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 要求 | エンジン `ytInfo`: `op:'desc'` → `POST /youtubei/v1/next`（`videoId`）／`op:'page'` → 同じ端点（`continuation: token`）。`ytcfg` は視聴履歴と同じ（ページ → 無ければ `/` の HTML）。認証の Cookie があれば `SAPISIDHASH`（無くても読める）。打ち切り 20秒（`INFO_TIMEOUT_MS`）。動画 ID の形が違えば読まない |
+| `desc` | `{ content（最大 10000字）, runs, views, date, rel, commentsToken, commentsOff }`。本文は `videoSecondaryInfoRenderer.attributedDescription.content`（🔴 表示用の本文では長い URL が省略されている → リンク先は `commandRuns`）。見出しは `videoPrimaryInfoRenderer`。コメントの入り口は `itemSectionRenderer`（`sectionIdentifier` = `comment-item-section`）の末尾の continuation。無ければ `commentsOff` |
+| `runs` | `{s, l, k, t, v, u}`。`k` = `seek`（`watchEndpoint` の `videoId` が同じ＋`startTimeSeconds`）/ `video`（別の動画・`v`・`t`）/ `url`（`urlEndpoint` ─ `youtube.com/redirect?…` のまま）/ `channel`（`browseEndpoint` の `UC…`）/ `hashtag`（`FEhashtag`）/ `yt`（そのほか）。`browseEndpoint` の行き先は `commandMetadata.webCommandMetadata.url`。🔴 範囲が本文の外・前と重なる・http / https 以外は捨てる。最大 300 |
+| `page` | `{ header:{count, sort:[{title, selected, token}]} または null, items:[{key, text（最大 5000字）, runs, author, avatar（https のみ）, published, likes, replies, repliesToken, level}], next }`。`onResponseReceivedEndpoints[]` の `reloadContinuationItemsCommand` / `appendContinuationItemsAction` の `continuationItems` を前から読む。スレッドは `commentThreadRenderer.commentViewModel.commentViewModel.commentKey`、返信のページは `commentViewModel` が直接並ぶ形も受ける。本文は `frameworkUpdates.entityBatchUpdate.mutations[].payload.commentEntityPayload`（`key` で結ぶ）。返信の token は `replies` の中の最初の `continuationCommand` |
+| 🔴 次のページ | **それぞれの `continuationItems` の末尾**が `continuationItemRenderer` のときだけ `next`（`findAll` すると返信の続きを拾う ─ スパイク I1 の罠）。返信の続きはボタン（`buttonRenderer.command`）の中にある |
+| 🔴 大きさ | 1回 300〜750KB の応答を、概要欄 1KB 弱・コメント1ページ 4〜5KB にして送る（偽の 400KB の応答で確かめた） |
+| 実測（2026-11-04・Floorp・`cy1VIGFMR-4`） | 概要欄 1.0秒・2,743字・リンク 33（外部 24・時刻 1・ハッシュタグ 3・チャンネル 5）。コメント 0.4秒・20件・2ページ目まで 28件・新しい順 20件 |
+| 🔴 記録 | 本文・投稿者名・リンク先は記録・テストの出力に載せない（`D-W12` は数と形だけ） |
+| ⚠️ 古いエンジン | 取得タブにエンジン 2.17.0 が残っていると `CHAT_INFO` を知らず答えない（`window.__syncChatEngine` で多重注入が止まる）→ A側は25秒で「アドオン 2.18.0 が要ります」。アドオンを入れ直したら取得タブを閉じる |
 
 ## 2. 確定した定数と見積もり
 
