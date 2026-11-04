@@ -5,7 +5,7 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 
 # チャット / コメント流し機能 実装仕様書
 
-最終更新: 2026-10-26 / 現行リリース **v2.17.0**（実機検証済み・1-7節 ライブへの投稿・1-7-6節 ログイン）
+最終更新: 2026-11-04 / 現行リリース **v2.19.2**（実機検証済み・1-7節 ライブへの投稿・1-8節 YouTube の視聴履歴）
 関連スキル: `/get-protocol-spec`（A↔B通信プロトコル、バージョン管理規約、既知の不具合）
 関連スキル: `/get-danmaku-spec`（ニコニコ風コメント流しと調整UI ─ 本スキル旧 8-10節・8-11節。★2026-08-15 分離）
 関連スキル: `/get-ui-spec`（A側UIの部品仕様 ─ トップバーのメニュー構造・再生可否の確定と枠内通知）
@@ -37,6 +37,8 @@ description: "チャット取得（InnerTube 直接取得・認証ヘッダ・�
 | **ライブ（配信中）のチャット** | ✅ v2.8.0（1-6節）／v2.8.1 で A側が `liveBy` / `livePolls` を保存 |
 | 🔴 **参照されなくなったコメントの破棄** | ✅ **v2.8.3**（8-13節）。中止の判定も同じ参照集合へ統一 |
 | **ライブへのコメント投稿** | ✅ **v2.16.0**（1-7節・アドオン 2.14.0）／ログインの案内 ✅ **v2.17.0**（1-7-6節・アドオン 2.15.0） |
+| **YouTube の視聴履歴の取得**（「最近使った動画」の ▶ YouTube） | ✅ **v2.19.0**（1-8節・アドオン 2.17.0） |
+| 動画の概要欄・コメント欄 | ⬜ v2.20.0 予定（スパイク I1 完了 ─ `/get-protocol-spec` 11節） |
 
 🔴 **この表は④のたびに実態と突き合わせること。**
 2026-08-15 まで **v2.7.5 / v2.8.0 で実装済みのものが「⬜ 予定」のまま2版残っていた**
@@ -501,6 +503,19 @@ A  window.postMessage({ type:'CHAT_POST_REQUEST', requestId, videoId, text, dryR
 | 🔄 | `reloadChat` でその動画の準備を消す（理由を問わず。ログインのあと・制限が外れたあとに確かめ直せる） |
 | 埋め込めない | Google はログイン画面を他のページへ埋め込ませないので、新しいタブで開くしかない |
 | 実測（2026-10-26・新しい Floorp のプロファイル） | ログアウトで 0.2秒で `needLogin`・ボタン・文言。ボタンからログインしてタブへ戻ると使える（目視 OK）・`D-W8` `ready` 0.4秒 |
+
+### 1-8. YouTube の視聴履歴 ★v2.19.0（アドオン 2.17.0）
+
+画面は `/get-ui-spec` 16節。経路は `/get-protocol-spec` 2節（`YT_HISTORY_REQUEST` → `FETCH_YT_HISTORY` → `CHAT_HISTORY` → `ev:'history'` → `state:'ytHistory'`）。先立つスパイク H1（`spike_hist_h1.md`）。
+
+| 項目 | 内容 |
+| :--- | :--- |
+| 要求 | エンジン `ytHistory`: 認証の Cookie が無ければ読まずに `needLogin`。`ytcfg` は取得タブのページ（`cfgFromPage`）→ 無ければ `/` の HTML（`cfgFromHtml`）。`POST /youtubei/v1/browse`（`browseId:'FEhistory'`・`buildAuthHeaders` の `SAPISIDHASH`）。打ち切り 20秒（`HIST_TIMEOUT_MS`）。401 / 403 は Cookie が無くなっていれば `needLogin` |
+| 絞り込み | `histExtract`: 画面の並び順で下り（後ろから積む）、`lockupViewModel`（`contentType` が動画のもの）と `videoRenderer` だけを項目にする。🔴 `shortsLockupViewModel` / `reelItemRenderer` は除いて `shorts` を数える。同じ ID は最初（新しい方）だけ・あとは `dups`。**30件**（`HIST_MAX`）で止める。項目の中は下りない |
+| 項目 | `{id, title, channel, len, pct}`。`lockupViewModel`: タイトル `metadata.lockupMetadataViewModel.title`・チャンネル `metadataRows[].metadataParts[0].text`・長さ `thumbnailBadgeViewModel.text`・再生位置 `thumbnailOverlayProgressBarViewModel.startPercent`。`videoRenderer`: `title` / `ownerText` / `lengthText` / `thumbnailOverlayResumePlaybackRenderer.percentDurationWatched`。文字は空白を詰めて200字まで・長さは20字・`pct` は 0〜100 の整数 |
+| 🔴 大きさ | 1ページ 3.4MB・199件をそのまま中継しない（3-3節 ─ 中継は fetch より重い）。返すのは30件の5項目だけ |
+| 実測（2026-10-30・Floorp） | 4.2秒・30件・チャンネル名／長さ／再生位置 30/30・ショート 3・重複 0 |
+| 🔴 記録 | 履歴のタイトル・ID・チャンネル名は記録・テストの出力に載せない（`D-W11` は数と形だけ） |
 
 ## 2. 確定した定数と見積もり
 
